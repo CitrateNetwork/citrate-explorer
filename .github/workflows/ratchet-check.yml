@@ -34,15 +34,22 @@ jobs:
         with:
           python-version: '3.11'
 
-      # Project-specific tooling setup goes here. The skeleton ships a
-      # placeholder — projects extend this job with the test runner(s)
-      # their canonical command needs (cargo, vitest, pytest, forge, ...).
-      # Example:
-      #   - name: Set up Rust toolchain
-      #     uses: dtolnay/rust-toolchain@stable
-      #
-      # If `baseline.json` has an empty `tests.command`, the ratchet is
-      # a no-op and the toolchain step is skipped.
+      # CitrateScan's canonical test-count command runs vitest, so the
+      # ratchet job needs Node + pnpm + installed deps. Live-RPC tests stay
+      # gated behind LIVE_RPC (unset here), so this counts the unit suite.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
 
       - name: Test count ratchet
         run: ./scripts/ci/check_test_ratchet.py
