@@ -1,0 +1,3 @@
+Solidity contracts (Foundry) land here in S-5 (gasless forwarder integration) and
+as fixtures for the S-4 verification engine. foundry.toml is already configured
+(solc 0.8.26, EVM Cancun).
