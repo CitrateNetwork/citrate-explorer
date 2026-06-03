@@ -1,13 +1,17 @@
 // @ts-nocheck
 /* eslint-disable */
 "use client";
-// scan-agent.jsx — Ask CitrateScan. Persistent drawer. Simulated tool-calling:
-// shows AgentToolTrace, streams cited answers, renders on-chain refs as clickable chips.
-import { useState, useEffect, useRef, useCallback } from "react";
+// scan-agent.jsx → LIVE. Ask CitrateScan: persistent drawer wired to POST /api/chat
+// (Vercel AI SDK v6 useChat). Streams real answers, shows the actual read-only tool
+// calls the agent made, and renders every on-chain reference as a clickable chip.
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 import { SD } from "@/scan/data";
 import { Icon } from "@/scan/icons";
 import { EntityChip } from "@/scan/components";
 import { useScan } from "@/scan/context";
+import { useAuth } from "@/lib/auth/client";
 
 const AG = SD.AGENT;
 
@@ -21,9 +25,13 @@ const ENT = {
   tipblock:   { value: SD.TIP_BLOCK.hash, kind: "block", label: "#" + SD.TIP_BLOCK.height },
 };
 
+// Inline markdown-ish renderer: **bold**, `code`, {{entity}} placeholders, AND raw
+// 0x addresses / tx-or-block hashes the agent cites → clickable EntityChips.
 function Inline({ text }) {
   const scan = useScan();
-  const parts = String(text).split(/(\{\{\w+\}\}|\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean);
+  const parts = String(text)
+    .split(/(\{\{\w+\}\}|\*\*[^*]+\*\*|`[^`]+`|0x[0-9a-fA-F]{64}|0x[0-9a-fA-F]{40})/g)
+    .filter(Boolean);
   return parts.map((p, i) => {
     let m;
     if ((m = p.match(/^\{\{(\w+)\}\}$/))) {
@@ -32,6 +40,8 @@ function Inline({ text }) {
       if (e) return <EntityChip key={i} value={e.value} kind={e.kind} label={e.label} noMenu />;
       return <span key={i}>{m[1]}</span>;
     }
+    if (/^0x[0-9a-fA-F]{64}$/.test(p)) return <EntityChip key={i} value={p} kind="tx" noMenu />;
+    if (/^0x[0-9a-fA-F]{40}$/.test(p)) return <EntityChip key={i} value={p} kind="address" noMenu />;
     if ((m = p.match(/^\*\*([^*]+)\*\*$/))) return <strong key={i}>{m[1]}</strong>;
     if ((m = p.match(/^`([^`]+)`$/))) return <code key={i}>{m[1]}</code>;
     return <span key={i}>{p}</span>;
@@ -59,75 +69,90 @@ function renderRich(text) {
   });
 }
 
-function ToolTrace({ steps, revealed }) {
+/** Plain text the model has streamed so far. */
+function textOf(m) {
+  return (m.parts || []).filter((p) => p.type === "text").map((p) => p.text).join("");
+}
+
+/** The real read-only tool calls from a message's parts (AI SDK v6 tool parts). */
+function toolStepsOf(m) {
+  return (m.parts || [])
+    .filter((p) => (typeof p.type === "string" && p.type.startsWith("tool-")) || p.type === "dynamic-tool")
+    .map((p) => {
+      const tool = p.type === "dynamic-tool" ? p.toolName : p.type.slice(5);
+      const inp = p.input ?? p.args ?? {};
+      let args = "";
+      try { args = Object.values(inp).map((v) => (typeof v === "string" && v.length > 18 ? SD.short(v) : v)).join(", "); } catch {}
+      const done = p.state === "output-available" || p.state === "result";
+      return { tool, args, done };
+    });
+}
+
+function ToolTrace({ steps, busy }) {
+  if (!steps.length && !busy) return null;
   return (
     <div className="trace">
       <div className="trace-h"><span className="ic"><Icon name="terminal" size={13} /></span> tool trace · read-only harness</div>
-      {steps.slice(0, revealed).map((s, i) => (
+      {steps.map((s, i) => (
         <div className="trace-step" key={i}>
           <span className="tool">{s.tool}</span>
           <span className="args">({s.args})</span>
-          <span className="note">{s.note}</span>
-          <span className="tick"><Icon name="check" size={13} /></span>
+          {s.done ? <span className="tick"><Icon name="check" size={13} /></span>
+                  : <span className="typing"><i /><i /><i /></span>}
         </div>
       ))}
-      {revealed < steps.length && (
-        <div className="trace-step"><span className="typing"><i /><i /><i /></span><span className="note" style={{ marginLeft: 8 }}>calling tools…</span></div>
-      )}
+      {busy && <div className="trace-step"><span className="typing"><i /><i /><i /></span><span className="note" style={{ marginLeft: 8 }}>calling tools…</span></div>}
     </div>
   );
 }
 
-function resolveScript(q) {
-  for (const s of AG.scripts) if (s.match.test(q)) return s;
-  return null;
-}
 const SEED_Q = {
   tx: "Explain this transaction", fail: "Why did this transaction fail?",
   holders: "Who holds the most SALT?", dag: "How does GHOSTDAG order blocks?",
-  gas: "Why didn't I pay any gas?", explain: "Explain this entity",
+  gas: "Why didn't I pay any gas?", explain: "Explain this",
 };
 
 export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
+  const scan = useScan();
+  const auth = useAuth();
   const [context, setContext] = useState(null);
+  const [input, setInput] = useState("");
+  const [token, setToken] = useState(null);
   const scrollRef = useRef(null);
 
-  const pushAnswer = useCallback((questionText, ctxLabel) => {
-    const script = resolveScript(questionText) || { trace: AG.fallback.trace, answer: AG.fallback.answer, sources: AG.fallback.sources };
-    const id = "m" + Date.now();
-    setMessages((prev) => [...prev,
-      { id: id + "u", role: "user", text: questionText },
-      { id, role: "assistant", trace: script.trace, answer: script.answer, sources: script.sources, revealed: 0, streaming: true },
-    ]);
-    // reveal trace steps then answer
-    let step = 0;
-    const iv = setInterval(() => {
-      step += 1;
-      setMessages((prev) => prev.map((m) => m.id === id ? { ...m, revealed: Math.min(step, m.trace.length) } : m));
-      if (step >= script.trace.length) {
-        clearInterval(iv);
-        setTimeout(() => setMessages((prev) => prev.map((m) => m.id === id ? { ...m, streaming: false } : m)), 380);
-      }
-    }, 520);
-  }, []);
+  useEffect(() => { auth.getToken().then(setToken).catch(() => {}); }, [auth.authenticated]);
 
-  // imperative API for app / affordances
+  const transport = useMemo(
+    () => new DefaultChatTransport({
+      api: "/api/chat",
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    }),
+    [token],
+  );
+
+  const { messages, sendMessage, status, error } = useChat({ transport });
+  const busy = status === "submitted" || status === "streaming";
+
+  // Seed an ask, attaching the current entity from the route so the agent can
+  // call the right tool (e.g. "Explain this transaction (tx 0x…)").
+  const ask = useCallback((seedOrText, label) => {
+    setOpen(true);
+    let q = SEED_Q[seedOrText] || seedOrText;
+    const r = scan && scan.route;
+    if (r && r.id && SEED_Q[seedOrText]) q = `${q} (${r.name} ${r.id})`;
+    if (label) setContext(label);
+    sendMessage({ text: q });
+  }, [scan, sendMessage, setOpen]);
+
   useEffect(() => {
     if (!agentRef) return;
-    agentRef.current.ask = (seedOrText, label) => {
-      setOpen(true);
-      const q = SEED_Q[seedOrText] || seedOrText;
-      if (label) setContext(label);
-      setTimeout(() => pushAnswer(q, label), 120);
-    };
+    agentRef.current.ask = ask;
     agentRef.current.setContext = (label) => setContext(label);
-  }, [agentRef, pushAnswer, setOpen]);
+  }, [agentRef, ask]);
 
-  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages]);
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, status]);
 
-  const submit = () => { const t = input.trim(); if (!t) return; setInput(""); pushAnswer(t); };
+  const submit = () => { const t = input.trim(); if (!t || busy) return; setInput(""); sendMessage({ text: t }); };
 
   if (!open) {
     return (
@@ -143,6 +168,8 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
     );
   }
 
+  const lastId = messages.length ? messages[messages.length - 1].id : null;
+
   return (
     <div className="agent">
       <div className="agent-h">
@@ -156,39 +183,55 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
         {messages.length === 0 && (
           <div className="agent-empty">
             <div className="spark"><Icon name="spark" size={26} /></div>
-            <p>I read the chain and the index live, then answer with the exact tools I called and the block I observed. Every on-chain reference is clickable.</p>
+            <p>I read the chain live, then answer with the exact tools I called and the data I observed. Every on-chain reference is clickable.</p>
             <div className="ec">
               {AG.prompts.map((p, i) => (
-                <button key={i} onClick={() => pushAnswer(p)}><span className="ic"><Icon name="arrowright" size={15} /></span> {p}</button>
+                <button key={i} onClick={() => sendMessage({ text: p })}><span className="ic"><Icon name="arrowright" size={15} /></span> {p}</button>
               ))}
             </div>
           </div>
         )}
-        {messages.map((m) => (
-          m.role === "user" ? (
-            <div className="msg user" key={m.id}><div className="bubble">{m.text}</div></div>
-          ) : (
+        {messages.map((m) => {
+          if (m.role === "user") {
+            return <div className="msg user" key={m.id}><div className="bubble">{textOf(m)}</div></div>;
+          }
+          const steps = toolStepsOf(m);
+          const text = textOf(m);
+          const streamingThis = busy && m.id === lastId;
+          return (
             <div className="msg assistant" key={m.id}>
-              <ToolTrace steps={m.trace} revealed={m.revealed} />
-              {!m.streaming && (
+              <ToolTrace steps={steps} busy={streamingThis && !text} />
+              {text && (
                 <div className="bubble">
-                  {renderRich(m.answer)}
-                  <div className="sources">
-                    <div className="lbl">Sources · reads I made</div>
-                    {m.sources.map((s, i) => <div className="s" key={i}><span className="ic"><Icon name="check" size={12} /></span> {s}</div>)}
-                  </div>
+                  {renderRich(text)}
+                  {steps.length > 0 && (
+                    <div className="sources">
+                      <div className="lbl">Sources · reads I made</div>
+                      {steps.map((s, i) => <div className="s" key={i}><span className="ic"><Icon name="check" size={12} /></span> {s.tool}({s.args})</div>)}
+                    </div>
+                  )}
                 </div>
               )}
+              {!text && !steps.length && streamingThis && (
+                <div className="bubble"><span className="typing"><i /><i /><i /></span></div>
+              )}
             </div>
-          )
-        ))}
+          );
+        })}
+        {error && (
+          <div className="msg assistant">
+            <div className="bubble" style={{ color: "var(--danger)" }}>
+              The agent is unavailable right now — the inference endpoint may not be configured. Live chain reads still work across the explorer.
+            </div>
+          </div>
+        )}
       </div>
       <div className="agent-input">
         <div className="box">
           <textarea rows={1} value={input} placeholder="Ask about this page, or anything on-chain…"
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }} />
-          <button className="send" disabled={!input.trim()} onClick={submit}><Icon name="arrowup" size={16} /></button>
+          <button className="send" disabled={!input.trim() || busy} onClick={submit}><Icon name="arrowup" size={16} /></button>
         </div>
       </div>
     </div>
