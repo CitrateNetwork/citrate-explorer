@@ -8,6 +8,7 @@ import { SH } from "@/scan/harness";
 import { Icon } from "@/scan/icons";
 import { CopyBtn, EntityChip, KV, Crumb } from "@/scan/components";
 import { useScan } from "@/scan/context";
+import { useAuth } from "@/lib/auth/client";
 
 const SET_SECTIONS = [
   { id: "account", label: "Account", icon: "user" },
@@ -39,7 +40,28 @@ function Toggle({ on, onClick }) { return <div className={"toggle" + (on ? " on"
 
 export function SettingsScreen({ tweaks }) {
   const scan = useScan();
+  const auth = useAuth();
   const [sec, setSec] = useState("privacy");
+
+  // GDPR rights — wired to the real routes with the auth-seam token.
+  const authHeaders = async () => { const t = await auth.getToken(); return t ? { Authorization: `Bearer ${t}` } : {}; };
+  const exportData = async () => {
+    if (!auth.authenticated) { alert("Sign in to export your data."); return; }
+    const res = await fetch("/api/account/export", { headers: await authHeaders() });
+    const j = await res.json();
+    if (!res.ok) { alert(j.error || "Export failed."); return; }
+    const blob = new Blob([JSON.stringify(j, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob); const a = document.createElement("a");
+    a.href = url; a.download = "citratescan-data.json"; a.click(); URL.revokeObjectURL(url);
+  };
+  const deleteAccount = async () => {
+    if (!auth.authenticated) { alert("Sign in to manage your data."); return; }
+    if (!confirm("Delete your account and ALL stored data? On-chain data is public and permanent and is NOT affected. This cannot be undone.")) return;
+    const res = await fetch("/api/account", { method: "DELETE", headers: await authHeaders() });
+    const j = await res.json();
+    alert(j.deleted ? "Your account-scoped data has been erased." : (j.note || j.error || "Delete failed."));
+    if (j.deleted) auth.logout();
+  };
   const [keys, setKeys] = useState(SD.API_KEYS);
   const [modal, setModal] = useState(false);
   const [watch, setWatch] = useState([{ addr: SD.L.alice.addr, label: "alice.ctr", alert: true }, { addr: SD.L.router.addr, label: "CitrateSwap Router", alert: false }]);
@@ -122,9 +144,8 @@ curl "https://citratescan.ai/api/v1?module=account&action=balance&address=0xf78c
                 </div></div>
               </div>
               <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                <button className="btn"><Icon name="download" size={15} /> Export my data (JSON + Markdown)</button>
-                <button className="btn ghost">Delete history</button>
-                <button className="btn ghost" style={{ color: "var(--danger-text)" }}><Icon name="trash" size={15} /> Delete account & all data</button>
+                <button className="btn" onClick={exportData}><Icon name="download" size={15} /> Export my data (JSON)</button>
+                <button className="btn ghost" onClick={deleteAccount} style={{ color: "var(--danger-text)" }}><Icon name="trash" size={15} /> Delete account & all data</button>
               </div>
               <div className="note amber" style={{ marginTop: 14 }}><span className="ic"><Icon name="info" size={15} /></span> On-chain data the explorer indexes is permanent and public — deleting your account removes your CitrateScan records, not anything on the Citrate ledger, which no one can delete.</div>
             </React.Fragment>

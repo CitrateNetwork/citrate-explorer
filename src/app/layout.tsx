@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "../scan/scan.css";
 import "../scan/scan-ui.css";
+import { ConsentProvider } from "@/lib/consent/client";
+import { ConsentBanner } from "@/components/consent-banner";
 
 export const metadata: Metadata = {
   title: "CitrateScan — AI-native block explorer",
@@ -14,7 +16,12 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" data-theme="light">
-      <body>{children}</body>
+      <body>
+        <ConsentProvider>
+          {children}
+          <ConsentBanner />
+        </ConsentProvider>
+      </body>
     </html>
   );
 }

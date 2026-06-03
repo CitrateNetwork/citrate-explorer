@@ -12,6 +12,7 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { ScanProvider, useScan } from "./context";
 import { AuthProvider, useAuth } from "@/lib/auth/client";
+import { SiteFooter } from "@/components/site-footer";
 import { SD } from "./data";
 import { SH } from "./harness";
 import { Icon, Logo } from "./icons";
@@ -163,6 +164,7 @@ function Shell() {
         <div className="content">{view}</div>
         <AgentPanel open={agentOpen} setOpen={setAgentOpen} verbosity={tweaks.verbosity} agentRef={agentRef} />
       </div>
+      <SiteFooter />
       <CommandPalette open={cmd} onClose={() => setCmd(false)} />
     </div>
   );
