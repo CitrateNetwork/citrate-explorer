@@ -7,6 +7,7 @@ import {
 import { getInferenceProvider } from "@/lib/ai/provider";
 import { buildSystemPrompt } from "@/lib/ai/system-prompt";
 import { citrateTools } from "@/lib/ai/tools";
+import { verifyPrivySession } from "@/lib/auth";
 
 // Long streamed responses (Vercel Fluid Compute). First/uncached inference on a
 // CPU llama-server can be slow; multi-step tool loops add round-trips.
@@ -19,6 +20,15 @@ export const maxDuration = 300;
  * before composing the final answer. READ-ONLY: there is no write/sign tool.
  */
 export async function POST(req: Request) {
+  // Auth gate (WP-1.7): when Privy is configured, require a verified session.
+  // In local dev (Privy unconfigured) the gate is open and we fall back to an
+  // optional x-dev-address header so audit scoping is still testable.
+  const auth = await verifyPrivySession(req);
+  if (auth.required && !auth.ok) {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const userAddress = auth.address ?? req.headers.get("x-dev-address") ?? undefined;
+
   const { messages }: { messages: UIMessage[] } = await req.json();
 
   let provider;
@@ -36,7 +46,7 @@ export async function POST(req: Request) {
     model: provider.languageModel(),
     system: buildSystemPrompt(),
     messages: await convertToModelMessages(messages.slice(-historyTurns)),
-    tools: citrateTools(),
+    tools: citrateTools({ userAddress }),
     stopWhen: stepCountIs(8),
     maxOutputTokens,
     temperature: 0.3,

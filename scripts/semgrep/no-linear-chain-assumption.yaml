@@ -1,0 +1,33 @@
+# no-linear-chain-assumption — CitrateScan DAG-discipline tripwire (S-1).
+#
+# Citrate is a GHOSTDAG BlockDAG: `blue_score`, NOT `height`, is the consensus
+# order, and there are MULTIPLE tips at once. A recurring, dangerous bug class is
+# silently treating the chain as linear — ordering blocks by height, or selecting
+# a single "latest by height" head. Every such site must instead order by
+# `blue_score` (and acknowledge multi-tip), per CONFIG.md + EXPLORER_SPEC.md.
+#
+# This fires on block-ordering-by-height in queries/sorts. If a specific site is
+# genuinely about DAG height (not consensus order), add on the same line:
+#   // allow-height-order: <reason>
+#
+# Companion: the WP-1.3 acceptance criteria prove blue_score ordering against
+# live `citrate_getDagStats.currentTips`.
+
+rules:
+  - id: no-linear-chain-assumption
+    message: |
+      Possible linear-chain assumption: ordering blocks by `height`. On Citrate's
+      GHOSTDAG BlockDAG the consensus order is `blue_score`, not height, and there
+      are multiple tips. Order by `blueScore`/`blue_score` instead. If this is a
+      legitimate DAG-height use, annotate with `// allow-height-order: <reason>`.
+    languages: [generic]
+    severity: ERROR
+    paths:
+      include:
+        - "src/**"
+        - "scripts/indexer/**"
+      exclude:
+        - "*.test.ts"
+    patterns:
+      - pattern-regex: '(?i)order\s+by\s+(blocks\.)?height|orderBy\(\s*blocks\.height'
+      - pattern-not-regex: 'allow-height-order'

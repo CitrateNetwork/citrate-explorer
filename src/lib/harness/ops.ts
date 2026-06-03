@@ -9,6 +9,17 @@
 import { formatEther, type Abi, type Address, type Hex } from "viem";
 import { harnessClient } from "./client";
 import { getDagStats, isFinalized, type DagStats } from "@/lib/citrate/dag";
+import { getDagBlock, dagStats as liveDagStats, isFinal } from "@/lib/citrate/rpc";
+
+/** Dual-unit SALT amount (decision X-4): both human SALT and raw grains (wei). */
+export interface SaltAmount {
+  salt: string;
+  grains: string;
+}
+export function saltAmount(wei: bigint | string): SaltAmount {
+  const w = typeof wei === "bigint" ? wei : BigInt(wei);
+  return { salt: formatEther(w), grains: w.toString() };
+}
 
 export interface ChainStatus {
   chainId: number;
@@ -184,11 +195,69 @@ export async function readContract(params: {
   return jsonSafe(result);
 }
 
+export interface BalanceResult {
+  address: string;
+  balance: SaltAmount;
+}
+
+export async function getBalance(address: Address): Promise<BalanceResult> {
+  const wei = await harnessClient().getBalance({ address });
+  return { address, balance: saltAmount(wei) };
+}
+
 export interface DagView extends DagStats {
   finalityNote: string;
 }
 
-export async function exploreDag(): Promise<DagView> {
+/** Convenience: is a block (by blue score) finalized right now? */
+export async function checkFinalized(blueScore: number): Promise<boolean> {
+  const stats = await getDagStats(harnessClient());
+  return isFinalized(blueScore, stats.maxBlueScore, stats.ghostdagParams.finalityDepth);
+}
+
+export interface DagWalk {
+  block: { hash: string; height: number; blueScore: number };
+  /** The selected-parent ancestor chain (the GHOSTDAG spine), newest→oldest. */
+  selectedParentChain: string[];
+  /** Merge parents of the block (additional DAG edges), never dropped. */
+  mergeParents: string[];
+  finalized: boolean;
+  note: string;
+}
+
+/**
+ * Walks a block's DAG neighborhood: the selected-parent ancestor chain (the
+ * spine) plus its merge parents, and whether it's finalized. This is what makes
+ * the DAG legible — merge parents are surfaced, not flattened into a line.
+ * Reads live headers (decision X-1: index-first falls through to RPC).
+ */
+export async function exploreDag(blockHash: Hex, depth = 10): Promise<DagWalk> {
+  const head = await getDagBlock(blockHash);
+  if (!head) throw new Error(`block ${blockHash} not found`);
+  const stats = await liveDagStats();
+
+  const chain: string[] = [];
+  let cursor: string | null = head.selectedParent;
+  for (let i = 0; i < depth && cursor && cursor !== ZERO_HASH; i++) {
+    chain.push(cursor);
+    const parent = await getDagBlock(cursor);
+    cursor = parent ? parent.selectedParent : null;
+  }
+
+  return {
+    block: { hash: head.hash, height: head.height, blueScore: head.blueScore },
+    selectedParentChain: chain,
+    mergeParents: head.mergeParents,
+    finalized: isFinal(head.blueScore, stats),
+    note:
+      `blue_score ${head.blueScore} (height ${head.height}); ${head.mergeParents.length} merge parent(s); ` +
+      `${isFinal(head.blueScore, stats) ? "finalized" : "not yet final"} ` +
+      `(maxBlueScore ${stats.maxBlueScore}, depth ${stats.maxBlueScore - head.blueScore}/${stats.ghostdagParams.finalityDepth}).`,
+  };
+}
+
+/** Overview snapshot (no block arg) — tips, blue/red, finality params. */
+export async function dagOverview(): Promise<DagView> {
   const stats = await getDagStats(harnessClient());
   const depth = stats.ghostdagParams.finalityDepth;
   return {
@@ -199,11 +268,7 @@ export async function exploreDag(): Promise<DagView> {
   };
 }
 
-/** Convenience: is a block (by blue score) finalized right now? */
-export async function checkFinalized(blueScore: number): Promise<boolean> {
-  const stats = await getDagStats(harnessClient());
-  return isFinalized(blueScore, stats.maxBlueScore, stats.ghostdagParams.finalityDepth);
-}
+const ZERO_HASH = "0x0000000000000000000000000000000000000000000000000000000000000000";
 
 /** Recursively convert bigints to strings so results are JSON-serializable. */
 function jsonSafe(v: unknown): unknown {

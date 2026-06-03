@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getChainStatus, exploreDag } from "./ops";
+import { getChainStatus, dagOverview } from "./ops";
 import { isReadMethodAllowed } from "./allowlist";
 import { CITRATE_CHAIN_ID } from "@/lib/citrate/chain";
 
@@ -25,7 +25,7 @@ describe("harness live reads", () => {
   });
 
   liveIt("reads GHOSTDAG topology (tips present)", async () => {
-    const dag = await exploreDag();
+    const dag = await dagOverview();
     expect(dag.tipsCount).toBeGreaterThanOrEqual(1);
     expect(dag.ghostdagParams.finalityDepth).toBeGreaterThan(0);
   });

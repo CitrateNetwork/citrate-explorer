@@ -53,14 +53,13 @@ jobs:
             base="${{ github.event.before }}"
             head="${{ github.sha }}"
           fi
-          # Filter to .md files under .agentile/, excluding INDEX/.
+          # Filter to .md files under .agentile/, excluding INDEX/. Emit as a
+          # SINGLE space-separated line (xargs) so the consumer step expands the
+          # list as args on one line — a multiline value makes the shell run
+          # filenames 2..N as commands (exit 126).
           files=$(git diff --name-only --diff-filter=AM "$base" "$head" -- '.agentile/**/*.md' \
-            | grep -v '^\.agentile/INDEX/' || true)
-          {
-            echo "files<<EOF"
-            echo "$files"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+            | grep -v '^\.agentile/INDEX/' | xargs || true)
+          echo "files=$files" >> "$GITHUB_OUTPUT"
 
       - name: Check frontmatter on changed files
         if: ${{ steps.changed.outputs.files != '' }}

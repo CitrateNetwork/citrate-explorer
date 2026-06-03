@@ -1,4 +1,11 @@
-export { ingestBlock, headHeight, type IngestResult } from "./ingest";
+export {
+  ingestBlock,
+  reconcileFinality,
+  resumeHeight,
+  headHeight,
+  type IngestResult,
+  type DagBlock,
+} from "./ingest";
 export {
   getRecentBlocks,
   getBlockByHeight,

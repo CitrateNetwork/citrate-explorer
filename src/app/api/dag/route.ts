@@ -1,4 +1,4 @@
-import { exploreDag } from "@/lib/harness/ops";
+import { dagOverview } from "@/lib/harness/ops";
 
 /**
  * DAG topology snapshot (tips, blue/red counts, finality params). The realtime
@@ -7,7 +7,7 @@ import { exploreDag } from "@/lib/harness/ops";
  */
 export async function GET() {
   try {
-    return Response.json(await exploreDag());
+    return Response.json(await dagOverview());
   } catch (err) {
     return Response.json({ error: (err as Error).message }, { status: 502 });
   }

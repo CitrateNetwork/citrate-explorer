@@ -13,6 +13,7 @@
  */
 import {
   pgTable,
+  pgEnum,
   text,
   integer,
   bigint,
@@ -22,6 +23,12 @@ import {
   index,
   primaryKey,
 } from "drizzle-orm/pg-core";
+
+/** DAG parent-edge kind: the single selected parent (chain link) vs merge parents. */
+export const dagEdgeKind = pgEnum("dag_edge_kind", [
+  "selected_parent",
+  "merge_parent",
+]);
 
 // --- Chain index ------------------------------------------------------------
 
@@ -34,6 +41,9 @@ export const blocks = pgTable(
     blueWork: text("blue_work").notNull().default("0"),
     isBlue: boolean("is_blue").notNull().default(true),
     finalized: boolean("finalized").notNull().default(false),
+    // Reorg handling (WP-1.3): a block displaced below finality is marked
+    // superseded, NEVER deleted. Finalized blocks (depth >= 100) are immutable.
+    superseded: boolean("superseded").notNull().default(false),
     timestamp: bigint("timestamp", { mode: "number" }).notNull(),
     selectedParent: text("selected_parent"),
     proposer: text("proposer"),
@@ -52,17 +62,22 @@ export const blocks = pgTable(
   ],
 );
 
-/** Parent links of the DAG. One row per (child, parent); `selected` marks the chain link. */
+/**
+ * Parent links of the DAG. One row per (child, parent). `kind` distinguishes the
+ * single `selected_parent` (chain link) from the 0–10 `merge_parent` edges, so a
+ * downstream view can draw the selected-parent spine distinctly from merge edges.
+ */
 export const dagEdges = pgTable(
   "dag_edges",
   {
-    child: text("child").notNull(),
-    parent: text("parent").notNull(),
-    selected: boolean("selected").notNull().default(false),
+    childHash: text("child_hash").notNull(),
+    parentHash: text("parent_hash").notNull(),
+    kind: dagEdgeKind("kind").notNull(),
   },
   (t) => [
-    primaryKey({ columns: [t.child, t.parent] }),
-    index("dag_edges_parent_idx").on(t.parent),
+    primaryKey({ columns: [t.childHash, t.parentHash] }),
+    index("dag_edges_child_idx").on(t.childHash),
+    index("dag_edges_parent_idx").on(t.parentHash),
   ],
 );
 
@@ -180,6 +195,14 @@ export const contractVerifications = pgTable("contract_verifications", {
   compilerVersion: text("compiler_version"),
   sourceHash: text("source_hash"),
   submittedAt: timestamp("submitted_at", { withTimezone: true }).defaultNow(),
+});
+
+/** Singleton indexer cursor — lets the worker resume with zero gaps/duplicates. */
+export const indexerState = pgTable("indexer_state", {
+  id: integer("id").primaryKey().default(1),
+  lastHeight: bigint("last_height", { mode: "number" }).notNull().default(0),
+  lastBlueScore: bigint("last_blue_score", { mode: "number" }).notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 // --- User tables ------------------------------------------------------------

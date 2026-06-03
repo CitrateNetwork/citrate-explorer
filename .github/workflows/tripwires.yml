@@ -88,13 +88,11 @@ jobs:
           fi
           # Diff filter A = added; we don't re-check Modified files here
           # because the file-level ratchet in lint-frontmatter.yml owns that.
+          # Emit a SINGLE space-separated line (xargs) — a multiline value makes
+          # the consumer shell run filenames 2..N as commands (exit 126).
           files=$(git diff --name-only --diff-filter=A "$base" "$head" -- '.agentile/**/*.md' \
-            | grep -v '^\.agentile/INDEX/' || true)
-          {
-            echo "files<<EOF"
-            echo "$files"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+            | grep -v '^\.agentile/INDEX/' | xargs || true)
+          echo "files=$files" >> "$GITHUB_OUTPUT"
 
       - name: Check frontmatter on added files
         if: ${{ steps.added.outputs.files != '' }}
