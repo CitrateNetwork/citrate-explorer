@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored design-system port from Claude Design (faithful prototype code,
+    // typed loosely / @ts-nocheck by design). Linted in the design source.
+    "src/scan/**",
   ]),
 ]);
 
