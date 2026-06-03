@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { verifyPrivySession } from "@/lib/auth";
+import { verifySession } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { settings, apiKeys, watchlist, threads } from "@/lib/db/schema";
 
@@ -10,9 +10,9 @@ import { settings, apiKeys, watchlist, threads } from "@/lib/db/schema";
  * permanent and is intentionally NOT part of this export.
  */
 async function resolveUser(req: Request): Promise<string | null> {
-  const auth = await verifyPrivySession(req);
-  if (auth.required && !auth.ok) return null;
-  return auth.address ?? req.headers.get("x-dev-address") ?? null;
+  const auth = await verifySession(req);
+  if (auth.required && !auth.authenticated) return null;
+  return auth.walletAddress ?? null;
 }
 
 export async function GET(req: Request) {

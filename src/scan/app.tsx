@@ -11,6 +11,7 @@
  */
 import { useState, useEffect, useRef, Fragment } from "react";
 import { ScanProvider, useScan } from "./context";
+import { AuthProvider, useAuth } from "@/lib/auth/client";
 import { SD } from "./data";
 import { SH } from "./harness";
 import { Icon, Logo } from "./icons";
@@ -91,7 +92,9 @@ function CommandPalette({ open, onClose }) {
 
 function Header({ onSearch, onCmd, agentOpen, onToggleAgent, rpc }) {
   const scan = useScan();
+  const auth = useAuth();
   const [q, setQ] = useState("");
+  const shortAddr = (a) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "");
   return (
     <header className="hdr">
       <div className="hdr-logo" onClick={() => scan.nav("")}>
@@ -108,7 +111,15 @@ function Header({ onSearch, onCmd, agentOpen, onToggleAgent, rpc }) {
         <ChainBadge rpc={rpc} />
         {!agentOpen && <button className="hdr-iconbtn" title="Ask CitrateScan" onClick={onToggleAgent}><Icon name="spark" size={17} /></button>}
         <button className="hdr-iconbtn" title="Settings" onClick={() => scan.nav("account")}><Icon name="settings" size={17} /></button>
-        <button className="btn-login authed"><Icon name="user" size={15} /> alice.ctr</button>
+        {auth.authenticated ? (
+          <button className="btn-login authed" title="Sign out" onClick={() => auth.logout()}>
+            <Icon name="user" size={15} /> <span className="mono">{shortAddr(auth.address)}</span>
+          </button>
+        ) : (
+          <button className="btn-login" title="Log in" onClick={() => auth.login()}>
+            <Icon name="user" size={15} /> Log in
+          </button>
+        )}
       </div>
     </header>
   );
@@ -159,8 +170,10 @@ function Shell() {
 
 export function CitrateScanApp() {
   return (
-    <ScanProvider>
-      <Shell />
-    </ScanProvider>
+    <AuthProvider>
+      <ScanProvider>
+        <Shell />
+      </ScanProvider>
+    </AuthProvider>
   );
 }

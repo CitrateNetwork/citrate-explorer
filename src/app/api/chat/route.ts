@@ -7,7 +7,7 @@ import {
 import { getInferenceProvider } from "@/lib/ai/provider";
 import { buildSystemPrompt } from "@/lib/ai/system-prompt";
 import { citrateTools } from "@/lib/ai/tools";
-import { verifyPrivySession } from "@/lib/auth";
+import { verifySession } from "@/lib/auth/session";
 
 // Long streamed responses (Vercel Fluid Compute). First/uncached inference on a
 // CPU llama-server can be slow; multi-step tool loops add round-trips.
@@ -20,14 +20,14 @@ export const maxDuration = 300;
  * before composing the final answer. READ-ONLY: there is no write/sign tool.
  */
 export async function POST(req: Request) {
-  // Auth gate (WP-1.7): when Privy is configured, require a verified session.
-  // In local dev (Privy unconfigured) the gate is open and we fall back to an
-  // optional x-dev-address header so audit scoping is still testable.
-  const auth = await verifyPrivySession(req);
-  if (auth.required && !auth.ok) {
+  // Auth gate via the auth seam (OIDC RP). When an authority is configured the
+  // session is required + JWKS-verified; in local/mock dev the gate is open and
+  // the mock identity scopes the audit log. No provider-specific code here.
+  const auth = await verifySession(req);
+  if (auth.required && !auth.authenticated) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
-  const userAddress = auth.address ?? req.headers.get("x-dev-address") ?? undefined;
+  const userAddress = auth.walletAddress ?? undefined;
 
   const { messages }: { messages: UIMessage[] } = await req.json();
 
