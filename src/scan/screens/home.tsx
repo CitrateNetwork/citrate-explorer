@@ -9,15 +9,21 @@ import { Icon } from "@/scan/icons";
 import { EntityChip, ActionChip, StatusDot, FinalityBadge } from "@/scan/components";
 import { useScan } from "@/scan/context";
 import { DagMiniStrip } from "@/scan/screens/dag";
+import { useLiveChainStatus, useLiveLatest, DEMO } from "@/scan/live";
 
 // scan-home.jsx — landing: big omni-search hero, live DAG mini, chain stats, latest blocks/txns
 export function Home({ tweaks }) {
   const scan = useScan();
   const [q, setQ] = useState("");
-  const status = SH.tools.getChainStatus().data;
+  const liveStatus = useLiveChainStatus();
   const go = () => { if (q.trim()) scan.search(q.trim()); };
 
-  const blocks = SD.BLOCKS.filter((b) => b.blue).slice(0, 6);
+  // Chain status is LIVE (real /api/dag). Latest blocks/txns stay on the rich
+  // sample in demo mode: the live RPC does not expose per-block blue_score yet
+  // (see FINDINGS-001) and testnet head blocks are currently transaction-empty.
+  const status = liveStatus.data ?? SH.tools.getChainStatus().data;
+  const blocks = DEMO ? SD.BLOCKS.filter((b) => b.blue).slice(0, 6) : [];
+  const txns = DEMO ? SD.LATEST_TX : [];
   return (
     <div className="wrap">
       <div className="hero">
@@ -74,7 +80,7 @@ export function Home({ tweaks }) {
           <div>
             <div className="list-head"><div className="eyebrow">Latest transactions</div><a onClick={() => scan.nav(`tx/${SD.txList[0].hash}`)}>Explain one →</a></div>
             <div className="card mini-list">
-              {SD.LATEST_TX.map((t, i) => (
+              {txns.map((t, i) => (
                 <div className="mini-row" key={i} onClick={() => scan.nav(`tx/${t.hash}`)} style={{ cursor: "pointer" }}>
                   <ActionChip kind={t.kind} label={t.action} />
                   <div className="grow" style={{ textAlign: "right" }}>

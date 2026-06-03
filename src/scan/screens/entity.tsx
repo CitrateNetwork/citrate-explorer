@@ -20,13 +20,16 @@ import {
 } from "@/scan/components";
 import { useScan } from "@/scan/context";
 import { NotFound } from "@/scan/screens/tx";
+import { useLiveBlock, useLiveAddress, DEMO } from "@/scan/live";
+import { ScreenLoading } from "@/scan/screens/states";
 
 export function BlockScreen({ id, tweaks }) {
   const scan = useScan();
-  const res = SH.tools.getBlock(id);
-  const b = res.data;
-  if (!b) return <NotFound kind="block" value={id} />;
-  useEffect(() => { scan.setCtx("block #" + b.height); }, [id]);
+  const liveB = useLiveBlock(id);
+  // Live-first; rich sample is the demo fallback.
+  const b = liveB.data ?? (DEMO ? SH.tools.getBlock(id).data : null);
+  useEffect(() => { if (b) scan.setCtx("block #" + b.height); }, [id, b]);
+  if (!b) return liveB.loading ? <ScreenLoading label="Loading block…" /> : <NotFound kind="block" value={id} />;
   const f = SH.finality(b.blueScore);
   const summary = {
     full: `Block #${b.height.toLocaleString()} sits at blue_score ${b.blueScore.toLocaleString()} in the ${b.blue ? "blue set" : "red set (it arrived in parallel and GHOSTDAG ordered it after the blue blocks)"}. It has one selected parent and ${(b.mergeParents || []).length} merge parent${(b.mergeParents || []).length === 1 ? "" : "s"}, and carries ${b.txCount} transactions. It is ${f.state === "final" ? "finalized" : `finalizing — depth ${f.depth}/${f.threshold}`}.`,
@@ -94,9 +97,10 @@ export function AddressScreen({ addr, tweaks }) {
   const scan = useScan();
   const [tab, setTab] = useState("txns");
   const [watched, setWatched] = useState(false);
-  const res = SH.tools.getAddress(addr);
-  const a = res.data;
-  useEffect(() => { scan.setCtx("address " + (a.label || SD.short(addr))); }, [addr]);
+  const liveA = useLiveAddress(addr);
+  const a = liveA.data ?? (DEMO ? SH.tools.getAddress(addr).data : null);
+  useEffect(() => { if (a) scan.setCtx("address " + (a.label || SD.short(addr))); }, [addr, a]);
+  if (!a) return liveA.loading ? <ScreenLoading label="Loading address…" /> : <NotFound kind="address" value={addr} />;
   const tabs = [
     { id: "txns", label: "Transactions", count: a.txns ? a.txns.length : 0 },
     { id: "tokens", label: "Tokens", count: a.tokens ? a.tokens.length : 0 },

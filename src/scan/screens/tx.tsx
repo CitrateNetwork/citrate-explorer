@@ -8,6 +8,8 @@ import { SH } from "@/scan/harness";
 import { Icon } from "@/scan/icons";
 import { EntityChip, CopyBtn, StatusDot, ActionChip, FinalityBadge, SummaryCard, Tabs, KV, Crumb, GaslessPill } from "@/scan/components";
 import { useScan } from "@/scan/context";
+import { useLiveTx, DEMO } from "@/scan/live";
+import { ScreenLoading } from "@/scan/screens/states";
 
 // scan-tx.jsx — the marquee "Explain this transaction" page.
 function ErrorDiagnosis({ error }) {
@@ -58,11 +60,10 @@ function StuckTxCopilot({ tx }) {
 export function TxScreen({ hash, tweaks }) {
   const scan = useScan();
   const [tab, setTab] = useState("overview");
-  const res = SH.tools.getTransaction(hash);
-  const tx = res.data;
-  if (!tx) return <NotFound kind="transaction" value={hash} />;
-
-  useEffect(() => { scan && scan.setCtx && scan.setCtx("transaction " + tx.shortHash); }, [hash]);
+  const liveT = useLiveTx(hash);
+  const tx = liveT.data ?? (DEMO ? SH.tools.getTransaction(hash).data : null);
+  useEffect(() => { if (tx && scan && scan.setCtx) scan.setCtx("transaction " + tx.shortHash); }, [hash, tx]);
+  if (!tx) return liveT.loading ? <ScreenLoading label="Loading transaction…" /> : <NotFound kind="transaction" value={hash} />;
 
   const tabs = [
     { id: "overview", label: "Overview" },
