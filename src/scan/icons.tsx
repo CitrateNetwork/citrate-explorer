@@ -61,7 +61,9 @@ export function Icon({ name, size = 18, strokeWidth = 1.5, style }) {
   return <svg viewBox="0 0 24 24" style={base} aria-hidden="true">{P[name] || null}</svg>;
 }
 
-// Marquee wordmark — uses the white SVG asset (header is always evergreen)
+// Marquee wordmark — white SVG (the header is always evergreen). Root-absolute
+// path so it resolves under any hash route. Paired with the "SCAN" pill it forms
+// the CitrateScan lockup.
 export function Logo({ height = 24 }) {
-  return <img src="assets/marquee_white.svg" alt="Citrate" style={{ height, display: "block" }} />;
+  return <img src="/brand/citrate-wordmark-white.svg" alt="CitrateScan" style={{ height, display: "block" }} />;
 }

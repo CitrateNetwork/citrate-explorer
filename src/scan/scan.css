@@ -2,12 +2,13 @@
    CitrateScan — foundation: theme tokens, shell, header, primitives
    Light-first on warm paper · dark on deep evergreen · citrate-green reserved
    ============================================================ */
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
-
+/* Brand fonts are self-hosted via next/font (src/app/layout.tsx) — no @import,
+   so the production CSP stays tight. These vars resolve to those families. */
 :root {
-  --font-display: "Space Grotesk", system-ui, sans-serif;
-  --font-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-display: var(--font-space-grotesk), system-ui, sans-serif;
+  --font-sans: var(--font-geist), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: var(--font-cormorant), Cormorant, Georgia, "Times New Roman", serif;
 
   --tr-eyebrow: 0.14em;
   --r-1: 6px; --r-2: 9px; --r-3: 14px; --r-pill: 999px;
@@ -173,7 +174,7 @@ h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 500; letter-spacing
 
 .pagehead { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; }
 .pagehead h1 { font-size: 30px; font-weight: 500; display: flex; align-items: center; gap: 12px; }
-.pagehead .sub { color: var(--text-2); font-size: 14px; margin-top: 4px; }
+.pagehead .sub { color: var(--text-2); font-family: var(--font-serif); font-size: 16px; margin-top: 4px; line-height: 1.4; }
 
 /* ============================================================
    PRIMITIVES

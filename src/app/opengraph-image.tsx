@@ -28,39 +28,39 @@ export default function Og() {
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
           <div
             style={{
-              width: 54,
-              height: 54,
-              borderRadius: 14,
-              background: "#b7f23a",
+              width: 56,
+              height: 56,
+              borderRadius: 15,
+              background: "#8ecc09",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              color: "#0b1411",
-              fontSize: 34,
-              fontWeight: 800,
             }}
           >
-            C
+            <svg width="30" height="30" viewBox="0 0 100 100">
+              <polygon points="50,16 86,84 14,84" fill="#0b1411" />
+            </svg>
           </div>
           <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: -0.5 }}>CitrateScan</div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          <div style={{ fontSize: 68, fontWeight: 800, lineHeight: 1.05, letterSpacing: -1.5, maxWidth: 980 }}>
-            The AI-native block explorer for Citrate
+          <div style={{ fontSize: 64, fontWeight: 800, lineHeight: 1.04, letterSpacing: -1.5, maxWidth: 1000 }}>
+            The AI-native explorer for the Citrate Network
           </div>
-          <div style={{ fontSize: 30, color: "#a9b8a4", maxWidth: 900 }}>
-            GHOSTDAG BlockDAG · plain-English answers · contract verification · programmable API
+          <div style={{ fontSize: 29, color: "#a9b8a4", maxWidth: 980, lineHeight: 1.3 }}>
+            A GHOSTDAG BlockDAG for AI — models, LoRAs, federated learning, x402 payments,
+            and DePIN compute. Ask the on-chain agent in plain English.
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 14 }}>
-          {["Chain 40204", "Native SALT", "Ask the agent"].map((t) => (
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+          {["Chain 40204 · SALT", "AI agents & inference", "x402 · DePIN · FL", "EVM-compatible"].map((t) => (
             <div
               key={t}
               style={{
                 display: "flex",
-                fontSize: 24,
+                fontSize: 23,
                 color: "#cfe0c4",
                 border: "1px solid #2e4a33",
                 borderRadius: 999,
