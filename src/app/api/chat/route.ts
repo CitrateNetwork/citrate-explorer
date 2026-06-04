@@ -10,6 +10,14 @@ import { citrateTools } from "@/lib/ai/tools";
 import { verifySession } from "@/lib/auth/session";
 import { checkRateLimit } from "@/lib/api/ratelimit";
 import { clientIp } from "@/lib/api/keys";
+import { createThread, createThreadWithId, ownsThread, appendMessage } from "@/lib/db/conversations";
+
+/** Plain text from an AI SDK UIMessage (concatenated text parts). */
+function uiText(m: UIMessage | undefined): string {
+  if (!m) return "";
+  const parts = (m as { parts?: Array<{ type?: string; text?: string }> }).parts ?? [];
+  return parts.filter((p) => p.type === "text").map((p) => p.text ?? "").join("").trim();
+}
 
 // Long streamed responses (Vercel Fluid Compute). First/uncached inference on a
 // CPU llama-server can be slow; multi-step tool loops add round-trips.
@@ -41,7 +49,8 @@ export async function POST(req: Request) {
     );
   }
 
-  const { messages }: { messages: UIMessage[] } = await req.json();
+  const body: { messages: UIMessage[]; threadId?: string } = await req.json();
+  const { messages } = body;
 
   let provider;
   try {
@@ -49,6 +58,30 @@ export async function POST(req: Request) {
   } catch (err) {
     // Honest failure when inference isn't configured (Rule 11: no fake tokens).
     return Response.json({ error: (err as Error).message }, { status: 503 });
+  }
+
+  // Per-user persistence (WS-4): when signed in + a DB is provisioned, keep the
+  // conversation. Ensure/own a thread, then save the incoming user message; the
+  // assistant's reply is saved on stream finish. Never blocks the chat on a DB
+  // hiccup (best-effort).
+  let threadId: string | null = null;
+  const lastUser = uiText(messages[messages.length - 1]);
+  if (userAddress) {
+    const title = lastUser ? lastUser.slice(0, 80) : "New chat";
+    try {
+      if (body.threadId && (await ownsThread(userAddress, body.threadId))) {
+        threadId = body.threadId; // already ours — continue it
+      } else if (body.threadId) {
+        // The SPA generated a stable id for this conversation — claim it (or fall
+        // back to a server id if it's somehow taken by another user).
+        threadId = (await createThreadWithId(userAddress, body.threadId, title)) ?? (await createThread(userAddress, title));
+      } else {
+        threadId = await createThread(userAddress, title);
+      }
+      if (threadId && lastUser) await appendMessage(userAddress, threadId, "user", lastUser);
+    } catch {
+      threadId = null; // persistence is best-effort; the chat still works
+    }
   }
 
   const historyTurns = Number(process.env.CITRATE_HISTORY_TURNS ?? 30);
@@ -62,7 +95,19 @@ export async function POST(req: Request) {
     stopWhen: stepCountIs(8),
     maxOutputTokens,
     temperature: 0.3,
+    onFinish: async ({ text }) => {
+      if (userAddress && threadId && text) {
+        try {
+          await appendMessage(userAddress, threadId, "assistant", text);
+        } catch {
+          /* best-effort */
+        }
+      }
+    },
   });
 
-  return result.toUIMessageStreamResponse();
+  // Surface the thread id so the client can track + resume the conversation.
+  return result.toUIMessageStreamResponse({
+    headers: threadId ? { "x-thread-id": threadId } : undefined,
+  });
 }

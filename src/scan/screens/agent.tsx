@@ -122,12 +122,18 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
 
   useEffect(() => { auth.getToken().then(setToken).catch(() => {}); }, [auth.authenticated]);
 
+  // A stable id for THIS conversation so the whole session persists to one thread
+  // (server-side, when signed in). Regenerate for a "new chat".
+  const [conversationId] = useState(() =>
+    typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `c-${Date.now()}-${Math.random()}`,
+  );
   const transport = useMemo(
     () => new DefaultChatTransport({
       api: "/api/chat",
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: { threadId: conversationId },
     }),
-    [token],
+    [token, conversationId],
   );
 
   const { messages, sendMessage, status, error } = useChat({ transport });
