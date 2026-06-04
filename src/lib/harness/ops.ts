@@ -6,10 +6,12 @@
  *
  * Data source (Rule 11): live Citrate RPC via {@link harnessClient}.
  */
-import { formatEther, type Abi, type Address, type Hex } from "viem";
+import { formatEther, formatGwei, keccak256, parseAbiItem, type Abi, type Address, type Hex } from "viem";
 import { harnessClient } from "./client";
 import { getDagStats, isFinalized, type DagStats } from "@/lib/citrate/dag";
 import { getDagBlock, dagStats as liveDagStats, isFinal } from "@/lib/citrate/rpc";
+import { erc20Abi } from "@/lib/citrate/abi";
+import { GENESIS_ALLOCATIONS, knownLabel } from "@/lib/citrate/addresses";
 
 /** Dual-unit SALT amount (decision X-4): both human SALT and raw grains (wei). */
 export interface SaltAmount {
@@ -77,18 +79,41 @@ export async function getBlock(
   };
 }
 
+export interface TxLog {
+  address: string;
+  topics: readonly string[];
+  data: string;
+  logIndex: number | null;
+}
+
 export interface TransactionDetail {
   hash: string;
   from: string;
+  fromLabel: string | null;
   to: string | null;
+  toLabel: string | null;
   valueWei: string;
   valueSalt: string;
   nonce: number;
   blockNumber: string | null;
+  blockHash: string | null;
+  /** EVM tx type: legacy | eip2930 | eip1559 | eip4844 (best-effort). */
+  type: string;
   status: "success" | "reverted" | "pending";
   gasUsed: string | null;
+  /** Effective gas price actually paid (wei). */
+  effectiveGasPriceWei: string | null;
+  /** Total fee = gasUsed × effectiveGasPrice, dual-unit. */
+  fee: SaltAmount | null;
   contractAddress: string | null;
+  /** True when this tx created a contract. */
+  isContractCreation: boolean;
   input: string;
+  /** Method selector (first 4 bytes of calldata) when it's a contract call. */
+  methodId: string | null;
+  /** Raw receipt logs — the raw material for forensic/event decoding. */
+  logs: TxLog[];
+  logCount: number;
 }
 
 export async function getTransaction(hash: Hex): Promise<TransactionDetail> {
@@ -97,26 +122,50 @@ export async function getTransaction(hash: Hex): Promise<TransactionDetail> {
   let status: TransactionDetail["status"] = "pending";
   let gasUsed: string | null = null;
   let contractAddress: string | null = null;
+  let effectiveGasPriceWei: string | null = null;
+  let fee: SaltAmount | null = null;
+  let logs: TxLog[] = [];
   try {
     const receipt = await c.getTransactionReceipt({ hash });
     status = receipt.status === "success" ? "success" : "reverted";
     gasUsed = receipt.gasUsed.toString();
     contractAddress = receipt.contractAddress ?? null;
+    if (receipt.effectiveGasPrice != null) {
+      effectiveGasPriceWei = receipt.effectiveGasPrice.toString();
+      fee = saltAmount(receipt.gasUsed * receipt.effectiveGasPrice);
+    }
+    logs = receipt.logs.map((l) => ({
+      address: l.address,
+      topics: l.topics,
+      data: l.data,
+      logIndex: l.logIndex ?? null,
+    }));
   } catch {
     // No receipt yet → still pending (Rule 11: report honestly, don't fabricate).
   }
+  const input = tx.input;
   return {
     hash: tx.hash,
     from: tx.from,
+    fromLabel: knownLabel(tx.from),
     to: tx.to,
+    toLabel: tx.to ? knownLabel(tx.to) : null,
     valueWei: tx.value.toString(),
     valueSalt: formatEther(tx.value),
     nonce: tx.nonce,
     blockNumber: tx.blockNumber?.toString() ?? null,
+    blockHash: tx.blockHash ?? null,
+    type: tx.type ?? "legacy",
     status,
     gasUsed,
+    effectiveGasPriceWei,
+    fee,
     contractAddress,
-    input: tx.input,
+    isContractCreation: !tx.to,
+    input,
+    methodId: tx.to && input && input.length >= 10 ? input.slice(0, 10) : null,
+    logs,
+    logCount: logs.length,
   };
 }
 
@@ -195,6 +244,32 @@ export async function readContract(params: {
   return jsonSafe(result);
 }
 
+/**
+ * Read ANY view/pure function by its human signature (forensic tool). The caller
+ * supplies a full Solidity signature so we can decode honestly without a stored
+ * ABI, e.g. `"function getModel(bytes32) view returns (address,string,uint256)"`
+ * or just `"balanceOf(address)"`. Read-only — non-view functions are rejected by
+ * the node on a static call.
+ */
+export async function callView(
+  address: Address,
+  signature: string,
+  args: readonly unknown[] = [],
+): Promise<{ address: string; function: string; result: unknown }> {
+  const sig = signature.trim().startsWith("function ") ? signature.trim() : `function ${signature.trim()}`;
+  // parseAbiItem's type only accepts literal strings; cast to accept our runtime sig.
+  const item = (parseAbiItem as unknown as (s: string) => { name?: string })(sig);
+  const fn = item.name;
+  if (!fn) throw new Error(`could not parse a function name from "${signature}"`);
+  const result = await harnessClient().readContract({
+    address,
+    abi: [item] as unknown as Abi,
+    functionName: fn,
+    args: args as never,
+  });
+  return { address, function: fn, result: jsonSafe(result) };
+}
+
 export interface BalanceResult {
   address: string;
   balance: SaltAmount;
@@ -265,6 +340,173 @@ export async function dagOverview(): Promise<DagView> {
     finalityNote:
       `A block is finalized once maxBlueScore − its blue_score ≥ ${depth}. ` +
       `There are ${stats.tipsCount} current tip(s); blue_score (not height) is the consensus order.`,
+  };
+}
+
+// ---- contract code -------------------------------------------------------
+
+export interface ContractCode {
+  address: string;
+  label: string | null;
+  isContract: boolean;
+  sizeBytes: number;
+  /** keccak256 of the deployed bytecode — identifies identical contracts. */
+  codeHash: string | null;
+  /** The raw bytecode (0x…). Source requires verification (not yet wired). */
+  bytecode: string;
+  note: string;
+}
+
+/** eth_getCode for a contract: size, code hash, and the raw bytecode. */
+export async function getContractCode(address: Address): Promise<ContractCode> {
+  const code = (await harnessClient().getCode({ address })) ?? "0x";
+  const isContract = code !== "0x" && code.length > 2;
+  const sizeBytes = isContract ? (code.length - 2) / 2 : 0;
+  return {
+    address,
+    label: knownLabel(address),
+    isContract,
+    sizeBytes,
+    codeHash: isContract ? keccak256(code as Hex) : null,
+    bytecode: code,
+    note: isContract
+      ? `Contract with ${sizeBytes} bytes of bytecode. Source code is only available if the contract is verified (verification UI pending) — read its behavior via readContract/getToken instead.`
+      : "Externally-owned account (EOA): no contract code.",
+  };
+}
+
+// ---- tokens (ERC-20 / ERC-721) ------------------------------------------
+
+export interface TokenInfo {
+  address: string;
+  label: string | null;
+  standard: "erc20" | "erc721" | "unknown";
+  name: string | null;
+  symbol: string | null;
+  decimals: number | null;
+  totalSupplyRaw: string | null;
+  /** totalSupply formatted by decimals (erc20). */
+  totalSupply: string | null;
+  /** Optional balance of `holder`, formatted + raw. */
+  holder?: { address: string; balanceRaw: string; balance: string };
+  note: string;
+}
+
+/** Read token metadata (auto-detects ERC-20 vs ERC-721) + optional holder balance. */
+export async function getToken(address: Address, holder?: Address): Promise<TokenInfo> {
+  const c = harnessClient();
+  const tryRead = async <T>(abi: Abi, fn: string, args?: readonly unknown[]): Promise<T | null> => {
+    try {
+      return (await c.readContract({ address, abi, functionName: fn, args: args as never })) as T;
+    } catch {
+      return null;
+    }
+  };
+  const [name, symbol] = await Promise.all([
+    tryRead<string>(erc20Abi as Abi, "name"),
+    tryRead<string>(erc20Abi as Abi, "symbol"),
+  ]);
+  const decimals = await tryRead<number>(erc20Abi as Abi, "decimals");
+  // ERC-20 exposes decimals(); ERC-721 doesn't but is still name/symbol-bearing.
+  const standard: TokenInfo["standard"] =
+    decimals !== null ? "erc20" : name || symbol ? "erc721" : "unknown";
+
+  const totalSupplyRaw = await tryRead<bigint>(erc20Abi as Abi, "totalSupply");
+  const dec = decimals ?? 18;
+  let holderInfo: TokenInfo["holder"];
+  if (holder) {
+    const bal = await tryRead<bigint>(erc20Abi as Abi, "balanceOf", [holder]);
+    if (bal !== null) {
+      holderInfo = { address: holder, balanceRaw: bal.toString(), balance: formatUnits(bal, dec) };
+    }
+  }
+  return {
+    address,
+    label: knownLabel(address),
+    standard,
+    name: name ?? null,
+    symbol: symbol ?? null,
+    decimals: decimals ?? null,
+    totalSupplyRaw: totalSupplyRaw?.toString() ?? null,
+    totalSupply: totalSupplyRaw !== null ? formatUnits(totalSupplyRaw, dec) : null,
+    holder: holderInfo,
+    note:
+      standard === "unknown"
+        ? "Could not read standard token metadata — may not be a token, or uses a non-standard ABI."
+        : `Detected ${standard.toUpperCase()}${symbol ? ` (${symbol})` : ""}. Note: SALT itself is the NATIVE coin, not a token contract — use getBalance/saltDistribution for SALT.`,
+  };
+}
+
+function formatUnits(v: bigint, decimals: number): string {
+  if (decimals === 18) return formatEther(v);
+  const neg = v < 0n;
+  const s = (neg ? -v : v).toString().padStart(decimals + 1, "0");
+  const whole = s.slice(0, s.length - decimals);
+  const frac = s.slice(s.length - decimals).replace(/0+$/, "");
+  return `${neg ? "-" : ""}${whole}${frac ? "." + frac : ""}`;
+}
+
+// ---- gas / cost ----------------------------------------------------------
+
+export interface GasOracle {
+  gasPriceWei: string;
+  gasPriceGwei: string;
+  /** Cost of a few reference operations at the current price, dual-unit. */
+  estimates: { label: string; gas: number; cost: SaltAmount }[];
+  note: string;
+}
+
+/** Current gas price + reference cost estimates (native SALT transfer, ERC-20, etc.). */
+export async function getGasOracle(): Promise<GasOracle> {
+  const gasPrice = await harnessClient().getGasPrice();
+  const refs: { label: string; gas: number }[] = [
+    { label: "Native SALT transfer", gas: 21000 },
+    { label: "ERC-20 transfer", gas: 65000 },
+    { label: "Typical contract call", gas: 120000 },
+    { label: "Contract deployment", gas: 1500000 },
+  ];
+  return {
+    gasPriceWei: gasPrice.toString(),
+    gasPriceGwei: formatGwei(gasPrice),
+    estimates: refs.map((r) => ({ ...r, cost: saltAmount(gasPrice * BigInt(r.gas)) })),
+    note: "Citrate prices gas in grains (wei). Most user writes are gasless via the EIP-2771 forwarder — these are reference costs for direct sends.",
+  };
+}
+
+// ---- native SALT distribution -------------------------------------------
+
+export interface SaltDistribution {
+  nativeToken: { symbol: "SALT"; decimals: 18; note: string };
+  /** Known genesis holders with their LIVE balances, biggest first. */
+  knownHolders: { address: string; label: string; genesisSalt: string; balance: SaltAmount }[];
+  note: string;
+}
+
+/**
+ * The honest answer to "who holds the most SALT": SALT is native (no Transfer
+ * events to index), so a full leaderboard of every address needs a balance
+ * indexer. We CAN read the known genesis allocations' live balances.
+ */
+export async function saltDistribution(): Promise<SaltDistribution> {
+  const c = harnessClient();
+  const balances = await Promise.all(
+    GENESIS_ALLOCATIONS.map((g) => c.getBalance({ address: g.address })),
+  );
+  const knownHolders = GENESIS_ALLOCATIONS.map((g, i) => ({
+    address: g.address,
+    label: g.label,
+    genesisSalt: g.genesisSalt,
+    balance: saltAmount(balances[i]),
+  })).sort((a, b) => (BigInt(b.balance.grains) > BigInt(a.balance.grains) ? 1 : -1));
+  return {
+    nativeToken: {
+      symbol: "SALT",
+      decimals: 18,
+      note: "SALT is the NATIVE coin (wei are 'grains'), not an ERC-20 contract.",
+    },
+    knownHolders,
+    note:
+      "These are the known GENESIS allocations with live balances. A complete ranking of all addresses isn't available from RPC alone (native balances have no Transfer events) — it needs a balance indexer. Use getBalance to check any specific address.",
   };
 }
 

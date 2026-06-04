@@ -21,6 +21,11 @@ import {
   exploreDag,
   dagOverview,
   isContract,
+  getContractCode,
+  getToken,
+  getGasOracle,
+  saltDistribution,
+  callView,
 } from "@/lib/harness/ops";
 import { explainTransaction } from "@/lib/ai/synthesis/explainTransaction";
 import {
@@ -176,7 +181,8 @@ export function citrateTools(opts: ToolOptions = {}) {
     }),
     topHolders: tool({
       description:
-        "List top holders of a token from indexed transfers. Requires the indexer.",
+        "List top holders of an ERC-20/721 TOKEN from indexed transfers. Requires the indexer. " +
+        "NOTE: SALT is the native coin, not a token — for 'who holds the most SALT' use saltDistribution.",
       inputSchema: z.object({
         token: addressSchema,
         limit: z.number().int().min(1).max(100).default(10),
@@ -187,5 +193,106 @@ export function citrateTools(opts: ToolOptions = {}) {
           topHolders(token as Address, limit),
       ),
     }),
+    getContractCode: tool({
+      description:
+        "Get a contract's deployed bytecode: size, keccak code hash, and the raw bytecode. " +
+        "Confirms whether an address is a contract or an EOA. Source code needs verification (not yet wired).",
+      inputSchema: z.object({ address: addressSchema }),
+      execute: audited("getContractCode", async ({ address }: { address: string }) =>
+        getContractCode(address as Address),
+      ),
+    }),
+    getToken: tool({
+      description:
+        "Read token metadata (auto-detects ERC-20 vs ERC-721): name, symbol, decimals, total supply, " +
+        "and optionally a holder's balance. Use for any token contract.",
+      inputSchema: z.object({
+        address: addressSchema,
+        holder: addressSchema.optional().describe("optional address to also read the balance of"),
+      }),
+      execute: audited("getToken", async ({ address, holder }: { address: string; holder?: string }) =>
+        getToken(address as Address, holder as Address | undefined),
+      ),
+    }),
+    callView: tool({
+      description:
+        "Read ANY view/pure function on a contract by its Solidity signature — the forensic read tool. " +
+        "Provide the full signature, e.g. \"function getModel(bytes32) view returns (address,string,uint256)\" " +
+        "or \"balanceOf(address)\", plus args. Read-only; the node rejects non-view calls.",
+      inputSchema: z.object({
+        address: addressSchema,
+        signature: z.string().describe("full Solidity function signature"),
+        args: z.array(z.union([z.string(), z.number(), z.boolean()])).default([]),
+      }),
+      execute: audited(
+        "callView",
+        async ({ address, signature, args }: { address: string; signature: string; args: unknown[] }) =>
+          callView(address as Address, signature, args),
+      ),
+    }),
+    getGasOracle: tool({
+      description:
+        "Current gas price (wei + gwei) and reference cost estimates for common operations (transfer, " +
+        "ERC-20, contract call, deploy), dual-unit. Use to answer 'how much does X cost'.",
+      inputSchema: z.object({}),
+      execute: audited("getGasOracle", async () => getGasOracle()),
+    }),
+    saltDistribution: tool({
+      description:
+        "Who holds the most SALT: SALT is the NATIVE coin (no Transfer events), so this returns the known " +
+        "genesis allocations with their LIVE balances, biggest first, and explains that a full all-address " +
+        "leaderboard needs a balance indexer. Use this for any 'top SALT holders' / 'richest address' question.",
+      inputSchema: z.object({}),
+      execute: audited("saltDistribution", async () => saltDistribution()),
+    }),
+    ledger: tool({
+      description:
+        "A precise running tab / accounting calculator. Pass the line items you've gathered (label + a SALT or " +
+        "grains amount, negative for debits) and it returns the exact totals in dual units — use this instead of " +
+        "doing arithmetic yourself, and re-send the accumulated items to keep a running total across the chat.",
+      inputSchema: z.object({
+        items: z
+          .array(
+            z.object({
+              label: z.string(),
+              salt: z.string().optional().describe("amount in SALT, e.g. '1.5' or '-0.2'"),
+              grains: z.string().optional().describe("amount in raw grains/wei (exact integer)"),
+            }),
+          )
+          .describe("the line items to total"),
+      }),
+      execute: audited("ledger", async ({ items }: { items: { label: string; salt?: string; grains?: string }[] }) =>
+        runLedger(items),
+      ),
+    }),
   };
+}
+
+/** Pure, exact accounting in grains (wei) so the agent never fat-fingers math. */
+export function runLedger(items: { label: string; salt?: string; grains?: string }[]) {
+  const toGrains = (it: { salt?: string; grains?: string }): bigint => {
+    if (it.grains != null && it.grains !== "") return BigInt(it.grains);
+    if (it.salt != null && it.salt !== "") {
+      const neg = it.salt.trim().startsWith("-");
+      const [w, f = ""] = it.salt.replace("-", "").split(".");
+      const frac = (f + "0".repeat(18)).slice(0, 18);
+      const g = BigInt(w || "0") * 10n ** 18n + BigInt(frac || "0");
+      return neg ? -g : g;
+    }
+    return 0n;
+  };
+  const lines = items.map((it) => {
+    const grains = toGrains(it);
+    return { label: it.label, salt: formatSaltStr(grains), grains: grains.toString() };
+  });
+  const total = lines.reduce((a, l) => a + BigInt(l.grains), 0n);
+  return { lines, totalSalt: formatSaltStr(total), totalGrains: total.toString() };
+}
+
+function formatSaltStr(grains: bigint): string {
+  const neg = grains < 0n;
+  const g = neg ? -grains : grains;
+  const whole = g / 10n ** 18n;
+  const frac = (g % 10n ** 18n).toString().padStart(18, "0").replace(/0+$/, "");
+  return `${neg ? "-" : ""}${whole}${frac ? "." + frac : ""}`;
 }

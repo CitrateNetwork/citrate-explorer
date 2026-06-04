@@ -25,6 +25,11 @@ import {
   exploreDag,
   dagOverview,
   isContract,
+  getContractCode,
+  getToken,
+  getGasOracle,
+  saltDistribution,
+  callView,
 } from "@/lib/harness/ops";
 import { explainTransaction } from "@/lib/ai/synthesis/explainTransaction";
 import {
@@ -204,7 +209,7 @@ const TOOLS: Record<string, ToolDef> = {
     run: async (a) => addressActivity(reqAddr(a.address)),
   },
   topHolders: {
-    description: "Top holders of a token from indexed transfers. Requires the indexer.",
+    description: "Top holders of an ERC-20/721 token from indexed transfers. Requires the indexer. NOT for native SALT — use saltDistribution.",
     inputSchema: {
       type: "object",
       properties: {
@@ -215,6 +220,53 @@ const TOOLS: Record<string, ToolDef> = {
       additionalProperties: false,
     },
     run: async (a) => topHolders(reqAddr(a.token, "token"), clampLimit(a.limit, 10, 100)),
+  },
+  getContractCode: {
+    description: "A contract's deployed bytecode: size, keccak code hash, raw bytecode, EOA-vs-contract. Source needs verification.",
+    inputSchema: {
+      type: "object",
+      properties: { address: { type: "string", description: "0x 20-byte address" } },
+      required: ["address"],
+      additionalProperties: false,
+    },
+    run: async (a) => getContractCode(reqAddr(a.address)),
+  },
+  getToken: {
+    description: "Token metadata (auto-detects ERC-20/721): name, symbol, decimals, total supply, + optional holder balance.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        address: { type: "string", description: "0x 20-byte token address" },
+        holder: { type: "string", description: "optional 0x holder to read balance of" },
+      },
+      required: ["address"],
+      additionalProperties: false,
+    },
+    run: async (a) => getToken(reqAddr(a.address), a.holder === undefined ? undefined : reqAddr(a.holder, "holder")),
+  },
+  callView: {
+    description: "Read ANY view/pure function by Solidity signature, e.g. \"function getModel(bytes32) view returns (address,string,uint256)\". Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        address: { type: "string", description: "0x 20-byte contract address" },
+        signature: { type: "string", description: "full Solidity function signature" },
+        args: { type: "array", description: "function arguments", items: {} },
+      },
+      required: ["address", "signature"],
+      additionalProperties: false,
+    },
+    run: async (a) => callView(reqAddr(a.address), String(a.signature), Array.isArray(a.args) ? (a.args as unknown[]) : []),
+  },
+  getGasOracle: {
+    description: "Current gas price (wei + gwei) and reference cost estimates for common operations, dual-unit.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    run: async () => getGasOracle(),
+  },
+  saltDistribution: {
+    description: "Who holds the most native SALT: known genesis allocations with LIVE balances (biggest first). SALT is native (no Transfer events), so a full leaderboard needs a balance indexer.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    run: async () => saltDistribution(),
   },
 };
 
