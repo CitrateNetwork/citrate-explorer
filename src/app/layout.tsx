@@ -74,7 +74,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" data-theme="light" className={fontVars}>
+    <html lang="en" data-theme="light" className={fontVars} suppressHydrationWarning>
       <head>
         {/* No-flash theme: apply the saved theme/accent before first paint. */}
         <script

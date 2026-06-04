@@ -73,9 +73,20 @@ function read(): Consent | null {
 }
 
 export function ConsentProvider({ children }: { children: ReactNode }) {
-  const [consent, setConsent] = useState<Consent | null>(() => read());
+  // IMPORTANT: do NOT read localStorage during render — that value differs
+  // between server (null) and client, which is a hydration mismatch that can
+  // leave the banner visible-but-dead (handlers unattached). Instead start null
+  // on both, read in an effect, and only treat consent as "needed" once hydrated.
+  const [consent, setConsent] = useState<Consent | null>(null);
+  const [hydrated, setHydrated] = useState(false);
   const [regime, setRegime] = useState<Regime>("gdpr");
   const [managing, setManaging] = useState(false);
+
+  // Client-only: load the saved choice after mount (no SSR/client divergence).
+  useEffect(() => {
+    setConsent(read());
+    setHydrated(true);
+  }, []);
 
   // Resolve the visitor's regime (best-effort; defaults to the strictest).
   useEffect(() => {
@@ -133,7 +144,9 @@ export function ConsentProvider({ children }: { children: ReactNode }) {
   const value: ConsentCtx = {
     consent,
     regime,
-    needed: consent === null,
+    // Only prompt after hydration so the banner is a pure client-side island
+    // (no server-rendered banner → no hydration mismatch → handlers always attach).
+    needed: hydrated && consent === null,
     allowed,
     acceptAll,
     rejectAll,
