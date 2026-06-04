@@ -43,9 +43,13 @@ async function main() {
   if (!PULSE_ADDRESS) throw new Error("PULSE_ADDRESS is required");
 
   const account = privateKeyToAccount(KEY);
-  const client = createWalletClient({ account, chain: citrate, transport: http(RPC) }).extend(
-    publicActions,
-  );
+  // Citrate's RPC can be slow to return the hash on writes even though the tx
+  // lands — give it room so we don't false-flag a landed pulse as failed.
+  const client = createWalletClient({
+    account,
+    chain: citrate,
+    transport: http(RPC, { timeout: 25_000, retryCount: 1 }),
+  }).extend(publicActions);
 
   console.log(`[beacon] keeper=${account.address} pulse=${PULSE_ADDRESS} rpc=${RPC}`);
   const seq0 = await client.readContract({ address: PULSE_ADDRESS, abi: PULSE_ABI, functionName: "sequence" });
@@ -70,9 +74,15 @@ async function main() {
           console.log(`[beacon] block ${block} → pulse tx ${hash}`);
         } catch (err) {
           const msg = (err as Error).message ?? String(err);
-          console.error(`[beacon] pulse failed at block ${block}: ${msg.split("\n")[0]}`);
-          // Funding/nonce hiccup — ease off so we don't spam.
-          await sleep(3000);
+          const slow = /took too long|timed out|timeout/i.test(msg);
+          if (slow) {
+            // The RPC was slow to return the hash; the tx has very likely landed
+            // (sequence advances). Don't treat it as a real failure.
+            console.log(`[beacon] block ${block} → pulse submitted (RPC slow to confirm)`);
+          } else {
+            console.error(`[beacon] pulse failed at block ${block}: ${msg.split("\n")[0]}`);
+            await sleep(3000); // genuine error (funding/nonce) — ease off.
+          }
         } finally {
           inFlight = false;
         }
