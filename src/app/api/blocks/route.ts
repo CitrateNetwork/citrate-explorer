@@ -1,6 +1,7 @@
 import { getRecentBlocks } from "@/lib/indexer/repository";
 import { harnessClient } from "@/lib/harness/client";
 import { getDagBlock } from "@/lib/citrate/rpc";
+import { cachedRead } from "@/lib/api/cache";
 
 /**
  * Recent blocks. Prefers the indexer (fast, blue_score-ordered) — but ONLY when
@@ -42,8 +43,9 @@ export async function GET() {
       if (lag <= STALE_AFTER) {
         return Response.json({ source: "index", lag, blocks: indexed });
       }
-      // Stale (worker stopped/behind) → serve live so the list stays current.
-      const live = await liveRecent();
+      // Stale (worker stopped/behind) → serve live (cached, stale-on-error) so the
+      // list stays current.
+      const live = (await cachedRead("blocks:live", 3000, liveRecent)).data;
       return Response.json({
         source: "rpc",
         note: `index stale (${lag} blocks behind) — serving live`,
@@ -55,9 +57,9 @@ export async function GET() {
     }
   }
 
-  // No index (unprovisioned/empty) → live recent blocks from RPC.
+  // No index (unprovisioned/empty) → live recent blocks (cached, stale-on-error).
   try {
-    const live = await liveRecent();
+    const live = (await cachedRead("blocks:live", 3000, liveRecent)).data;
     const note = Array.isArray(indexed) ? "index empty — serving live" : indexed.note;
     return Response.json({ source: "rpc", note, blocks: live.blocks });
   } catch (err) {

@@ -1,5 +1,6 @@
 import { harnessClient } from "@/lib/harness/client";
 import { getDagBlock } from "@/lib/citrate/rpc";
+import { cachedRead } from "@/lib/api/cache";
 import { formatEther } from "viem";
 
 /**
@@ -13,6 +14,16 @@ import { formatEther } from "viem";
 export async function GET(req: Request) {
   const n = Math.min(Math.max(Number(new URL(req.url).searchParams.get("n") ?? 8), 1), 20);
   try {
+    // Cache briefly with stale-on-error so a flapping RPC doesn't blank the home.
+    const { data, stale, ageMs } = await cachedRead(`latest:${n}`, 3000, () => build(n));
+    return Response.json(stale ? { ...data, _stale: true, _ageMs: ageMs } : data);
+  } catch (err) {
+    return Response.json({ error: (err as Error).message }, { status: 502 });
+  }
+}
+
+async function build(n: number) {
+  {
     const head = Number(await harnessClient().getBlockNumber());
     const heights: number[] = [];
     for (let i = 0; i < n && head - i >= 0; i++) heights.push(head - i);
@@ -61,8 +72,6 @@ export async function GET(req: Request) {
       if (transactions.length >= n) break;
     }
 
-    return Response.json({ head, blocks, transactions });
-  } catch (err) {
-    return Response.json({ error: (err as Error).message }, { status: 502 });
+    return { head, blocks, transactions };
   }
 }
