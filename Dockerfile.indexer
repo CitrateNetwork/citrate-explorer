@@ -1,0 +1,35 @@
+# Always-on CitrateScan indexer worker (P-9 WP-9.2).
+#
+# This is NOT the web app (that runs on Vercel). It is the long-lived process
+# that tails `wss://rpc.citrate.ai` and backfills the BlockDAG into Neon, so the
+# explorer + agent answer history/aggregate queries fast. Deploy on any host that
+# keeps a process alive with restart-on-exit: Railway, Fly.io, Render, or a VM.
+#
+# Build:  docker build -f Dockerfile.indexer -t citratescan-indexer .
+# Run:    docker run --env-file .env.production citratescan-indexer
+#
+# Required env: DATABASE_URL (Neon), NEXT_PUBLIC_CITRATE_RPC_URL / _WS_URL.
+# Without DATABASE_URL it runs dry (reads blocks, persists nothing) — a safe
+# connectivity check before Neon is provisioned.
+FROM node:20-slim
+
+# pnpm via corepack (pinned to the repo's major).
+RUN corepack enable && corepack prepare pnpm@10 --activate
+
+WORKDIR /app
+
+# Install deps first for layer caching.
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --prod=false
+
+# App source (tsconfig provides the @/* path alias tsx resolves at runtime).
+COPY tsconfig.json drizzle.config.ts ./
+COPY scripts ./scripts
+COPY src ./src
+
+ENV NODE_ENV=production
+
+# Continuous ingest: backfill from the resume cursor to head, then tail +
+# reconcile finality each tick. Exits non-zero on fatal error so the host's
+# restart policy brings it back (resume is gap-free via the indexer_state cursor).
+CMD ["pnpm", "indexer"]

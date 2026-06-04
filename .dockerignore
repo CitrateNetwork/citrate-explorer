@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.github
+.vercel
+coverage
+.agentile/INDEX
+**/*.test.ts
+contracts/out
+contracts/cache
+.env
+.env.*
+!.env.production.example
