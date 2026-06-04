@@ -18,7 +18,6 @@
  */
 import {
   createWalletClient,
-  createPublicClient,
   http,
   publicActions,
   type Hex,
