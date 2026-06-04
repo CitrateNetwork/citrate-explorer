@@ -1,0 +1,57 @@
+import { describe, it, expect } from "vitest";
+import { extractApiKey, clientIp, validateApiKey } from "./keys";
+
+describe("extractApiKey", () => {
+  it("reads ?apikey= from the query string", () => {
+    const req = new Request("http://x/api/v1?module=proxy&apikey=ABC123");
+    expect(extractApiKey(req)).toBe("ABC123");
+  });
+
+  it("reads a Bearer authorization header", () => {
+    const req = new Request("http://x/api/mcp", {
+      headers: { authorization: "Bearer secret-key" },
+    });
+    expect(extractApiKey(req)).toBe("secret-key");
+  });
+
+  it("prefers the query param over the header", () => {
+    const req = new Request("http://x/api/v1?apikey=fromquery", {
+      headers: { authorization: "Bearer fromheader" },
+    });
+    expect(extractApiKey(req)).toBe("fromquery");
+  });
+
+  it("returns null when no key is present", () => {
+    expect(extractApiKey(new Request("http://x/api/v1"))).toBeNull();
+  });
+});
+
+describe("clientIp", () => {
+  it("takes the first hop of x-forwarded-for", () => {
+    const req = new Request("http://x", {
+      headers: { "x-forwarded-for": "203.0.113.7, 10.0.0.1" },
+    });
+    expect(clientIp(req)).toBe("203.0.113.7");
+  });
+
+  it("falls back to x-real-ip then a sentinel", () => {
+    expect(clientIp(new Request("http://x", { headers: { "x-real-ip": "198.51.100.2" } }))).toBe("198.51.100.2");
+    expect(clientIp(new Request("http://x"))).toBe("0.0.0.0");
+  });
+});
+
+describe("validateApiKey — no key / no store", () => {
+  it("treats a missing key as anonymous with the public limit", async () => {
+    const res = await validateApiKey(null, "203.0.113.7");
+    expect(res.valid).toBe(false);
+    expect(res.anonymous).toBe(true);
+    expect(res.perSec).toBe(2);
+  });
+
+  it("falls back to anonymous when the store is unprovisioned (does not fail closed)", async () => {
+    // No DATABASE_URL in the test env → getDb() is null.
+    const res = await validateApiKey("some-unverifiable-key", "203.0.113.7");
+    expect(res.valid).toBe(false);
+    expect(res.anonymous).toBe(true);
+  });
+});
