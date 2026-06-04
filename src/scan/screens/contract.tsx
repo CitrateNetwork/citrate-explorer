@@ -15,6 +15,33 @@ import {
   Crumb,
 } from "@/scan/components";
 import { useScan } from "@/scan/context";
+import { useAccount, useConnect, useWriteContract } from "wagmi";
+import { injected } from "wagmi/connectors";
+import { encodeFunctionData } from "viem";
+import { useSponsoredWrite } from "@/lib/citrate/use-sponsored-write";
+
+// Coerce a string input to the rough type its solidity param wants (best-effort).
+function coerceArg(v, type) {
+  if (v == null || v === "") {
+    if (type && (type.startsWith("uint") || type.startsWith("int"))) return 0n;
+    if (type === "bool") return false;
+    if (type === "address") return "0x0000000000000000000000000000000000000000";
+    return "";
+  }
+  if (type && (type.startsWith("uint") || type.startsWith("int"))) return BigInt(v);
+  if (type === "bool") return v === "true" || v === true;
+  return v;
+}
+function fnFragment(fn) {
+  return { type: "function", name: fn.fn, inputs: (fn.inputs || []).map((i) => ({ name: i.name, type: i.type })), outputs: [], stateMutability: "nonpayable" };
+}
+function encodeCall(fn, vals) {
+  try {
+    return encodeFunctionData({ abi: [fnFragment(fn)], functionName: fn.fn, args: (fn.inputs || []).map((i) => coerceArg(vals[i.name], i.type)) });
+  } catch {
+    return "0x";
+  }
+}
 
 function ReadFn({ fn, addr }) {
   const [open, setOpen] = useState(false);
@@ -47,11 +74,11 @@ function ReadFn({ fn, addr }) {
   );
 }
 
-function GaslessModal({ fn, args, onClose }) {
+function GaslessModal({ fn, addr, vals, onClose }) {
   const scan = useScan();
-  const [phase, setPhase] = useState("confirm"); // confirm | signing | done
-  const sign = () => { setPhase("signing"); setTimeout(() => setPhase("done"), 700); };
-  const txHash = SD.txList[0].hash;
+  const { sponsor, status, txHash, error } = useSponsoredWrite();
+  const phase = status === "done" ? "done" : "confirm";
+  const sign = () => sponsor({ to: addr, data: encodeCall(fn, vals) });
   return (
     <div className="modal-scrim" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -66,16 +93,17 @@ function GaslessModal({ fn, args, onClose }) {
   data:  ${fn.fn}(${args || "…"})
   value: 0
 }`}</pre></div>
+            {error && <div className="note" style={{ color: "var(--danger-text)", marginBottom: 10 }}><span className="ic"><Icon name="info" size={14} /></span> {error}</div>}
             <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
               <button className="btn" onClick={onClose}>Cancel</button>
-              <button className="btn primary" onClick={sign} disabled={phase === "signing"}>{phase === "signing" ? "Signing…" : "Sign — no gas"}</button>
+              <button className="btn primary" onClick={sign} disabled={status === "signing" || status === "relaying"}>{status === "signing" ? "Signing…" : status === "relaying" ? "Relaying…" : "Sign — no gas"}</button>
             </div>
           </React.Fragment>
         ) : (
           <React.Fragment>
             <h3 className="row" style={{ gap: 9 }}><span style={{ color: "var(--accent)" }}><Icon name="shieldCheck" size={22} /></span> Authorized — gas on us</h3>
             <p>The relayer submitted your call. It surfaced as a transaction you can open and read in plain English.</p>
-            <div className="modal .keyshow keyshow"><EntityChip value={txHash} kind="tx" label={SD.txList[0].shortHash} noMenu /><span className="spacer" /><GaslessPill /></div>
+            <div className="modal .keyshow keyshow"><EntityChip value={txHash} kind="tx" label={SD.short(txHash)} noMenu /><span className="spacer" /><GaslessPill /></div>
             <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
               <button className="btn" onClick={onClose}>Close</button>
               <button className="btn primary" onClick={() => { onClose(); scan.nav(`tx/${txHash}`); }}>Open transaction <Icon name="arrowright" size={15} /></button>
@@ -87,10 +115,20 @@ function GaslessModal({ fn, args, onClose }) {
   );
 }
 
-function WriteFn({ fn }) {
+function WriteFn({ fn, addr }) {
   const [open, setOpen] = useState(false);
   const [vals, setVals] = useState({});
   const [modal, setModal] = useState(false);
+  const { isConnected } = useAccount();
+  const { connect } = useConnect();
+  const { writeContractAsync } = useWriteContract();
+  const walletWrite = async () => {
+    try {
+      if (!isConnected) { connect({ connector: injected() }); return; }
+      const hash = await writeContractAsync({ address: addr, abi: [fnFragment(fn)], functionName: fn.fn, args: (fn.inputs || []).map((i) => coerceArg(vals[i.name], i.type)) });
+      alert("Submitted with your wallet: " + hash);
+    } catch (e) { alert(e.shortMessage || e.message); }
+  };
   return (
     <div className="fn-card">
       <div className={"fn-h" + (open ? " open" : "")} onClick={() => setOpen(!open)}>
@@ -105,11 +143,11 @@ function WriteFn({ fn }) {
           <div className="gasless-banner" style={{ marginTop: 14 }}><span className="ic"><Icon name="bolt" size={18} /></span><div><div className="t">Gasless write — the default path</div><div className="d">Sign an EIP-712 ForwardRequest; the Foundation relayer pays the gas. No SALT needed in your wallet.</div></div></div>
           <div className="row" style={{ gap: 8 }}>
             <button className="btn primary" onClick={() => setModal(true)}><Icon name="bolt" size={15} /> Write — no gas, on us</button>
-            <button className="btn ghost"><Icon name="wallet" size={15} /> Write with wallet (you pay gas)</button>
+            <button className="btn ghost" onClick={walletWrite}><Icon name="wallet" size={15} /> {isConnected ? "Write with wallet (you pay gas)" : "Connect wallet to write"}</button>
           </div>
         </div>
       )}
-      {modal && <GaslessModal fn={fn} args={Object.values(vals).join(", ")} onClose={() => setModal(false)} />}
+      {modal && <GaslessModal fn={fn} addr={addr} vals={vals} onClose={() => setModal(false)} />}
     </div>
   );
 }
@@ -169,7 +207,7 @@ export function ContractScreen({ addr, tweaks }) {
       {tab === "write" && (
         <div>
           <div className="gasless-banner" style={{ marginBottom: 16 }}><span className="ic"><Icon name="bolt" size={18} /></span><div><div className="t">Writes are gasless on Citrate</div><div className="d">Sign a typed message; the Citrate Foundation relayer pays the gas through CitrateForwarder (EIP-2771). A wallet path is offered too if you'd rather pay yourself.</div></div></div>
-          {c.writes.map((fn, i) => <WriteFn key={i} fn={fn} />)}
+          {c.writes.map((fn, i) => <WriteFn key={i} fn={fn} addr={addr} />)}
         </div>
       )}
 
