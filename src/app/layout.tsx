@@ -16,6 +16,14 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" data-theme="light">
+      <head>
+        {/* No-flash theme: apply the saved theme/accent before first paint. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=JSON.parse(localStorage.getItem("citrate.tweaks")||"{}");if(t.theme)document.documentElement.setAttribute("data-theme",t.theme);if(t.accent)document.documentElement.style.setProperty("--accent",t.accent);}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body>
         <ConsentProvider>
           {children}

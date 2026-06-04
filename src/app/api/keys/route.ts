@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { verifySession } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { apiKeys } from "@/lib/db/schema";
@@ -61,4 +61,18 @@ export async function POST(req: Request) {
     },
     { status: 201 },
   );
+}
+
+/** Revoke (delete) one of the caller's API keys by id. */
+export async function DELETE(req: Request) {
+  const user = await resolveUser(req);
+  if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
+  const db = getDb();
+  if (!db) return Response.json({ error: "database not provisioned" }, { status: 503 });
+  const id = Number(new URL(req.url).searchParams.get("id"));
+  if (!id) return Response.json({ error: "missing id" }, { status: 400 });
+  await db
+    .delete(apiKeys)
+    .where(and(eq(apiKeys.id, id), eq(apiKeys.userAddress, user.toLowerCase())));
+  return Response.json({ ok: true });
 }

@@ -51,13 +51,31 @@ export function useScan() {
   return useContext(ScanContext);
 }
 
+const TWEAKS_KEY = "citrate.tweaks";
+function loadTweaks() {
+  try {
+    const raw = localStorage.getItem(TWEAKS_KEY);
+    return raw ? { ...TWEAK_DEFAULTS, ...JSON.parse(raw) } : TWEAK_DEFAULTS;
+  } catch {
+    return TWEAK_DEFAULTS;
+  }
+}
+
 export function ScanProvider({ children }) {
-  const [tweaks, setTweaks] = useState(TWEAK_DEFAULTS);
+  // Persist appearance/reading preferences to localStorage (P-6 WP-6.1). The app
+  // is client-only (ssr:false), so a lazy initializer is safe and avoids a flash.
+  const [tweaks, setTweaks] = useState(loadTweaks);
   const [route, setRoute] = useState(parseRoute);
-  const [agentOpen, setAgentOpen] = useState(TWEAK_DEFAULTS.agentDefaultOpen);
+  const [agentOpen, setAgentOpen] = useState(() => loadTweaks().agentDefaultOpen);
   const agentRef = useRef({});
 
-  const setTweak = useCallback((k, v) => setTweaks((t) => ({ ...t, [k]: v })), []);
+  const setTweak = useCallback((k, v) => {
+    setTweaks((t) => {
+      const next = { ...t, [k]: v };
+      try { localStorage.setItem(TWEAKS_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
 
   // Apply theme + accent + hash emphasis on <html> so body resolves vars.
   useEffect(() => {

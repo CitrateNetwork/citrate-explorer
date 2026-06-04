@@ -2,7 +2,8 @@
 /* eslint-disable */
 "use client";
 // scan-settings.jsx — Settings (account, keys, privacy, transparency, developer) + Dev hub
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { buildSystemPrompt } from "@/lib/ai/system-prompt";
 import { SD } from "@/scan/data";
 import { SH } from "@/scan/harness";
 import { Icon } from "@/scan/icons";
@@ -22,8 +23,8 @@ const SET_SECTIONS = [
   { id: "about", label: "About", icon: "info" },
 ];
 
-function CopyOnceModal({ onClose }) {
-  const key = "ctr_sk_live_9f4a2e1bd6f0c8a1d3e5b7c90a2d4e6b";
+function CopyOnceModal({ onClose, apiKey }) {
+  const key = apiKey || "(key unavailable)";
   return (
     <div className="modal-scrim" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -62,11 +63,65 @@ export function SettingsScreen({ tweaks }) {
     alert(j.deleted ? "Your account-scoped data has been erased." : (j.note || j.error || "Delete failed."));
     if (j.deleted) auth.logout();
   };
-  const [keys, setKeys] = useState(SD.API_KEYS);
   const [modal, setModal] = useState(false);
-  const [watch, setWatch] = useState([{ addr: SD.L.alice.addr, label: "alice.ctr", alert: true }, { addr: SD.L.router.addr, label: "CitrateSwap Router", alert: false }]);
+  const [newKey, setNewKey] = useState(null);
   const [prompt, setPrompt] = useState(false);
-  const audit = SH.audit.slice(0, 8);
+
+  // --- API keys (P-6): real /api/keys ---
+  const [keys, setKeys] = useState([]);
+  const loadKeys = useCallback(async () => {
+    if (!auth.authenticated) { setKeys([]); return; }
+    const res = await fetch("/api/keys", { headers: await authHeaders() });
+    const j = await res.json(); if (res.ok) setKeys(j.keys || []);
+  }, [auth.authenticated]);
+  useEffect(() => { if (sec === "keys") loadKeys(); }, [sec, loadKeys]);
+  const createKey = async () => {
+    if (!auth.authenticated) { alert("Sign in to create an API key."); return; }
+    const res = await fetch("/api/keys", { method: "POST", headers: { "content-type": "application/json", ...(await authHeaders()) }, body: JSON.stringify({ label: "default" }) });
+    const j = await res.json();
+    if (!res.ok) { alert(j.error || "Could not create key."); return; }
+    setNewKey(j.key); setModal(true); loadKeys();
+  };
+  const revokeKey = async (id) => {
+    const res = await fetch(`/api/keys?id=${id}`, { method: "DELETE", headers: await authHeaders() });
+    if (res.ok) loadKeys(); else alert("Revoke failed.");
+  };
+
+  // --- Watchlist (P-6): real /api/watchlist ---
+  const [watch, setWatch] = useState([]);
+  const [watchInput, setWatchInput] = useState("");
+  const loadWatch = useCallback(async () => {
+    if (!auth.authenticated) { setWatch([]); return; }
+    const res = await fetch("/api/watchlist", { headers: await authHeaders() });
+    const j = await res.json(); if (res.ok) setWatch(j.items || []);
+  }, [auth.authenticated]);
+  useEffect(() => { if (sec === "watchlist") loadWatch(); }, [sec, loadWatch]);
+  const addWatch = async () => {
+    const target = watchInput.trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(target)) { alert("Enter a valid 0x address."); return; }
+    const res = await fetch("/api/watchlist", { method: "POST", headers: { "content-type": "application/json", ...(await authHeaders()) }, body: JSON.stringify({ target }) });
+    if (res.ok) { setWatchInput(""); loadWatch(); } else { const j = await res.json(); alert(j.error || "Add failed."); }
+  };
+  const removeWatch = async (id) => { const res = await fetch(`/api/watchlist?id=${id}`, { method: "DELETE", headers: await authHeaders() }); if (res.ok) loadWatch(); };
+
+  // --- Transparency (P-6): real system prompt + tool allowlist + audit log ---
+  const SYSTEM_PROMPT = buildSystemPrompt();
+  const TOOL_ALLOWLIST = ["getChainStatus", "getBlock", "getTransaction", "getAddress", "getBalance", "getLogs", "readContract", "isContract", "exploreDag", "searchTransactions", "addressActivity", "topHolders", "explainTransaction"];
+  const TOOL_FORBIDDEN = ["eth_sendRawTransaction", "eth_sendTransaction", "eth_sign", "eth_signTypedData", "personal_sign", "eth_accounts", "wallet_addEthereumChain"];
+  const [audit, setAudit] = useState([]);
+  useEffect(() => {
+    if (sec !== "transparency" || !auth.authenticated) return;
+    (async () => { const res = await fetch("/api/audit", { headers: await authHeaders() }); const j = await res.json(); if (res.ok) setAudit(j.entries || []); })();
+  }, [sec, auth.authenticated]);
+
+  // --- Developer (P-6): add Citrate to the wallet ---
+  const addChain = async () => {
+    const eth = typeof window !== "undefined" ? window.ethereum : null;
+    if (!eth) { alert("No injected wallet found. Install a wallet to add Citrate."); return; }
+    try {
+      await eth.request({ method: "wallet_addEthereumChain", params: [{ chainId: "0x9d0c", chainName: "Citrate", nativeCurrency: { name: "SALT", symbol: "SALT", decimals: 18 }, rpcUrls: ["https://rpc.citrate.ai"] }] });
+    } catch (e) { alert(e.message || "Could not add the chain."); }
+  };
 
   return (
     <div className="wrap">
@@ -82,14 +137,19 @@ export function SettingsScreen({ tweaks }) {
         <div className="set-sec">
           {sec === "account" && (
             <React.Fragment>
-              <h2>Account</h2><div className="lede">Your identity is an embedded wallet — no seed phrase. You own the key; we never see it.</div>
-              <div className="card"><div className="card-bd">
-                <KV k="Address"><span className="row" style={{ gap: 8 }}><EntityChip value={SD.L.alice.addr} kind="address" /><CopyBtn text={SD.L.alice.addr} /></span></KV>
-                <KV k="Login method" v="Passkey · alice@example.com" />
-                <KV k="Linked accounts" v="Google · embedded wallet" />
-                <KV k="Embedded wallet" v="Secured by Privy — export anytime, we never hold the key" />
-              </div></div>
-              <div className="row" style={{ marginTop: 16, gap: 8 }}><button className="btn"><Icon name="download" size={15} /> Export wallet key</button><button className="btn ghost"><Icon name="logout" size={15} /> Sign out</button><button className="btn ghost">Sign out everywhere</button></div>
+              <h2>Account</h2><div className="lede">Your identity comes from Citrate sign-in. You own the wallet key; we never see it.</div>
+              {auth.authenticated ? (
+                <React.Fragment>
+                  <div className="card"><div className="card-bd">
+                    <KV k="Address"><span className="row" style={{ gap: 8 }}><EntityChip value={auth.address} kind="address" /><CopyBtn text={auth.address} /></span></KV>
+                    <KV k="Subject" v={auth.sub || "—"} />
+                    <KV k="Sign-in" v="Citrate identity (OIDC)" />
+                  </div></div>
+                  <div className="row" style={{ marginTop: 16, gap: 8 }}><button className="btn ghost" onClick={() => auth.logout()}><Icon name="logout" size={15} /> Sign out</button></div>
+                </React.Fragment>
+              ) : (
+                <div className="card"><div className="card-bd"><div className="empty" style={{ padding: 24 }}><p>You're not signed in.</p><button className="btn primary" style={{ marginTop: 10 }} onClick={() => auth.login()}><Icon name="user" size={15} /> Sign in</button></div></div></div>
+              )}
             </React.Fragment>
           )}
 
@@ -97,17 +157,18 @@ export function SettingsScreen({ tweaks }) {
             <React.Fragment>
               <h2>API Keys</h2><div className="lede">Use a key with the REST API (<span className="mono">/api/v1</span>, Etherscan-compatible) and the MCP server (<span className="mono">/api/mcp</span>). Keys are hashed at rest — shown once.</div>
               <div className="card"><div className="card-bd">
-                {keys.map((k) => (
+                {!auth.authenticated && <div className="empty" style={{ padding: 24 }}><p>Sign in to manage API keys.</p></div>}
+                {auth.authenticated && keys.map((k) => (
                   <div className="keyrow" key={k.id}>
-                    <span className="km" style={{ flex: 1 }}>{k.masked}</span>
-                    <span className="mono" style={{ fontSize: 12, color: "var(--text-3)" }}>{k.created}</span>
-                    <div className="quota"><div className="mono" style={{ fontSize: 11, color: "var(--text-3)" }}>{k.quotaUsed.toLocaleString()} / {k.quotaLimit.toLocaleString()}</div><div className="bar"><i style={{ width: (k.quotaUsed / k.quotaLimit * 100) + "%" }} /></div></div>
-                    <button className="btn sm ghost" onClick={() => setKeys(keys.filter((x) => x.id !== k.id))}><Icon name="trash" size={14} /> Revoke</button>
+                    <span className="km" style={{ flex: 1 }}>{k.label || "key"} <span className="mono" style={{ color: "var(--text-3)" }}>•••• (hashed)</span></span>
+                    <span className="mono" style={{ fontSize: 12, color: "var(--text-3)" }}>{k.createdAt ? new Date(k.createdAt).toISOString().slice(0, 10) : ""}</span>
+                    <span className="mono" style={{ fontSize: 11, color: "var(--text-3)" }}>{(k.quotaPerDay || 0).toLocaleString()}/day</span>
+                    <button className="btn sm ghost" onClick={() => revokeKey(k.id)}><Icon name="trash" size={14} /> Revoke</button>
                   </div>
                 ))}
-                {keys.length === 0 && <div className="empty" style={{ padding: 30 }}><p>No keys yet.</p></div>}
+                {auth.authenticated && keys.length === 0 && <div className="empty" style={{ padding: 30 }}><p>No keys yet.</p></div>}
               </div></div>
-              <button className="btn primary" style={{ marginTop: 16 }} onClick={() => setModal(true)}><Icon name="plus" size={15} /> Create API key</button>
+              <button className="btn primary" style={{ marginTop: 16 }} onClick={createKey}><Icon name="plus" size={15} /> Create API key</button>
               <div className="codeblock" style={{ marginTop: 18 }}><pre>{`# REST (Etherscan-compatible)
 curl "https://citratescan.ai/api/v1?module=account&action=balance&address=0xf78c…2d915&apikey=YOUR_KEY"
 
@@ -155,17 +216,22 @@ curl "https://citratescan.ai/api/v1?module=account&action=balance&address=0xf78c
             <React.Fragment>
               <h2>Watchlist & alerts</h2><div className="lede">Addresses and contracts you watch are stored end-to-end encrypted. Alerts run off the indexer.</div>
               <div className="card"><div className="card-bd">
-                {watch.map((w, i) => (
-                  <div className="setrow" key={i}>
-                    <EntityChip value={w.addr} kind="address" label={w.label} />
+                {!auth.authenticated && <div className="empty" style={{ padding: 24 }}><p>Sign in to keep a watchlist.</p></div>}
+                {auth.authenticated && watch.map((w) => (
+                  <div className="setrow" key={w.id}>
+                    <EntityChip value={w.target} kind="address" label={w.label} />
                     <span className="grow" />
-                    <span className="desc">Alert on new activity</span>
-                    <Toggle on={w.alert} onClick={() => setWatch(watch.map((x, j) => j === i ? { ...x, alert: !x.alert } : x))} />
-                    <button className="btn sm ghost" onClick={() => setWatch(watch.filter((_, j) => j !== i))}><Icon name="trash" size={14} /></button>
+                    <button className="btn sm ghost" onClick={() => removeWatch(w.id)}><Icon name="trash" size={14} /></button>
                   </div>
                 ))}
+                {auth.authenticated && watch.length === 0 && <div className="empty" style={{ padding: 24 }}><p>No watched addresses yet.</p></div>}
               </div></div>
-              <button className="btn" style={{ marginTop: 14 }}><Icon name="plus" size={15} /> Add address to watch</button>
+              {auth.authenticated && (
+                <div className="row" style={{ marginTop: 14, gap: 8 }}>
+                  <input className="mono" style={{ flex: 1, padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "var(--r-1)", background: "var(--surface-2)" }} placeholder="0x… address to watch" value={watchInput} onChange={(e) => setWatchInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addWatch()} />
+                  <button className="btn" onClick={addWatch}><Icon name="plus" size={15} /> Add</button>
+                </div>
+              )}
             </React.Fragment>
           )}
 
@@ -208,19 +274,21 @@ curl "https://citratescan.ai/api/v1?module=account&action=balance&address=0xf78c
               <div className="set-block">
                 <div className="h">AI system prompt — verbatim</div>
                 <button className="btn sm ghost" onClick={() => setPrompt(!prompt)}><Icon name={prompt ? "chevdown" : "chevright"} size={14} /> {prompt ? "Hide" : "Show"} the exact instructions</button>
-                {prompt && <div className="codeblock" style={{ marginTop: 10 }}><pre>{SD.AGENT.SYSTEM_PROMPT}</pre></div>}
+                {prompt && <div className="codeblock" style={{ marginTop: 10 }}><pre>{SYSTEM_PROMPT}</pre></div>}
               </div>
               <div className="set-block">
                 <div className="h">Harness allowlist — the agent's ceiling</div>
                 <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                  <div className="card"><div className="card-h"><span className="t" style={{ color: "var(--accent-text)" }}>Allowed · read-only</span></div><div className="card-bd" style={{ maxHeight: 200, overflowY: "auto" }}>{SD.ALLOWLIST.allowed.map((m, i) => <div key={i} className="mono" style={{ fontSize: 12, padding: "3px 0", color: "var(--text-2)" }}>{m}</div>)}</div></div>
-                  <div className="card"><div className="card-h"><span className="t" style={{ color: "var(--danger-text)" }}>Forbidden · checked first</span></div><div className="card-bd" style={{ maxHeight: 200, overflowY: "auto" }}>{SD.ALLOWLIST.forbidden.map((m, i) => <div key={i} className="mono" style={{ fontSize: 12, padding: "3px 0", color: "var(--text-3)", textDecoration: "line-through" }}>{m}</div>)}</div></div>
+                  <div className="card"><div className="card-h"><span className="t" style={{ color: "var(--accent-text)" }}>Allowed · read-only tools</span></div><div className="card-bd" style={{ maxHeight: 200, overflowY: "auto" }}>{TOOL_ALLOWLIST.map((m, i) => <div key={i} className="mono" style={{ fontSize: 12, padding: "3px 0", color: "var(--text-2)" }}>{m}</div>)}</div></div>
+                  <div className="card"><div className="card-h"><span className="t" style={{ color: "var(--danger-text)" }}>Forbidden · no write/sign tool exists</span></div><div className="card-bd" style={{ maxHeight: 200, overflowY: "auto" }}>{TOOL_FORBIDDEN.map((m, i) => <div key={i} className="mono" style={{ fontSize: 12, padding: "3px 0", color: "var(--text-3)", textDecoration: "line-through" }}>{m}</div>)}</div></div>
                 </div>
               </div>
               <div className="set-block">
                 <div className="h">Recent audit log</div>
-                <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Op</th><th>Backing</th><th className="num">Latency</th><th>Mode</th><th className="num">Age</th></tr></thead>
-                  <tbody>{audit.map((a, i) => (<tr key={i}><td className="mono">{a.op}</td><td className="mono" style={{ color: "var(--text-3)" }}>{a.backing}</td><td className="num mono">{a.latency}ms</td><td>{a.cache ? <span className="badge" style={{ height: 18 }}>cache</span> : <span className="badge green" style={{ height: 18 }}>{a.decoded ? "decoded" : "raw"}</span>}</td><td className="num age">{a.age}</td></tr>))}</tbody></table></div>
+                <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Tool</th><th>Arguments</th><th className="num">When</th></tr></thead>
+                  <tbody>{audit.map((a, i) => (<tr key={a.id || i}><td className="mono">{a.tool}</td><td className="mono" style={{ color: "var(--text-3)" }}>{(a.args || "").slice(0, 48)}</td><td className="num age">{a.createdAt ? new Date(a.createdAt).toLocaleString() : ""}</td></tr>))}</tbody></table></div>
+                {!auth.authenticated && <div className="note" style={{ marginTop: 8 }}>Sign in to see the agent's reads made on your behalf.</div>}
+                {auth.authenticated && audit.length === 0 && <div className="note" style={{ marginTop: 8 }}>No agent reads recorded yet.</div>}
               </div>
               <div className="set-block">
                 <div className="h">Source · model provenance</div>
@@ -246,14 +314,20 @@ curl "https://citratescan.ai/api/v1?module=account&action=balance&address=0xf78c
           )}
         </div>
       </div>
-      {modal && <CopyOnceModal onClose={() => { setModal(false); setKeys([{ id: "k" + Date.now(), masked: "ctr_sk_live_••••••••••••" + Math.random().toString(16).slice(2, 6), created: "2026-06-02", quotaUsed: 0, quotaLimit: 10000 }, ...keys]); }} />}
+      {modal && <CopyOnceModal apiKey={newKey} onClose={() => { setModal(false); setNewKey(null); }} />}
     </div>
   );
 }
 
 // Developer hub — also reachable at /apis
 export function DevSection({ inline }) {
-  const Wrap = inline ? React.Fragment : "div";
+  const addChain = async () => {
+    const eth = typeof window !== "undefined" ? window.ethereum : null;
+    if (!eth) { alert("No injected wallet found. Install a wallet to add Citrate."); return; }
+    try {
+      await eth.request({ method: "wallet_addEthereumChain", params: [{ chainId: "0x9d0c", chainName: "Citrate", nativeCurrency: { name: "SALT", symbol: "SALT", decimals: 18 }, rpcUrls: ["https://rpc.citrate.ai"], blockExplorerUrls: ["https://explorer.citrate.ai"] }] });
+    } catch (e) { alert(e.message || "Could not add the chain."); }
+  };
   return (
     <React.Fragment>
       {!inline && <h1 style={{ fontSize: 30, marginBottom: 6 }}>Developer hub</h1>}
@@ -272,7 +346,7 @@ export function DevSection({ inline }) {
           <div className="grid" style={{ gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
             {[["Chain ID", "40204 · 0x9D0C"], ["Native token", "SALT · 18 decimals"], ["RPC", "rpc.citrate.ai"]].map((m, i) => <div key={i}><div className="eyebrow">{m[0]}</div><div className="mono" style={{ fontSize: 13, marginTop: 4 }}>{m[1]}</div></div>)}
           </div>
-          <button className="btn sm primary" style={{ marginTop: 14 }}><Icon name="wallet" size={15} /> Add Citrate to wallet</button>
+          <button className="btn sm primary" style={{ marginTop: 14 }} onClick={addChain}><Icon name="wallet" size={15} /> Add Citrate to wallet</button>
         </div></div>
       </div>
       <div className="set-block"><div className="h">Quickstart — viem PublicClient</div>
