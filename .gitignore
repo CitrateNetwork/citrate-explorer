@@ -3,6 +3,9 @@ node_modules/
 out/
 .env.local
 .env*.local
+.env.beacon
+.env.indexer
+.env.production
 .DS_Store
 *.log
 .vercel

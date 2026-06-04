@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "indexer": "tsx scripts/indexer/run.ts",
     "indexer:once": "INDEXER_ONCE=1 tsx scripts/indexer/run.ts",
+    "beacon": "tsx scripts/beacon/run.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file=.env.local scripts/db-migrate.mjs",
     "contracts:build": "forge build",
