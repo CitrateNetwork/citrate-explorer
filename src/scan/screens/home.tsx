@@ -18,12 +18,14 @@ export function Home({ tweaks }) {
   const liveStatus = useLiveChainStatus();
   const go = () => { if (q.trim()) scan.search(q.trim()); };
 
-  // Chain status is LIVE (real /api/dag). Latest blocks/txns stay on the rich
-  // sample in demo mode: the live RPC does not expose per-block blue_score yet
-  // (see FINDINGS-001) and testnet head blocks are currently transaction-empty.
+  // Chain status + latest blocks are LIVE now that the node exposes per-block
+  // blue_score (FINDINGS-001 resolved). Live-first; the rich sample is the demo
+  // fallback only while loading/unreachable. Head blocks can be transaction-empty
+  // on the testnet — we show an honest empty state rather than sample txns.
   const status = liveStatus.data ?? SH.tools.getChainStatus().data;
-  const blocks = DEMO ? SD.BLOCKS.filter((b) => b.blue).slice(0, 6) : [];
-  const txns = DEMO ? SD.LATEST_TX : [];
+  const latest = useLiveLatest(6);
+  const blocks = latest.blocks ?? (DEMO ? SD.BLOCKS.filter((b) => b.blue).slice(0, 6) : []);
+  const txns = latest.txns ?? (DEMO ? SD.LATEST_TX : []);
   return (
     <div className="wrap">
       <div className="hero">
@@ -64,7 +66,7 @@ export function Home({ tweaks }) {
           <div>
             <div className="list-head"><div className="eyebrow">Latest blocks · by blue_score</div><a onClick={() => scan.nav("dag")}>View DAG →</a></div>
             <div className="card mini-list">
-              {blocks.map((b) => (
+              {blocks.length ? blocks.map((b) => (
                 <div className="mini-row" key={b.hash} onClick={() => scan.nav(`block/${b.hash}`)} style={{ cursor: "pointer" }}>
                   <span className="cube"><Icon name="cube" size={17} /></span>
                   <div className="grow">
@@ -73,14 +75,14 @@ export function Home({ tweaks }) {
                   </div>
                   <FinalityBadge blueScore={b.blueScore} />
                 </div>
-              ))}
+              )) : <div className="empty" style={{ padding: "26px 12px" }}><p style={{ color: "var(--text-3)" }}>{latest.error ? "Couldn’t reach the chain — retrying." : "Loading recent blocks…"}</p></div>}
             </div>
           </div>
 
           <div>
             <div className="list-head"><div className="eyebrow">Latest transactions</div><a onClick={() => scan.nav(`tx/${SD.txList[0].hash}`)}>Explain one →</a></div>
             <div className="card mini-list">
-              {txns.map((t, i) => (
+              {txns.length ? txns.map((t, i) => (
                 <div className="mini-row" key={i} onClick={() => scan.nav(`tx/${t.hash}`)} style={{ cursor: "pointer" }}>
                   <ActionChip kind={t.kind} label={t.action} />
                   <div className="grow" style={{ textAlign: "right" }}>
@@ -89,7 +91,7 @@ export function Home({ tweaks }) {
                   <StatusDot status={t.status} />
                   <span className="age mono" style={{ fontSize: 12, color: "var(--text-3)", minWidth: 38, textAlign: "right" }}>{t.age}</span>
                 </div>
-              ))}
+              )) : <div className="empty" style={{ padding: "26px 12px" }}><p style={{ color: "var(--text-3)" }}>No transactions in the latest blocks — the testnet head is quiet right now.</p></div>}
             </div>
           </div>
         </div>

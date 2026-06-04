@@ -11,7 +11,7 @@
  *
  * Data source (Rule 11): the real `/api/*` routes; null/error on failure.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SD } from "./data";
 
 /** Demo mode keeps the rich sample as the fallback. Set NEXT_PUBLIC_DEMO=0 in prod. */
@@ -127,6 +127,107 @@ export function useLiveLatest(n = 6) {
     age: SD.fmtAge ? SD.fmtAge(toMs(t.timestamp)) : "",
   }));
   return { blocks, txns, loading, error };
+}
+
+// --- live DAG stream (P-5) --------------------------------------------------
+
+/** Maps a stream vertex into the exact shape DagGraph renders. */
+function toDagNode(v: any, tipSet: Set<string>, isNew = false) {
+  return {
+    hash: v.hash,
+    height: v.height,
+    blueScore: v.blueScore,
+    blue: true, // canonical-chain blocks are blue; the node exposes no red set yet
+    txCount: v.txCount ?? 0,
+    selectedParent: v.selectedParent || null,
+    mergeParents: v.mergeParents || [],
+    mergeSet: (v.mergeParents || []).length + 1,
+    validator: v.proposer ? short(v.proposer) : "—",
+    timestamp: toMs(v.timestamp),
+    tips: tipSet.size ? tipSet.has(v.hash) : false,
+    _new: isNew,
+  };
+}
+
+/** Recompute tips across the set: by currentTips when known, else the top block. */
+function markTips(nodes: any[], tipSet: Set<string>) {
+  if (!nodes.length) return nodes;
+  if (tipSet.size) return nodes.map((n) => ({ ...n, tips: tipSet.has(n.hash) }));
+  const topBs = Math.max(...nodes.map((n) => n.blueScore));
+  return nodes.map((n) => ({ ...n, tips: n.blueScore === topBs }));
+}
+
+export type DagStreamStatus = "connecting" | "live" | "paused" | "reconnecting";
+
+/**
+ * Subscribes to the real DAG stream (`/api/dag/stream`, SSE). Returns a windowed,
+ * newest-first node list in the renderer's shape, the live stats, and the
+ * connection status. `pause()` closes the socket; `resume()` reopens it. The
+ * browser reconnects EventSource natively, surfaced here as "reconnecting".
+ */
+export function useDagStream(windowN = 16) {
+  const [nodes, setNodes] = useState<any[]>([]);
+  const [stats, setStats] = useState<any>(null);
+  const [status, setStatus] = useState<DagStreamStatus>("connecting");
+  const [paused, setPaused] = useState(false);
+  const tipsRef = useRef<Set<string>>(new Set());
+  const esRef = useRef<EventSource | null>(null);
+
+  useEffect(() => {
+    if (paused) return;
+    if (typeof window === "undefined" || typeof EventSource === "undefined") return;
+    setStatus("connecting");
+    const es = new EventSource("/api/dag/stream");
+    esRef.current = es;
+
+    es.addEventListener("snapshot", (e: MessageEvent) => {
+      const d = JSON.parse(e.data);
+      const tips = new Set<string>((d.stats?.tips ?? []) as string[]);
+      tipsRef.current = tips;
+      setStats(d.stats ?? null);
+      setNodes(markTips((d.blocks ?? []).map((v: any) => toDagNode(v, tips)), tips).slice(0, windowN));
+      setStatus("live");
+    });
+
+    es.addEventListener("block", (e: MessageEvent) => {
+      const v = JSON.parse(e.data);
+      setNodes((prev) => {
+        if (prev.some((n) => n.hash === v.hash)) return prev;
+        const fresh = [toDagNode(v, tipsRef.current, true), ...prev.map((n) => ({ ...n, _new: false }))];
+        return markTips(fresh, tipsRef.current).slice(0, windowN);
+      });
+      setStatus("live");
+    });
+
+    es.addEventListener("status", (e: MessageEvent) => {
+      const s = JSON.parse(e.data);
+      const tips = new Set<string>((s.tips ?? []) as string[]);
+      tipsRef.current = tips;
+      setStats(s);
+      setNodes((prev) => markTips(prev, tips));
+      setStatus("live");
+    });
+
+    es.onerror = () => {
+      // EventSource auto-reconnects; reflect the gap until the next message.
+      setStatus("reconnecting");
+    };
+
+    return () => {
+      es.close();
+      esRef.current = null;
+    };
+  }, [paused, windowN]);
+
+  const pause = () => {
+    esRef.current?.close();
+    esRef.current = null;
+    setPaused(true);
+    setStatus("paused");
+  };
+  const resume = () => setPaused(false);
+
+  return { nodes, stats, status, paused, pause, resume };
 }
 
 // --- single entities --------------------------------------------------------

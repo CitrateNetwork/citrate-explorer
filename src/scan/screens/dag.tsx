@@ -9,6 +9,7 @@ import { SH } from "@/scan/harness";
 import { Icon } from "@/scan/icons";
 import { Crumb, EntityChip, KV, FinalityBadge } from "@/scan/components";
 import { useScan } from "@/scan/context";
+import { useDagStream, DEMO } from "@/scan/live";
 
 const DAG_REDUCED = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -83,44 +84,26 @@ export function DagGraph({ blocks, height, onPick, selected, compact, streaming 
 
 export function DagView({ reducedMotion }) {
   const scan = useScan();
-  const [blocks, setBlocks] = useState(buildInitialBlocks);
-  const [stream, setStream] = useState("live"); // live | paused | recon
+  const dag = useDagStream(16);
   const [selected, setSelected] = useState(null);
   const [linear, setLinear] = useState(false);
-  const counter = useRef(0);
-  const noMotion = reducedMotion || DAG_REDUCED;
 
-  // stream new blocks at the frontier
-  useEffect(() => {
-    if (stream !== "live" || noMotion) return;
-    const t = setInterval(() => {
-      setBlocks((prev) => {
-        const top = prev.reduce((a, b) => (b.blueScore > a.blueScore ? b : a), prev[0]);
-        counter.current += 1;
-        const isRed = counter.current % 4 === 0;
-        const nb = {
-          hash: "0x" + Math.random().toString(16).slice(2, 12),
-          height: top.height + 1,
-          blueScore: top.blueScore + (isRed ? 0 : 1),
-          blue: !isRed,
-          txCount: 1 + Math.floor(Math.random() * 9),
-          selectedParent: top.hash,
-          mergeParents: isRed ? [] : (prev[1] ? [prev[1].hash] : []),
-          mergeSet: 1, validator: "ctr-val-" + (1 + Math.floor(Math.random() * 99)),
-          timestamp: Date.now(), tips: true, _new: true,
-        };
-        const cleared = prev.map((b) => ({ ...b, tips: b.hash === top.hash && isRed ? b.tips : false, _new: false }));
-        const next = [nb, ...cleared];
-        // keep tips on the genuine frontier (last 2 added)
-        return next.slice(0, 15);
-      });
-    }, 2800);
-    return () => clearInterval(t);
-  }, [stream, noMotion]);
+  // Live frontier from the real stream (/api/dag/stream); the rich sample is the
+  // demo fallback only, never silently masking a disconnect.
+  const live = dag.nodes.length > 0;
+  const blocks = live ? dag.nodes : (DEMO ? buildInitialBlocks() : []);
+  const streamState = dag.paused
+    ? "paused"
+    : dag.status === "reconnecting"
+    ? "recon"
+    : dag.status === "connecting" && !live
+    ? "connecting"
+    : "live";
 
-  const cur = SH.tools.exploreDag().data;
+  const cur = dag.stats ? { maxBlueScore: dag.stats.maxBlueScore } : SH.tools.exploreDag().data;
   const sel = selected ? blocks.find((b) => b.hash === selected) : null;
   const ordered = [...blocks].sort((a, b) => b.blueScore - a.blueScore);
+  const selParent = ordered.find((b) => b.blue);
 
   return (
     <div className="wrap">
@@ -146,19 +129,22 @@ export function DagView({ reducedMotion }) {
             <span><i className="mrg" /> merge parent</span>
           </span>
           <span className="spacer" />
-          <span className={"dag-stream " + (stream === "live" ? "live" : stream === "paused" ? "paused" : "recon")}>
-            <span className="d" />{stream === "live" ? "streaming" : stream === "paused" ? "paused" : "reconnecting"}
+          <span className={"dag-stream " + (streamState === "live" ? "live" : streamState === "paused" ? "paused" : "recon")}>
+            <span className="d" />{streamState === "live" ? "streaming" : streamState === "paused" ? "paused" : streamState === "recon" ? "reconnecting" : "connecting"}
           </span>
           <div className="row" style={{ gap: 4, marginLeft: 10 }}>
-            <button className="copyb" title={stream === "live" ? "Pause" : "Resume"} onClick={() => setStream(stream === "live" ? "paused" : "live")}><Icon name={stream === "live" ? "pause" : "play"} size={15} /></button>
-            <button className="copyb" title="Simulate reconnect" onClick={() => { setStream("recon"); setTimeout(() => setStream("live"), 2600); }}><Icon name="refresh" size={15} /></button>
+            <button className="copyb" title={dag.paused ? "Resume" : "Pause"} onClick={() => (dag.paused ? dag.resume() : dag.pause())}><Icon name={dag.paused ? "play" : "pause"} size={15} /></button>
           </div>
         </div>
         <div className="card-bd">
-          {stream === "recon" && <div className="note amber" style={{ marginBottom: 14 }}><span className="ic"><Icon name="refresh" size={15} /></span> DAG stream dropped — showing the last snapshot. Reconnecting to <span className="mono">wss://rpc.citrate.ai</span>…</div>}
+          {streamState === "recon" && <div className="note amber" style={{ marginBottom: 14 }}><span className="ic"><Icon name="refresh" size={15} /></span> DAG stream dropped — showing the last snapshot. Reconnecting…</div>}
           {!linear ? (
             <div style={{ overflowX: "auto" }}>
-              <DagGraph blocks={ordered} height={260} onPick={(n) => setSelected(n.hash)} selected={selected} streaming={stream === "live"} />
+              {ordered.length ? (
+                <DagGraph blocks={ordered} height={260} onPick={(n) => setSelected(n.hash)} selected={selected} streaming={streamState === "live"} />
+              ) : (
+                <div className="empty" style={{ padding: "60px 10px", textAlign: "center" }}><div className="ic"><Icon name="lattice" size={28} /></div><p>Connecting to the live DAG stream…</p></div>
+              )}
             </div>
           ) : (
             <div className="dag-list">
@@ -173,8 +159,8 @@ export function DagView({ reducedMotion }) {
             </div>
           )}
           <div className="row" style={{ justifyContent: "space-between", marginTop: 14, flexWrap: "wrap", gap: 10 }}>
-            <div className="dag-tipline">Tips: <b>{ordered.filter((b) => b.tips).map((b) => "#" + b.height).join(", ") || "—"}</b> · selected parent <b>#{ordered.find((b) => b.blue).height}</b> · max blue_score <b>{cur.maxBlueScore.toLocaleString()}</b></div>
-            <div className="dag-tipline" style={{ color: "var(--text-3)" }}>Illustrative testnet sample — live queries wire through <span className="mono">exploreDag()</span> → <span className="mono">citrate_getDagStats</span>.</div>
+            <div className="dag-tipline">Tips: <b>{ordered.filter((b) => b.tips).map((b) => "#" + b.height).join(", ") || "—"}</b> · selected parent <b>{selParent ? "#" + selParent.height : "—"}</b> · max blue_score <b>{(cur?.maxBlueScore ?? 0).toLocaleString()}</b></div>
+            <div className="dag-tipline" style={{ color: "var(--text-3)" }}>{live ? <>Live frontier via <span className="mono">/api/dag/stream</span> — real blocks as they’re produced (<span className="mono">eth_getBlockByNumber</span> + <span className="mono">citrate_getDagStats</span>).</> : <>Sample frontier — the live stream connects when the chain is reachable.</>}</div>
           </div>
         </div>
       </div>
@@ -221,28 +207,21 @@ export function DagView({ reducedMotion }) {
 // home mini strip
 export function DagMiniStrip({ reducedMotion }) {
   const scan = useScan();
-  const [blocks, setBlocks] = useState(buildInitialBlocks);
-  const counter = useRef(0);
-  useEffect(() => {
-    if (DAG_REDUCED || reducedMotion) return;
-    const t = setInterval(() => {
-      setBlocks((prev) => {
-        const top = prev.reduce((a, b) => (b.blueScore > a.blueScore ? b : a), prev[0]);
-        counter.current += 1;
-        const isRed = counter.current % 4 === 0;
-        const nb = { hash: "0x" + Math.random().toString(16).slice(2, 12), height: top.height + 1, blueScore: top.blueScore + (isRed ? 0 : 1), blue: !isRed, txCount: 3, selectedParent: top.hash, mergeParents: [], mergeSet: 1, tips: true, _new: true };
-        return [nb, ...prev.map((b) => ({ ...b, tips: false, _new: false }))].slice(0, 9);
-      });
-    }, 3000);
-    return () => clearInterval(t);
-  }, [reducedMotion]);
+  const dag = useDagStream(9);
+  const live = dag.nodes.length > 0;
+  const blocks = live ? dag.nodes : (DEMO ? buildInitialBlocks().slice(0, 9) : []);
   const ordered = [...blocks].sort((a, b) => b.blueScore - a.blueScore);
+  const pillState = dag.status === "reconnecting" ? "recon" : "live";
   return (
     <div className="card dag-card" style={{ cursor: "pointer" }} onClick={() => scan.nav("dag")}>
-      <div className="card-h"><span className="t">Live DAG</span><span className="spacer" /><span className="dag-stream live"><span className="d" />streaming</span></div>
+      <div className="card-h"><span className="t">Live DAG</span><span className="spacer" /><span className={"dag-stream " + pillState}><span className="d" />{pillState === "live" ? "streaming" : "reconnecting"}</span></div>
       <div className="card-bd" style={{ padding: 12 }}>
-        <div style={{ overflow: "hidden" }}><DagGraph blocks={ordered} height={130} compact onPick={() => scan.nav("dag")} /></div>
-        <div className="dag-tipline" style={{ marginTop: 8 }}>Tips <b>{ordered.filter((b) => b.tips).map((b) => "#" + b.height).join(", ")}</b> · <span style={{ color: "var(--accent-text)" }}>open full DAG →</span></div>
+        {ordered.length ? (
+          <div style={{ overflow: "hidden" }}><DagGraph blocks={ordered} height={130} compact onPick={() => scan.nav("dag")} /></div>
+        ) : (
+          <div className="empty" style={{ padding: "28px 10px", textAlign: "center" }}><p style={{ color: "var(--text-3)" }}>Connecting to the live DAG…</p></div>
+        )}
+        <div className="dag-tipline" style={{ marginTop: 8 }}>Tips <b>{ordered.filter((b) => b.tips).map((b) => "#" + b.height).join(", ") || "—"}</b> · <span style={{ color: "var(--accent-text)" }}>open full DAG →</span></div>
       </div>
     </div>
   );
