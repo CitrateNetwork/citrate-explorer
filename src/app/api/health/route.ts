@@ -1,5 +1,6 @@
 import { getChainStatus } from "@/lib/harness/ops";
 import { indexerHead } from "@/lib/indexer/repository";
+import { isDbEnabled } from "@/lib/db/client";
 import { isDistributed } from "@/lib/api/ratelimit";
 import { log } from "@/lib/api/log";
 
@@ -43,8 +44,12 @@ export async function GET() {
   let indexer: Record<string, unknown>;
   try {
     const head = await indexerHead();
-    if (head === null) {
+    if (!isDbEnabled()) {
+      // No DATABASE_URL — the index isn't provisioned at all.
       indexer = { status: "not_provisioned" };
+    } else if (head === null) {
+      // DB is connected but empty — the worker hasn't ingested a block yet.
+      indexer = { status: "empty", note: "DB connected; start the indexer worker to backfill" };
     } else {
       const lag = chainHead !== null ? Math.max(0, chainHead - head) : null;
       indexer = {
