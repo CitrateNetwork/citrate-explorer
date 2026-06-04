@@ -83,9 +83,18 @@ export function ConsentProvider({ children }: { children: ReactNode }) {
   const [managing, setManaging] = useState(false);
 
   // Client-only: load the saved choice after mount (no SSR/client divergence).
+  // Deferred to a microtask so we're not calling setState synchronously inside
+  // the effect (avoids the cascading-render lint + an extra commit).
   useEffect(() => {
-    setConsent(read());
-    setHydrated(true);
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      setConsent(read());
+      setHydrated(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Resolve the visitor's regime (best-effort; defaults to the strictest).
