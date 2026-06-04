@@ -33,7 +33,7 @@ import {
   topHolders,
 } from "@/lib/indexer/repository";
 import { extractApiKey, validateApiKey, clientIp } from "@/lib/api/keys";
-import { rateLimit } from "@/lib/api/ratelimit";
+import { checkRateLimit } from "@/lib/api/ratelimit";
 
 const PROTOCOL_VERSION = "2025-06-18";
 const SERVER_INFO = { name: "citratescan", version: "1.0.0" };
@@ -318,7 +318,7 @@ export async function POST(req: Request) {
   const keyInfo = raw ? await validateApiKey(raw, ip) : null;
   const limitId = keyInfo?.valid ? `mcp:key:${keyInfo.keyId}` : `mcp:ip:${ip}`;
   const perSec = keyInfo?.valid ? keyInfo.perSec : 2;
-  const limited = rateLimit(limitId, perSec);
+  const limited = await checkRateLimit(limitId, perSec);
   if (!limited.ok) {
     return Response.json(rpcErr(null, -32000, "Rate limit exceeded"), {
       status: 429,

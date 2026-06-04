@@ -8,6 +8,8 @@ import { getInferenceProvider } from "@/lib/ai/provider";
 import { buildSystemPrompt } from "@/lib/ai/system-prompt";
 import { citrateTools } from "@/lib/ai/tools";
 import { verifySession } from "@/lib/auth/session";
+import { checkRateLimit } from "@/lib/api/ratelimit";
+import { clientIp } from "@/lib/api/keys";
 
 // Long streamed responses (Vercel Fluid Compute). First/uncached inference on a
 // CPU llama-server can be slow; multi-step tool loops add round-trips.
@@ -28,6 +30,16 @@ export async function POST(req: Request) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
   const userAddress = auth.walletAddress ?? undefined;
+
+  // Inference is the most expensive surface — bound it per user (or per IP when
+  // anonymous in mock dev). 1 req/s sustained, small burst for rapid follow-ups.
+  const rl = await checkRateLimit(`chat:${userAddress ?? clientIp(req)}`, 1, 5);
+  if (!rl.ok) {
+    return Response.json(
+      { error: "Too many requests — slow down a moment." },
+      { status: 429, headers: { "retry-after": String(rl.retryAfter ?? 1) } },
+    );
+  }
 
   const { messages }: { messages: UIMessage[] } = await req.json();
 

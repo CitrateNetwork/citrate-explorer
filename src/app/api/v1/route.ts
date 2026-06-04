@@ -6,7 +6,7 @@ import { isReadMethodAllowed } from "@/lib/harness/allowlist";
 import { erc20Abi } from "@/lib/citrate/abi";
 import { searchTransactions } from "@/lib/indexer/repository";
 import { validateApiKey, extractApiKey, clientIp } from "@/lib/api/keys";
-import { rateLimit } from "@/lib/api/ratelimit";
+import { checkRateLimit } from "@/lib/api/ratelimit";
 
 /**
  * Etherscan-compatible REST surface: `/api/v1?module=&action=&...&apikey=`.
@@ -25,7 +25,7 @@ export async function GET(req: Request) {
   // Key + rate limit.
   const check = await validateApiKey(extractApiKey(req), clientIp(req));
   if (check.id.startsWith("bad:")) return fail("Invalid API Key");
-  const rl = rateLimit(check.id, check.perSec || 2);
+  const rl = await checkRateLimit(check.id, check.perSec || 2);
   if (!rl.ok) {
     return Response.json(
       { status: "0", message: "Max rate limit reached", result: null },

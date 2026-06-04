@@ -179,7 +179,7 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
         <button title="Collapse" onClick={() => setOpen(false)}><Icon name="arrowright" size={16} /></button>
       </div>
       {context && <div className="agent-ctx"><span className="ic"><Icon name="link" size={13} /></span> Context: {context}</div>}
-      <div className="agent-scroll" ref={scrollRef}>
+      <div className="agent-scroll" ref={scrollRef} role="log" aria-live="polite" aria-relevant="additions text" aria-label="Agent conversation">
         {messages.length === 0 && (
           <div className="agent-empty">
             <div className="spark"><Icon name="spark" size={26} /></div>

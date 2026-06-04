@@ -161,7 +161,7 @@ function Shell() {
       <Header onSearch={scan.search} onCmd={() => setCmd(true)} agentOpen={agentOpen} onToggleAgent={() => setAgentOpen(true)} rpc={states.rpc} />
       <Banners states={states} dismiss={(k) => setDismissed((d) => ({ ...d, [k]: true }))} />
       <div className="main">
-        <div className="content">{view}</div>
+        <div className="content" id="main-content" role="main" tabIndex={-1}>{view}</div>
         <AgentPanel open={agentOpen} setOpen={setAgentOpen} verbosity={tweaks.verbosity} agentRef={agentRef} />
       </div>
       <SiteFooter />

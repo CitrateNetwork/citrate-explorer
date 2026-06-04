@@ -253,4 +253,22 @@ h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 500; letter-spacing
 
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  html { scroll-behavior: auto !important; }
 }
+
+/* Skip-to-content link — off-screen until keyboard-focused (a11y, P-8 WP-8.5). */
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 1000;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: var(--accent, #b7f23a);
+  color: #0b1411;
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-200%);
+  transition: transform .15s ease;
+}
+.skip-link:focus { transform: translateY(0); }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rateLimit } from "./ratelimit";
+import { rateLimit, checkRateLimit, isDistributed } from "./ratelimit";
 
 // The bucket is keyed by id; using a unique id per test keeps them independent
 // of one another and of any other caller in the process.
@@ -31,5 +31,23 @@ describe("rateLimit — in-memory token bucket", () => {
     expect(rateLimit(id, 1, 3).ok).toBe(true);
     expect(rateLimit(id, 1, 3).ok).toBe(true);
     expect(rateLimit(id, 1, 3).ok).toBe(false);
+  });
+});
+
+describe("checkRateLimit — backend selection", () => {
+  it("reports not-distributed when no store is configured (test env)", () => {
+    // UPSTASH_REDIS_REST_URL/_TOKEN are unset in the test env.
+    expect(isDistributed()).toBe(false);
+  });
+
+  it("falls back to the in-memory bucket and tags the backend", async () => {
+    const id = "test:check:fallback";
+    const first = await checkRateLimit(id, 1, 2);
+    expect(first.ok).toBe(true);
+    expect(first.backend).toBe("memory");
+    await checkRateLimit(id, 1, 2); // spend the 2nd token
+    const blocked = await checkRateLimit(id, 1, 2);
+    expect(blocked.ok).toBe(false);
+    expect(blocked.retryAfter).toBeGreaterThan(0);
   });
 });

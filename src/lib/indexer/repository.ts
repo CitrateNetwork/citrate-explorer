@@ -15,6 +15,19 @@ export async function getRecentBlocks(limit = 25) {
   return db.select().from(blocks).orderBy(desc(blocks.blueScore)).limit(limit);
 }
 
+/**
+ * The highest block height the indexer has persisted, for freshness/lag checks
+ * (P-8 health). Returns null when the index isn't provisioned or is empty.
+ */
+export async function indexerHead(): Promise<number | null> {
+  const db = getDb();
+  if (!db) return null;
+  const [row] = await db
+    .select({ height: sql<number>`max(${blocks.height})` })
+    .from(blocks);
+  return row?.height ?? null;
+}
+
 export async function getBlockByHeight(height: number) {
   const db = getDb();
   if (!db) return NOT_PROVISIONED;

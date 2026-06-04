@@ -4,11 +4,36 @@ import "../scan/scan-ui.css";
 import { ConsentProvider } from "@/lib/consent/client";
 import { ConsentBanner } from "@/components/consent-banner";
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://explorer.citrate.ai";
+const TITLE = "CitrateScan — AI-native block explorer";
+const DESCRIPTION =
+  "Explore the Citrate Network (GHOSTDAG BlockDAG, chain 40204). Plain-English " +
+  "answers, a built-in AI agent, contract verification, and a programmable API.";
+
 export const metadata: Metadata = {
-  title: "CitrateScan — AI-native block explorer",
-  description:
-    "Explore the Citrate Network (GHOSTDAG BlockDAG, chain 40204). Plain-English " +
-    "answers, a built-in AI agent, contract verification, and a programmable API.",
+  metadataBase: new URL(SITE_URL),
+  title: { default: TITLE, template: "%s · CitrateScan" },
+  description: DESCRIPTION,
+  applicationName: "CitrateScan",
+  keywords: [
+    "Citrate",
+    "block explorer",
+    "GHOSTDAG",
+    "BlockDAG",
+    "SALT",
+    "blockchain",
+    "AI explorer",
+  ],
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    siteName: "CitrateScan",
+    title: TITLE,
+    description: DESCRIPTION,
+    url: SITE_URL,
+  },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION },
+  robots: { index: true, follow: true },
 };
 
 export default function RootLayout({
@@ -25,6 +50,10 @@ export default function RootLayout({
         />
       </head>
       <body>
+        {/* Keyboard skip link — first focusable element; jumps past the header. */}
+        <a className="skip-link" href="#main-content">
+          Skip to main content
+        </a>
         <ConsentProvider>
           {children}
           <ConsentBanner />
