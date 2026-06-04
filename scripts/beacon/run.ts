@@ -55,43 +55,53 @@ async function main() {
   const seq0 = await client.readContract({ address: PULSE_ADDRESS, abi: PULSE_ABI, functionName: "sequence" });
   console.log(`[beacon] starting at sequence ${seq0}`);
 
+  // The RPC is slow to RETURN a write (it often takes >10s to hand back the hash
+  // even though the tx lands). Waiting per-tx would throttle us to ~1 pulse per
+  // 10-20s — too sparse to see. So we PIPELINE: manage the nonce locally and keep
+  // up to MAX_PENDING txs in flight, one per block, never blocking on the response.
+  const MAX_PENDING = Number(process.env.BEACON_MAX_PENDING ?? 10);
+  let nonce = await client.getTransactionCount({ address: account.address, blockTag: "pending" });
+  let pending = 0;
   let lastBlock = -1n;
-  let inFlight = false;
+
+  const fire = (block: bigint) => {
+    const myNonce = nonce++;
+    pending++;
+    client
+      .writeContract({ address: PULSE_ADDRESS, abi: PULSE_ABI, functionName: "pulse", nonce: myNonce })
+      .then((hash) => console.log(`[beacon] block ${block} nonce ${myNonce} → ${hash}`))
+      .catch((err) => {
+        const msg = ((err as Error).message ?? String(err)).split("\n")[0];
+        if (/took too long|timed out|timeout/i.test(msg)) {
+          // Slow response, but the tx almost certainly landed (nonce consumed).
+          console.log(`[beacon] block ${block} nonce ${myNonce} → submitted (slow RPC)`);
+        } else {
+          console.error(`[beacon] nonce ${myNonce} failed: ${msg}`);
+        }
+      })
+      .finally(() => {
+        pending--;
+      });
+  };
 
   for (;;) {
     try {
       const block = await client.getBlockNumber();
-      if (block > lastBlock && !inFlight) {
+      if (block > lastBlock && pending < MAX_PENDING) {
         lastBlock = block;
-        inFlight = true;
-        try {
-          const hash = await client.writeContract({
-            address: PULSE_ADDRESS,
-            abi: PULSE_ABI,
-            functionName: "pulse",
-          });
-          // Don't block the loop on confirmation; just record the send.
-          console.log(`[beacon] block ${block} → pulse tx ${hash}`);
-        } catch (err) {
-          const msg = (err as Error).message ?? String(err);
-          const slow = /took too long|timed out|timeout/i.test(msg);
-          if (slow) {
-            // The RPC was slow to return the hash; the tx has very likely landed
-            // (sequence advances). Don't treat it as a real failure.
-            console.log(`[beacon] block ${block} → pulse submitted (RPC slow to confirm)`);
-          } else {
-            console.error(`[beacon] pulse failed at block ${block}: ${msg.split("\n")[0]}`);
-            await sleep(3000); // genuine error (funding/nonce) — ease off.
-          }
-        } finally {
-          inFlight = false;
-        }
+        fire(block);
+      }
+      // When the pipeline drains, resync the nonce from chain to heal any gap
+      // (e.g. a dropped broadcast) so we never get stuck behind a missing nonce.
+      if (pending === 0) {
+        const onchain = await client.getTransactionCount({ address: account.address, blockTag: "pending" });
+        if (onchain > nonce) nonce = onchain;
       }
     } catch (err) {
       console.error("[beacon] tick error:", (err as Error).message);
-      await sleep(2000);
+      await sleep(1500);
     }
-    await sleep(Math.max(MIN_INTERVAL_MS, 500));
+    await sleep(Math.max(MIN_INTERVAL_MS, 400));
   }
 }
 
