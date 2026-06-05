@@ -85,16 +85,20 @@ async function main() {
 
   for (;;) {
     try {
+      // Clamp the local nonce to chain reality EVERY tick. The pending nonce
+      // already accounts for in-flight (mempool) txs, so if our local nonce has
+      // raced past it by more than the window, txs are being DROPPED (flaky RPC)
+      // and everything above the gap is stuck — reset down to the pending nonce so
+      // we re-fill the gap instead of firing thousands of un-confirmable txs.
+      const chainNonce = await client.getTransactionCount({ address: account.address, blockTag: "pending" });
+      if (chainNonce > nonce || nonce > chainNonce + MAX_PENDING) {
+        nonce = chainNonce;
+        pending = 0;
+      }
       const block = await client.getBlockNumber();
       if (block > lastBlock && pending < MAX_PENDING) {
         lastBlock = block;
         fire(block);
-      }
-      // When the pipeline drains, resync the nonce from chain to heal any gap
-      // (e.g. a dropped broadcast) so we never get stuck behind a missing nonce.
-      if (pending === 0) {
-        const onchain = await client.getTransactionCount({ address: account.address, blockTag: "pending" });
-        if (onchain > nonce) nonce = onchain;
       }
     } catch (err) {
       console.error("[beacon] tick error:", (err as Error).message);
