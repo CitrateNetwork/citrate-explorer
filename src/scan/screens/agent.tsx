@@ -112,6 +112,21 @@ const SEED_Q = {
   gas: "Why didn't I pay any gas?", explain: "Explain this",
 };
 
+function newConvId() {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `c-${Date.now()}-${Math.random()}`;
+}
+
+function relTime(iso) {
+  if (!iso) return "";
+  const s = Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
+
 export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) {
   const scan = useScan();
   const auth = useAuth();
@@ -123,10 +138,8 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
   useEffect(() => { auth.getToken().then(setToken).catch(() => {}); }, [auth.authenticated]);
 
   // A stable id for THIS conversation so the whole session persists to one thread
-  // (server-side, when signed in). Regenerate for a "new chat".
-  const [conversationId] = useState(() =>
-    typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `c-${Date.now()}-${Math.random()}`,
-  );
+  // (server-side, when signed in). Regenerate for a "new chat"; set on resume.
+  const [conversationId, setConversationId] = useState(newConvId);
   const transport = useMemo(
     () => new DefaultChatTransport({
       api: "/api/chat",
@@ -136,8 +149,46 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
     [token, conversationId],
   );
 
-  const { messages, sendMessage, status, error } = useChat({ transport });
+  const { messages, sendMessage, status, error, setMessages } = useChat({ transport });
   const busy = status === "submitted" || status === "streaming";
+
+  // --- conversation history (WS-4): list / resume / new / delete past chats ---
+  const [convos, setConvos] = useState([]);
+  const [showConvos, setShowConvos] = useState(false);
+  const authHeaders = useCallback(() => (token ? { Authorization: `Bearer ${token}` } : {}), [token]);
+
+  const loadConvos = useCallback(async () => {
+    try {
+      const r = await fetch("/api/threads", { headers: authHeaders() });
+      const j = await r.json();
+      setConvos(Array.isArray(j.threads) ? j.threads : []);
+    } catch { setConvos([]); }
+  }, [authHeaders]);
+
+  const newChat = useCallback(() => {
+    setMessages([]); setContext(null); setShowConvos(false);
+    setConversationId(newConvId());
+  }, [setMessages]);
+
+  const resume = useCallback(async (id) => {
+    try {
+      const r = await fetch(`/api/threads/${id}`, { headers: authHeaders() });
+      const j = await r.json();
+      const msgs = (j.messages || [])
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({ id: m.id, role: m.role, parts: [{ type: "text", text: m.content }] }));
+      setMessages(msgs);
+      setConversationId(id);
+      setShowConvos(false);
+    } catch {}
+  }, [authHeaders, setMessages]);
+
+  const delConvo = useCallback(async (id, e) => {
+    if (e) e.stopPropagation();
+    try { await fetch(`/api/threads/${id}`, { method: "DELETE", headers: authHeaders() }); } catch {}
+    setConvos((c) => c.filter((t) => t.id !== id));
+    if (id === conversationId) newChat();
+  }, [authHeaders, conversationId, newChat]);
 
   // Seed an ask, attaching the current entity from the route so the agent can
   // call the right tool (e.g. "Explain this transaction (tx 0x…)").
@@ -178,11 +229,31 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
 
   return (
     <div className="agent">
-      <div className="agent-h">
+      <div className="agent-h" style={{ position: "relative" }}>
         <span className="spark"><Icon name="spark" size={17} /></span>
         <span className="ttl">Ask CitrateScan</span>
         <span className="spacer" />
+        {auth.authenticated && (
+          <>
+            <button title="New chat" onClick={newChat}><Icon name="plus" size={16} /></button>
+            <button title="Conversation history" onClick={() => { const n = !showConvos; setShowConvos(n); if (n) loadConvos(); }}><Icon name="clock" size={16} /></button>
+          </>
+        )}
         <button title="Collapse" onClick={() => setOpen(false)}><Icon name="arrowright" size={16} /></button>
+        {showConvos && (
+          <div className="agent-convos" style={{ position: "absolute", top: "100%", right: 8, marginTop: 6, width: 280, maxHeight: 360, overflowY: "auto", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "var(--r-2)", boxShadow: "var(--shadow-pop)", zIndex: 90, padding: 4 }}>
+            <div style={{ padding: "8px 10px", fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--text-3)", fontFamily: "var(--font-mono)" }}>Your conversations</div>
+            {convos.length === 0 && <div style={{ padding: "8px 10px 12px", fontSize: 13, color: "var(--text-3)" }}>No saved conversations yet. They appear here as you chat (signed in).</div>}
+            {convos.map((t) => (
+              <div key={t.id} onClick={() => resume(t.id)} title={t.title}
+                   style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: "var(--r-1)", cursor: "pointer", background: t.id === conversationId ? "var(--surface-sunk)" : "transparent" }}>
+                <span style={{ flex: 1, fontSize: 13, color: "var(--text-1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.title || "New chat"}</span>
+                <span style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "var(--font-mono)" }}>{relTime(t.updatedAt)}</span>
+                <button title="Delete" onClick={(e) => delConvo(t.id, e)} style={{ width: 24, height: 24, border: "none", background: "transparent", color: "var(--text-3)", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="trash" size={13} /></button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       {context && <div className="agent-ctx"><span className="ic"><Icon name="link" size={13} /></span> Context: {context}</div>}
       <div className="agent-scroll" ref={scrollRef} role="log" aria-live="polite" aria-relevant="additions text" aria-label="Agent conversation">
