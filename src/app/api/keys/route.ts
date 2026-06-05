@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { verifySession } from "@/lib/auth/session";
+import { requireOwner } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { apiKeys } from "@/lib/db/schema";
 import { generateApiKey, hashApiKey } from "@/lib/crypto";
@@ -7,18 +7,14 @@ import { generateApiKey, hashApiKey } from "@/lib/crypto";
 /**
  * API-key management (hybrid storage): we store only a salted hash, so a new key
  * is shown to the user exactly ONCE on creation and is never recoverable
- * (CONFIG.md, DESIGN_HARNESS_AND_SETTINGS.md §B).
+ * (CONFIG.md, DESIGN_HARNESS_AND_SETTINGS.md §B). Owned by the stable OIDC
+ * `subject` (SR-0); `user_address` is dual-written transitionally.
  */
-async function resolveUser(req: Request): Promise<string | null> {
-  const auth = await verifySession(req);
-  if (auth.required && !auth.authenticated) return null;
-  return auth.walletAddress ?? null;
-}
 
 /** List the caller's API keys (metadata only — never the key or hash). */
 export async function GET(req: Request) {
-  const user = await resolveUser(req);
-  if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
+  const owner = await requireOwner(req);
+  if (!owner) return Response.json({ error: "unauthorized" }, { status: 401 });
   const db = getDb();
   if (!db) return Response.json({ provisioned: false, keys: [] });
   const rows = await db
@@ -32,14 +28,14 @@ export async function GET(req: Request) {
       lastUsed: apiKeys.lastUsed,
     })
     .from(apiKeys)
-    .where(eq(apiKeys.userAddress, user.toLowerCase()));
+    .where(eq(apiKeys.subject, owner));
   return Response.json({ provisioned: true, keys: rows });
 }
 
 /** Issue a new API key. The raw key is returned ONCE; only its hash is stored. */
 export async function POST(req: Request) {
-  const user = await resolveUser(req);
-  if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
+  const owner = await requireOwner(req);
+  if (!owner) return Response.json({ error: "unauthorized" }, { status: 401 });
   const db = getDb();
   if (!db) {
     return Response.json(
@@ -50,7 +46,8 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { label?: string };
   const rawKey = generateApiKey();
   await db.insert(apiKeys).values({
-    userAddress: user.toLowerCase(),
+    userAddress: owner,
+    subject: owner,
     keyHash: hashApiKey(rawKey),
     label: body.label ?? "default",
   });
@@ -65,14 +62,14 @@ export async function POST(req: Request) {
 
 /** Revoke (delete) one of the caller's API keys by id. */
 export async function DELETE(req: Request) {
-  const user = await resolveUser(req);
-  if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
+  const owner = await requireOwner(req);
+  if (!owner) return Response.json({ error: "unauthorized" }, { status: 401 });
   const db = getDb();
   if (!db) return Response.json({ error: "database not provisioned" }, { status: 503 });
   const id = Number(new URL(req.url).searchParams.get("id"));
   if (!id) return Response.json({ error: "missing id" }, { status: 400 });
   await db
     .delete(apiKeys)
-    .where(and(eq(apiKeys.id, id), eq(apiKeys.userAddress, user.toLowerCase())));
+    .where(and(eq(apiKeys.id, id), eq(apiKeys.subject, owner)));
   return Response.json({ ok: true });
 }

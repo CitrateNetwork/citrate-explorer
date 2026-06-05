@@ -3,10 +3,13 @@
  * manage their "Ask CitrateScan" chats. Message bodies are sealed AES-256-GCM
  * per user (server-decryptable envelope) — at rest we store only ciphertext.
  *
- * Every function is OWNERSHIP-SCOPED (filtered by userAddress) and degrades to a
- * no-op/empty when DATABASE_URL is unset, so the agent still works without a DB
- * (it just won't persist history). The agent's tool-calls are tracked separately
- * in `audit_log` (src/lib/ai/audit.ts).
+ * Every function is OWNERSHIP-SCOPED by the stable OIDC `subject` (SR-0) so
+ * email/social/passkey identities with no wallet are first-class. The subject is
+ * an opaque, case-sensitive identifier — it is stored/compared VERBATIM (never
+ * lower-cased). `user_address` is dual-written (= subject) transitionally and
+ * dropped at the cutover migration. Degrades to a no-op/empty when DATABASE_URL
+ * is unset, so the agent still works without a DB (it just won't persist history).
+ * The agent's tool-calls are tracked separately in `audit_log`.
  */
 import { randomUUID } from "crypto";
 import { and, asc, desc, eq } from "drizzle-orm";
@@ -28,24 +31,22 @@ export interface StoredMessage {
   createdAt: string | null;
 }
 
-const norm = (a: string) => a.toLowerCase();
-
-/** Create a thread for a user. Returns the new thread id, or null without a DB. */
-export async function createThread(userAddress: string, title = "New chat"): Promise<string | null> {
+/** Create a thread for an owner. Returns the new thread id, or null without a DB. */
+export async function createThread(owner: string, title = "New chat"): Promise<string | null> {
   const db = getDb();
   if (!db) return null;
   const id = randomUUID();
-  await db.insert(threads).values({ id, userAddress: norm(userAddress), title: title.slice(0, 120) });
+  await db.insert(threads).values({ id, userAddress: owner, subject: owner, title: title.slice(0, 120) });
   return id;
 }
 
 /**
- * Claim a client-provided thread id for a user (so the SPA can keep one
+ * Claim a client-provided thread id for an owner (so the SPA can keep one
  * conversation under a stable id it generated). Creates it if free; returns the
- * id if the user already owns it; returns null if it's taken by someone else.
+ * id if the owner already owns it; returns null if it's taken by someone else.
  */
 export async function createThreadWithId(
-  userAddress: string,
+  owner: string,
   id: string,
   title = "New chat",
 ): Promise<string | null> {
@@ -53,19 +54,19 @@ export async function createThreadWithId(
   if (!db) return null;
   await db
     .insert(threads)
-    .values({ id, userAddress: norm(userAddress), title: title.slice(0, 120) })
+    .values({ id, userAddress: owner, subject: owner, title: title.slice(0, 120) })
     .onConflictDoNothing();
-  return (await ownsThread(userAddress, id)) ? id : null;
+  return (await ownsThread(owner, id)) ? id : null;
 }
 
-/** A user's threads, most-recently-updated first. */
-export async function listThreads(userAddress: string, limit = 50): Promise<ThreadSummary[]> {
+/** An owner's threads, most-recently-updated first. */
+export async function listThreads(owner: string, limit = 50): Promise<ThreadSummary[]> {
   const db = getDb();
   if (!db) return [];
   const rows = await db
     .select()
     .from(threads)
-    .where(eq(threads.userAddress, norm(userAddress)))
+    .where(eq(threads.subject, owner))
     .orderBy(desc(threads.updatedAt))
     .limit(limit);
   return rows.map((t) => ({
@@ -76,29 +77,29 @@ export async function listThreads(userAddress: string, limit = 50): Promise<Thre
   }));
 }
 
-/** True iff the thread exists AND belongs to the user. */
-export async function ownsThread(userAddress: string, threadId: string): Promise<boolean> {
+/** True iff the thread exists AND belongs to the owner. */
+export async function ownsThread(owner: string, threadId: string): Promise<boolean> {
   const db = getDb();
   if (!db) return false;
   const [row] = await db
     .select({ id: threads.id })
     .from(threads)
-    .where(and(eq(threads.id, threadId), eq(threads.userAddress, norm(userAddress))))
+    .where(and(eq(threads.id, threadId), eq(threads.subject, owner)))
     .limit(1);
   return Boolean(row);
 }
 
 /** Append a message to a thread (ownership-checked). Encrypts the body. */
 export async function appendMessage(
-  userAddress: string,
+  owner: string,
   threadId: string,
   role: "user" | "assistant" | "system",
   content: string,
 ): Promise<void> {
   const db = getDb();
   if (!db || !content) return;
-  if (!(await ownsThread(userAddress, threadId))) return;
-  const sealed = sealForUser(content, userAddress);
+  if (!(await ownsThread(owner, threadId))) return;
+  const sealed = sealForUser(content, owner);
   await db.insert(messages).values({
     id: randomUUID(),
     threadId,
@@ -111,10 +112,10 @@ export async function appendMessage(
 }
 
 /** Decrypted messages for a thread (ownership-checked), oldest first. */
-export async function getThreadMessages(userAddress: string, threadId: string): Promise<StoredMessage[]> {
+export async function getThreadMessages(owner: string, threadId: string): Promise<StoredMessage[]> {
   const db = getDb();
   if (!db) return [];
-  if (!(await ownsThread(userAddress, threadId))) return [];
+  if (!(await ownsThread(owner, threadId))) return [];
   const rows = await db
     .select()
     .from(messages)
@@ -123,7 +124,7 @@ export async function getThreadMessages(userAddress: string, threadId: string): 
   return rows.map((m) => {
     let content = "";
     try {
-      content = openForUser({ ciphertext: m.ciphertext, iv: m.iv, authTag: m.authTag }, userAddress);
+      content = openForUser({ ciphertext: m.ciphertext, iv: m.iv, authTag: m.authTag }, owner);
     } catch {
       content = "";
     }
@@ -132,22 +133,22 @@ export async function getThreadMessages(userAddress: string, threadId: string): 
 }
 
 /** Rename a thread (ownership-checked). */
-export async function renameThread(userAddress: string, threadId: string, title: string): Promise<boolean> {
+export async function renameThread(owner: string, threadId: string, title: string): Promise<boolean> {
   const db = getDb();
   if (!db) return false;
   const res = await db
     .update(threads)
     .set({ title: title.slice(0, 120), updatedAt: new Date() })
-    .where(and(eq(threads.id, threadId), eq(threads.userAddress, norm(userAddress))))
+    .where(and(eq(threads.id, threadId), eq(threads.subject, owner)))
     .returning({ id: threads.id });
   return res.length > 0;
 }
 
 /** Delete a thread and its messages (ownership-checked). */
-export async function deleteThread(userAddress: string, threadId: string): Promise<boolean> {
+export async function deleteThread(owner: string, threadId: string): Promise<boolean> {
   const db = getDb();
   if (!db) return false;
-  if (!(await ownsThread(userAddress, threadId))) return false;
+  if (!(await ownsThread(owner, threadId))) return false;
   await db.delete(messages).where(eq(messages.threadId, threadId));
   await db.delete(threads).where(eq(threads.id, threadId));
   return true;

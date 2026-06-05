@@ -10,6 +10,8 @@ import { Icon } from "@/scan/icons";
 import { CopyBtn, EntityChip, KV, Crumb } from "@/scan/components";
 import { useScan } from "@/scan/context";
 import { useAuth } from "@/lib/auth/client";
+import { useSettingsKey, useSyncedSettings } from "@/lib/settings/sync";
+import { encryptSettings, decryptSettings, blindIndex } from "@/lib/crypto-client";
 
 const SET_SECTIONS = [
   { id: "account", label: "Account", icon: "user" },
@@ -43,6 +45,18 @@ export function SettingsScreen({ tweaks }) {
   const scan = useScan();
   const auth = useAuth();
   const [sec, setSec] = useState("privacy");
+
+  // SR-2: E2EE settings sync. The key is derived once (sign-in-place) and held in
+  // memory; appearance prefs sync across devices as ciphertext the server can't read.
+  const skey = useSettingsKey();
+  const applyRemote = useCallback((r) => {
+    Object.entries(r || {}).forEach(([k, v]) => { if (v !== undefined) scan.setTweak(k, v); });
+  }, [scan]);
+  const sync = useSyncedSettings({
+    key: skey.key,
+    current: { theme: tweaks.theme, verbosity: tweaks.verbosity, reducedMotion: tweaks.reducedMotion },
+    applyRemote,
+  });
 
   // GDPR rights — wired to the real routes with the auth-seam token.
   const authHeaders = async () => { const t = await auth.getToken(); return t ? { Authorization: `Bearer ${t}` } : {}; };
@@ -87,19 +101,44 @@ export function SettingsScreen({ tweaks }) {
     if (res.ok) loadKeys(); else alert("Revoke failed.");
   };
 
-  // --- Watchlist (P-6): real /api/watchlist ---
+  // --- Watchlist (P-6 + SR-3 E2EE): real /api/watchlist ---
+  // Entries are end-to-end encrypted when sync is unlocked: the address is sealed
+  // client-side and only a keyed blind-index HMAC is shared, so the server never
+  // learns the address. When no signer is available yet (non-crypto user pre-
+  // embedded-wallet), we fall back to a plaintext entry with explicit disclosure.
   const [watch, setWatch] = useState([]);
   const [watchInput, setWatchInput] = useState("");
   const loadWatch = useCallback(async () => {
     if (!auth.authenticated) { setWatch([]); return; }
     const res = await fetch("/api/watchlist", { headers: await authHeaders() });
-    const j = await res.json(); if (res.ok) setWatch(j.items || []);
-  }, [auth.authenticated]);
+    const j = await res.json(); if (!res.ok) return;
+    const decoded = await Promise.all((j.items || []).map(async (w) => {
+      if (!w.encrypted) return { id: w.id, target: w.target, label: w.label, encrypted: false };
+      if (!skey.key) return { id: w.id, target: null, label: null, encrypted: true, locked: true };
+      try {
+        const plain = JSON.parse(await decryptSettings({ ciphertext: w.target, iv: w.iv }, skey.key));
+        return { id: w.id, target: plain.address, label: plain.label ?? null, encrypted: true };
+      } catch {
+        return { id: w.id, target: null, label: null, encrypted: true, locked: true };
+      }
+    }));
+    setWatch(decoded);
+  }, [auth.authenticated, skey.key]);
   useEffect(() => { if (sec === "watchlist") loadWatch(); }, [sec, loadWatch]);
   const addWatch = async () => {
-    const target = watchInput.trim();
+    const target = watchInput.trim().toLowerCase();
     if (!/^0x[0-9a-fA-F]{40}$/.test(target)) { alert("Enter a valid 0x address."); return; }
-    const res = await fetch("/api/watchlist", { method: "POST", headers: { "content-type": "application/json", ...(await authHeaders()) }, body: JSON.stringify({ target }) });
+    let body;
+    if (skey.key && skey.blindKey) {
+      // E2EE path: seal {address,label} + keyed blind index; the server can't read it.
+      const sealed = await encryptSettings(JSON.stringify({ address: target, label: null }), skey.key);
+      body = { ciphertext: sealed.ciphertext, iv: sealed.iv, blindIndex: await blindIndex(skey.blindKey, target) };
+    } else {
+      // No signer yet — be explicit that this entry is NOT end-to-end encrypted.
+      if (!confirm("Encrypted sync is locked, so this watched address will be stored UNENCRYPTED (we could read it). Unlock encrypted sync in Appearance for a private watchlist. Add it unencrypted anyway?")) return;
+      body = { target };
+    }
+    const res = await fetch("/api/watchlist", { method: "POST", headers: { "content-type": "application/json", ...(await authHeaders()) }, body: JSON.stringify(body) });
     if (res.ok) { setWatchInput(""); loadWatch(); } else { const j = await res.json(); alert(j.error || "Add failed."); }
   };
   const removeWatch = async (id) => { const res = await fetch(`/api/watchlist?id=${id}`, { method: "DELETE", headers: await authHeaders() }); if (res.ok) loadWatch(); };
@@ -113,6 +152,13 @@ export function SettingsScreen({ tweaks }) {
     if (sec !== "transparency" || !auth.authenticated) return;
     (async () => { const res = await fetch("/api/audit", { headers: await authHeaders() }); const j = await res.json(); if (res.ok) setAudit(j.entries || []); })();
   }, [sec, auth.authenticated]);
+
+  // Real build/model provenance (SR-1) — sourced from /api/version, never hardcoded.
+  const [ver, setVer] = useState(null);
+  useEffect(() => {
+    if (sec !== "transparency" || ver) return;
+    (async () => { try { const res = await fetch("/api/version"); if (res.ok) setVer(await res.json()); } catch {} })();
+  }, [sec, ver]);
 
   // --- Developer (P-6): add Citrate to the wallet ---
   const addChain = async () => {
@@ -188,7 +234,7 @@ curl "https://citratescan.ai/api/v1?module=account&action=balance&address=0xf78c
                   <table className="enc-table">
                     <thead><tr><th>Data</th><th>Protection</th><th>Who can read it</th></tr></thead>
                     <tbody>
-                      <tr><td>Settings & logins<br /><span style={{ color: "var(--text-3)", fontSize: 12 }}>watchlist, preferences</span></td><td><span className="enc-pill e2ee">E2EE</span><div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 5 }}>AES-256-GCM, key from your wallet signature → HKDF</div></td><td>Only you — your wallet reproduces the key</td></tr>
+                      <tr><td>Settings & logins<br /><span style={{ color: "var(--text-3)", fontSize: 12 }}>watchlist, preferences</span></td><td><span className="enc-pill e2ee">E2EE</span><div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 5 }}>AES-256-GCM, key from your wallet signature → HKDF (bound to your account; passkey unlock coming with the new sign-in)</div></td><td>Only you — your signer reproduces the key</td></tr>
                       <tr><td>Issued API keys</td><td><span className="enc-pill hash">HASHED</span><div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 5 }}>salted SHA-256 + pepper, copy-once</div></td><td>No one — not even us</td></tr>
                       <tr><td>Third-party provider keys</td><td><span className="enc-pill aes">AES AT REST</span><div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 5 }}>HKDF(server master, wallet)</div></td><td>The server, at request time — so the agent can use them</td></tr>
                     </tbody>
@@ -199,7 +245,7 @@ curl "https://citratescan.ai/api/v1?module=account&action=balance&address=0xf78c
               <div className="set-block">
                 <div className="h">What we store</div>
                 <div className="card"><div className="card-bd">
-                  {[["Watchlist", "E2EE"], ["Settings", "E2EE"], ["Issued API keys", "hash only"], ["Provider keys", "AES-GCM at rest"], ["Query history", "deletable"], ["Public chain data we index", "permanent & public"]].map((r, i) => (
+                  {[["Watchlist", "E2EE when unlocked"], ["Settings & preferences", "E2EE when unlocked"], ["Issued API keys", "hash only"], ["Provider keys", "AES-GCM at rest"], ["Query history", "deletable"], ["Public chain data we index", "permanent & public"]].map((r, i) => (
                     <div className="setrow" key={i}><span className="grow lbl">{r[0]}</span><span className="badge" style={{ height: 20 }}>{r[1]}</span></div>
                   ))}
                 </div></div>
@@ -214,12 +260,24 @@ curl "https://citratescan.ai/api/v1?module=account&action=balance&address=0xf78c
 
           {sec === "watchlist" && (
             <React.Fragment>
-              <h2>Watchlist & alerts</h2><div className="lede">Addresses and contracts you watch are stored end-to-end encrypted. Alerts run off the indexer.</div>
+              <h2>Watchlist & alerts</h2><div className="lede">When encrypted sync is unlocked, watched addresses are end-to-end encrypted — only your browser can read them, and the server matches activity via a keyed blind index without learning the address. Alerts are evaluated client-side.</div>
+              {auth.authenticated && skey.locked && (
+                <div className="note" style={{ marginBottom: 12 }}><span className="ic"><Icon name="shield" size={15} /></span> Encrypted sync is locked. Unlock it in <strong>Appearance → Encrypted sync</strong> for a private (E2EE) watchlist. You can still add entries unencrypted.</div>
+              )}
               <div className="card"><div className="card-bd">
                 {!auth.authenticated && <div className="empty" style={{ padding: 24 }}><p>Sign in to keep a watchlist.</p></div>}
                 {auth.authenticated && watch.map((w) => (
                   <div className="setrow" key={w.id}>
-                    <EntityChip value={w.target} kind="address" label={w.label} />
+                    {w.locked ? (
+                      <span className="row" style={{ gap: 6, color: "var(--text-3)" }}><Icon name="shield" size={14} /> <span className="mono">Encrypted — unlock sync to view</span></span>
+                    ) : (
+                      <span className="row" style={{ gap: 6 }}>
+                        <EntityChip value={w.target} kind="address" label={w.label} />
+                        {w.encrypted
+                          ? <span className="badge" title="End-to-end encrypted" style={{ height: 18 }}>E2EE</span>
+                          : <span className="badge" title="Stored unencrypted — we can read this" style={{ height: 18, color: "var(--danger-text)" }}>plaintext</span>}
+                      </span>
+                    )}
                     <span className="grow" />
                     <button className="btn sm ghost" onClick={() => removeWatch(w.id)}><Icon name="trash" size={14} /></button>
                   </div>
@@ -237,7 +295,32 @@ curl "https://citratescan.ai/api/v1?module=account&action=balance&address=0xf78c
 
           {sec === "appearance" && (
             <React.Fragment>
-              <h2>Appearance</h2><div className="lede">Theme and reading preferences. Stored locally — no account needed.</div>
+              <h2>Appearance</h2><div className="lede">Theme and reading preferences. Stored locally on this device, and — when you turn on encrypted sync — end-to-end encrypted across your devices.</div>
+              <div className="card" style={{ marginBottom: 14 }}><div className="card-bd">
+                <div className="setrow">
+                  <div className="grow">
+                    <div className="lbl">Encrypted sync across devices</div>
+                    <div className="desc">
+                      {!auth.authenticated
+                        ? "Sign in to sync your preferences."
+                        : skey.locked
+                          ? "Off — your preferences stay on this device. Unlock to sync them end-to-end encrypted (only you can read them)."
+                          : sync.status === "saving" ? "Encrypting and saving…"
+                          : sync.status === "loading" ? "Loading your encrypted settings…"
+                          : sync.status === "error" ? "Sync error — changes are still saved locally."
+                          : "On — synced, end-to-end encrypted. The server stores only ciphertext."}
+                    </div>
+                    {skey.error && <div className="desc" style={{ color: "var(--danger-text)" }}>{skey.error}</div>}
+                  </div>
+                  {auth.authenticated && skey.locked ? (
+                    <button className="btn sm primary" disabled={skey.unlocking} onClick={() => skey.unlock()}>
+                      <Icon name="shieldCheck" size={15} /> {skey.unlocking ? "Unlocking…" : "Unlock sync"}
+                    </button>
+                  ) : auth.authenticated && !skey.locked ? (
+                    <span className="badge" style={{ height: 20 }}>E2EE on</span>
+                  ) : null}
+                </div>
+              </div></div>
               <div className="card"><div className="card-bd">
                 <div className="setrow"><div className="grow"><div className="lbl">Theme</div><div className="desc">Warm paper, or deep evergreen</div></div>
                   <div className="row" style={{ gap: 6 }}>
@@ -293,9 +376,23 @@ curl "https://citratescan.ai/api/v1?module=account&action=balance&address=0xf78c
               <div className="set-block">
                 <div className="h">Source · model provenance</div>
                 <div className="card"><div className="card-bd">
-                  <KV k="Repository" ><span className="row" style={{ gap: 6 }}><span className="mono" style={{ fontSize: 13 }}>github.com/citrate/citrate-explorer</span><Icon name="external" size={13} /></span></KV>
-                  <KV k="License" v="MIT" /><KV k="Build" v="v1.0.0 · commit 9f4a2e1" mono />
-                  <KV k="Agent model" green><span className="mono" style={{ fontSize: 13 }}>gemma-4-E4B · modelHash 0x4a7c…r12 · runs on Citrate</span></KV>
+                  <KV k="Repository"><span className="row" style={{ gap: 6 }}><a className="mono" style={{ fontSize: 13 }} href={ver?.repoUrl || "https://github.com/CitrateNetwork/citrate-explorer"} target="_blank" rel="noopener noreferrer">{(ver?.repo || "CitrateNetwork/citrate-explorer")}</a><Icon name="external" size={13} /></span></KV>
+                  <KV k="License" v={ver?.license || "Apache-2.0"} />
+                  <KV k="Build" mono>{ver ? (
+                    <span className="row" style={{ gap: 6 }}>
+                      <span className="mono" style={{ fontSize: 13 }}>v{ver.version}{ver.commitShort ? ` · ${ver.commitShort}` : ""}{ver.environment ? ` · ${ver.environment}` : ""}</span>
+                      {ver.commitUrl && <a href={ver.commitUrl} target="_blank" rel="noopener noreferrer"><Icon name="external" size={13} /></a>}
+                    </span>
+                  ) : <span className="mono" style={{ fontSize: 13, color: "var(--text-3)" }}>loading…</span>}</KV>
+                  <KV k="Agent model" green>
+                    <span className="mono" style={{ fontSize: 13 }}>
+                      {ver?.model?.error
+                        ? `inference unconfigured — ${ver.model.error}`
+                        : ver?.model
+                          ? `${ver.model.id} · via ${ver.model.mode} · on-chain attestation ${ver.model.attestation}`
+                          : "loading…"}
+                    </span>
+                  </KV>
                 </div></div>
               </div>
             </React.Fragment>

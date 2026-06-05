@@ -38,6 +38,15 @@ export interface AuthContextValue {
   logout: () => void | Promise<void>;
   /** A bearer token for `Authorization` on API calls, or null when logged out. */
   getToken: () => Promise<string | null>;
+  /**
+   * Provider-agnostic E2EE key material (SR-2) for deriving the client-held
+   * settings/watchlist key: a deterministic wallet signature over
+   * `E2EE_KEY_MESSAGE` (embedded or external wallet) — or, in future, a WebAuthn
+   * PRF secret. Returns null when no signer is available (the "locked" state); the
+   * caller never fabricates a key. The rest of the app derives the AES key from
+   * this via `deriveSettingsKey` — it never sees how the material was produced.
+   */
+  getKeyMaterial: () => Promise<string | null>;
 }
 
 export type AuthMode = "mock" | "oidc" | "privy";

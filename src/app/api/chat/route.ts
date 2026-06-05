@@ -37,11 +37,11 @@ export async function POST(req: Request) {
   if (auth.required && !auth.authenticated) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
-  const userAddress = auth.walletAddress ?? undefined;
+  const owner = auth.sub ?? undefined;
 
   // Inference is the most expensive surface — bound it per user (or per IP when
   // anonymous in mock dev). 1 req/s sustained, small burst for rapid follow-ups.
-  const rl = await checkRateLimit(`chat:${userAddress ?? clientIp(req)}`, 1, 5);
+  const rl = await checkRateLimit(`chat:${owner ?? clientIp(req)}`, 1, 5);
   if (!rl.ok) {
     return Response.json(
       { error: "Too many requests — slow down a moment." },
@@ -66,19 +66,19 @@ export async function POST(req: Request) {
   // hiccup (best-effort).
   let threadId: string | null = null;
   const lastUser = uiText(messages[messages.length - 1]);
-  if (userAddress) {
+  if (owner) {
     const title = lastUser ? lastUser.slice(0, 80) : "New chat";
     try {
-      if (body.threadId && (await ownsThread(userAddress, body.threadId))) {
+      if (body.threadId && (await ownsThread(owner, body.threadId))) {
         threadId = body.threadId; // already ours — continue it
       } else if (body.threadId) {
         // The SPA generated a stable id for this conversation — claim it (or fall
         // back to a server id if it's somehow taken by another user).
-        threadId = (await createThreadWithId(userAddress, body.threadId, title)) ?? (await createThread(userAddress, title));
+        threadId = (await createThreadWithId(owner, body.threadId, title)) ?? (await createThread(owner, title));
       } else {
-        threadId = await createThread(userAddress, title);
+        threadId = await createThread(owner, title);
       }
-      if (threadId && lastUser) await appendMessage(userAddress, threadId, "user", lastUser);
+      if (threadId && lastUser) await appendMessage(owner, threadId, "user", lastUser);
     } catch {
       threadId = null; // persistence is best-effort; the chat still works
     }
@@ -91,14 +91,14 @@ export async function POST(req: Request) {
     model: provider.languageModel(),
     system: buildSystemPrompt(),
     messages: await convertToModelMessages(messages.slice(-historyTurns)),
-    tools: citrateTools({ userAddress }),
+    tools: citrateTools({ subject: owner }),
     stopWhen: stepCountIs(8),
     maxOutputTokens,
     temperature: 0.3,
     onFinish: async ({ text }) => {
-      if (userAddress && threadId && text) {
+      if (owner && threadId && text) {
         try {
-          await appendMessage(userAddress, threadId, "assistant", text);
+          await appendMessage(owner, threadId, "assistant", text);
         } catch {
           /* best-effort */
         }

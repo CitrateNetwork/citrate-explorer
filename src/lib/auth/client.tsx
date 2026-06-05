@@ -21,12 +21,20 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { WagmiProvider } from "wagmi";
+import { WagmiProvider, useAccount, useConnect, useSignMessage } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { wagmiConfig } from "@/lib/citrate/config";
 import { AUTH_MODE, OIDC_PUBLIC, MOCK_DEV_ADDRESS } from "./config";
 import { oidcEndpoints, sessionEventsUrl, logoutUrl } from "./discovery";
+import { E2EE_KEY_MESSAGE } from "@/lib/crypto-client";
 import type { AuthContextValue } from "./types";
+
+/** Hex-encode bytes (no 0x). */
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -76,6 +84,16 @@ function useMockAuth(): AuthContextValue {
     return btoa(json).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }, [session]);
 
+  // Dev-only deterministic key material (no wallet popup): a digest of the subject.
+  // Honest — this is the mock adapter; production E2EE uses a real wallet signature
+  // (oidc adapter). Deterministic so encrypt/decrypt round-trips locally.
+  const getKeyMaterial = useCallback(async () => {
+    if (!session) return null;
+    const data = new TextEncoder().encode(`citrate-mock-e2ee-v1:${session.sub}`);
+    const digest = await crypto.subtle.digest("SHA-256", data);
+    return toHex(new Uint8Array(digest));
+  }, [session]);
+
   return {
     ready,
     authenticated: Boolean(session),
@@ -84,6 +102,7 @@ function useMockAuth(): AuthContextValue {
     login,
     logout,
     getToken,
+    getKeyMaterial,
   };
 }
 
@@ -121,6 +140,9 @@ function useOidcAuth(): AuthContextValue {
     }
   });
   const ready = true;
+  const { isConnected } = useAccount();
+  const { connectAsync, connectors } = useConnect();
+  const { signMessageAsync } = useSignMessage();
 
   const claims = useMemo(() => (token ? decodeJwtClaims(token) : null), [token]);
   const sub = claims?.sub as string | undefined;
@@ -193,6 +215,27 @@ function useOidcAuth(): AuthContextValue {
 
   const getToken = useCallback(async () => token, [token]);
 
+  // E2EE key material = a deterministic wallet signature over the fixed message
+  // (the established sign-to-derive-key pattern; secp256k1/RFC-6979 makes it stable
+  // for a given key). Works for any wagmi signer — external wallet today, the
+  // Privy-like embedded wallet once it's exposed through wagmi. Returns null when
+  // no signer is connected (the honest "locked" state — never a fabricated key).
+  const getKeyMaterial = useCallback(async () => {
+    try {
+      // Ensure a signer (explicit user action: they clicked "unlock"). Connects the
+      // available wallet — the injected wallet today, the Privy-like embedded wallet
+      // once it's registered as a wagmi connector. Honest null when none exists.
+      if (!isConnected) {
+        const connector = connectors[0];
+        if (!connector) return null;
+        await connectAsync({ connector });
+      }
+      return await signMessageAsync({ message: E2EE_KEY_MESSAGE });
+    } catch {
+      return null;
+    }
+  }, [isConnected, connectAsync, connectors, signMessageAsync]);
+
   const wallet = claims?.wallet_address as string | undefined;
   return {
     ready,
@@ -202,6 +245,7 @@ function useOidcAuth(): AuthContextValue {
     login,
     logout,
     getToken,
+    getKeyMaterial,
   };
 }
 

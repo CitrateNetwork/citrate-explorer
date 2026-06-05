@@ -7,7 +7,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (auth.required && !auth.authenticated) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
-  const user = auth.walletAddress;
+  const user = auth.sub;
   const { id } = await params;
   if (!user) return Response.json({ messages: [] });
   return Response.json({ id, messages: await getThreadMessages(user, id) });
@@ -18,7 +18,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (auth.required && !auth.authenticated) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
-  const user = auth.walletAddress;
+  const user = auth.sub;
   const { id } = await params;
   if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
   const { title } = (await req.json().catch(() => ({}))) as { title?: string };
@@ -32,7 +32,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   if (auth.required && !auth.authenticated) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
-  const user = auth.walletAddress;
+  const user = auth.sub;
   const { id } = await params;
   if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
   const ok = await deleteThread(user, id);

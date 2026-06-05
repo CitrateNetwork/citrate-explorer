@@ -12,13 +12,17 @@ import { auditLog } from "@/lib/db/schema";
 export async function logToolCall(
   tool: string,
   args: unknown,
-  userAddress?: string,
+  subject?: string,
 ): Promise<void> {
   const db = getDb();
   if (!db) return;
   try {
+    // Owned by the stable OIDC `subject` (SR-0). `user_address` is dual-written
+    // (= subject) transitionally and dropped at the cutover migration. The
+    // subject is opaque + case-sensitive — store it verbatim, never lower-cased.
     await db.insert(auditLog).values({
-      userAddress: userAddress?.toLowerCase() ?? null,
+      subject: subject ?? null,
+      userAddress: subject ?? null,
       tool,
       args: JSON.stringify(args ?? {}).slice(0, 2000),
     });

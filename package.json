@@ -2,6 +2,7 @@
   "name": "citrate-explorer",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
   "description": "CitrateScan — an AI-native BlockDAG explorer for the Citrate Network.",
   "scripts": {
     "dev": "next dev",

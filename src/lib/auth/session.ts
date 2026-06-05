@@ -93,3 +93,25 @@ export async function verifySession(req: Request): Promise<AuthSession> {
 export function sessionAddress(s: AuthSession): string | null {
   return s.walletAddress ?? null;
 }
+
+/**
+ * The canonical owner key for all per-user data (SR-0): the stable OIDC `subject`,
+ * NOT the wallet address. Returned VERBATIM — `sub` is a case-sensitive opaque
+ * identifier; never lower-case it. Null only when unauthenticated, so email/social/
+ * passkey identities with no wallet are first-class owners.
+ */
+export function sessionOwner(s: AuthSession): string | null {
+  return s.sub ?? null;
+}
+
+/**
+ * Resolve the owner for a request in one call — the pattern every authed route
+ * uses. Returns the subject string, or null when the caller is unauthenticated
+ * (in an auth-enforcing deployment). In open dev (`required:false`) an
+ * unauthenticated caller also yields null, so routes uniformly 401 on null.
+ */
+export async function requireOwner(req: Request): Promise<string | null> {
+  const auth = await verifySession(req);
+  if (auth.required && !auth.authenticated) return null;
+  return sessionOwner(auth);
+}

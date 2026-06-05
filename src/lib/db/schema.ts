@@ -21,6 +21,7 @@ import {
   timestamp,
   serial,
   index,
+  uniqueIndex,
   primaryKey,
 } from "drizzle-orm/pg-core";
 
@@ -218,13 +219,24 @@ export const indexerState = pgTable("indexer_state", {
 
 // --- User tables ------------------------------------------------------------
 
-/** E2EE: server stores opaque ciphertext it cannot read (key is client-held). */
-export const settings = pgTable("settings", {
-  userAddress: text("user_address").primaryKey(),
-  ciphertext: text("ciphertext").notNull(),
-  iv: text("iv").notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+/**
+ * E2EE: server stores opaque ciphertext it cannot read (key is client-held).
+ *
+ * Ownership is keyed by the stable OIDC `subject` (SR-0) so email/social/passkey
+ * users with no wallet are first-class. `user_address` is retained transitionally
+ * (dual-written = subject) and dropped at the SR-0 cutover migration.
+ */
+export const settings = pgTable(
+  "settings",
+  {
+    userAddress: text("user_address").primaryKey(),
+    subject: text("subject"),
+    ciphertext: text("ciphertext").notNull(),
+    iv: text("iv").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [uniqueIndex("settings_subject_idx").on(t.subject)],
+);
 
 /** Our issued API keys — only the salted hash is stored. */
 export const apiKeys = pgTable(
@@ -232,6 +244,7 @@ export const apiKeys = pgTable(
   {
     id: serial("id").primaryKey(),
     userAddress: text("user_address").notNull(),
+    subject: text("subject"),
     keyHash: text("key_hash").notNull(),
     label: text("label"),
     quotaPerDay: integer("quota_per_day").notNull().default(100_000),
@@ -240,26 +253,46 @@ export const apiKeys = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     lastUsed: timestamp("last_used", { withTimezone: true }),
   },
-  (t) => [index("api_keys_hash_idx").on(t.keyHash)],
+  (t) => [index("api_keys_hash_idx").on(t.keyHash), index("api_keys_subject_idx").on(t.subject)],
 );
 
 /** Third-party provider keys the agent uses server-side — sealed AES-256-GCM. */
-export const providerKeys = pgTable("provider_keys", {
-  id: serial("id").primaryKey(),
-  userAddress: text("user_address").notNull(),
-  provider: text("provider").notNull(),
-  ciphertext: text("ciphertext").notNull(),
-  iv: text("iv").notNull(),
-  authTag: text("auth_tag").notNull(),
-});
+export const providerKeys = pgTable(
+  "provider_keys",
+  {
+    id: serial("id").primaryKey(),
+    userAddress: text("user_address").notNull(),
+    subject: text("subject"),
+    provider: text("provider").notNull(),
+    ciphertext: text("ciphertext").notNull(),
+    iv: text("iv").notNull(),
+    authTag: text("auth_tag").notNull(),
+  },
+  (t) => [index("provider_keys_subject_idx").on(t.subject)],
+);
 
-export const watchlist = pgTable("watchlist", {
-  id: serial("id").primaryKey(),
-  userAddress: text("user_address").notNull(),
-  target: text("target").notNull(),
-  label: text("label"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+export const watchlist = pgTable(
+  "watchlist",
+  {
+    id: serial("id").primaryKey(),
+    userAddress: text("user_address").notNull(),
+    subject: text("subject"),
+    // SR-3: E2EE at rest. `target`/`label` hold ciphertext (+ iv); `blindIndex`
+    // is a keyed HMAC of the watched address so the alerts worker can match
+    // on-chain activity without reading the list. Legacy plaintext rows are
+    // re-encrypted on next authenticated load (migrate-on-read).
+    target: text("target").notNull(),
+    label: text("label"),
+    iv: text("iv"),
+    blindIndex: text("blind_index"),
+    encrypted: boolean("encrypted").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("watchlist_subject_idx").on(t.subject),
+    index("watchlist_blind_index_idx").on(t.blindIndex),
+  ],
+);
 
 /** Transparency: every harness tool call the agent makes, for the audit panel. */
 export const auditLog = pgTable(
@@ -267,11 +300,12 @@ export const auditLog = pgTable(
   {
     id: serial("id").primaryKey(),
     userAddress: text("user_address"),
+    subject: text("subject"),
     tool: text("tool").notNull(),
     args: text("args"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
-  (t) => [index("audit_user_idx").on(t.userAddress)],
+  (t) => [index("audit_user_idx").on(t.userAddress), index("audit_subject_idx").on(t.subject)],
 );
 
 export const threads = pgTable(
@@ -279,11 +313,15 @@ export const threads = pgTable(
   {
     id: text("id").primaryKey(),
     userAddress: text("user_address").notNull(),
+    subject: text("subject"),
     title: text("title").notNull().default("New chat"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
-  (t) => [index("threads_user_updated_idx").on(t.userAddress, t.updatedAt)],
+  (t) => [
+    index("threads_user_updated_idx").on(t.userAddress, t.updatedAt),
+    index("threads_subject_updated_idx").on(t.subject, t.updatedAt),
+  ],
 );
 
 /** Encrypted message bodies (server-decryptable envelope). */

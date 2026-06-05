@@ -10,7 +10,7 @@ export async function GET(req: Request) {
   if (auth.required && !auth.authenticated) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
-  const user = auth.walletAddress;
+  const user = auth.sub;
   if (!user) return Response.json({ provisioned: false, threads: [] });
   return Response.json({ provisioned: true, threads: await listThreads(user) });
 }
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   if (auth.required && !auth.authenticated) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
-  const user = auth.walletAddress;
+  const user = auth.sub;
   if (!user) return Response.json({ error: "sign in to save conversations" }, { status: 401 });
   const { title } = (await req.json().catch(() => ({}))) as { title?: string };
   const id = await createThread(user, title || "New chat");

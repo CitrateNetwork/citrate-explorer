@@ -18,20 +18,25 @@ export const E2EE_KEY_MESSAGE =
   "CitrateScan settings encryption key v1 — sign to unlock your private settings. " +
   "This signature never leaves your browser.";
 
-/** Derives a non-extractable AES-GCM key from a wallet signature hex string. */
+/**
+ * Derives a non-extractable AES-GCM key from the auth-seam key material (a wallet
+ * signature hex, or a WebAuthn-PRF secret) bound to the stable OIDC `owner`
+ * (subject). The owner is an opaque, case-sensitive id — it is used VERBATIM in
+ * the HKDF salt (SR-0/SR-2), so the same identity derives the same key across
+ * devices regardless of whether it has a wallet.
+ */
 export async function deriveSettingsKey(
-  signatureHex: string,
-  userAddress: string,
+  keyMaterialHex: string,
+  owner: string,
 ): Promise<CryptoKey> {
-  const sigBytes = hexToBytes(signatureHex);
-  const ikm = await crypto.subtle.importKey("raw", sigBytes, "HKDF", false, [
+  const ikm = await crypto.subtle.importKey("raw", hexToBytes(keyMaterialHex), "HKDF", false, [
     "deriveKey",
   ]);
   return crypto.subtle.deriveKey(
     {
       name: "HKDF",
       hash: "SHA-256",
-      salt: ENC.encode(`citrate-explorer-settings:${userAddress.toLowerCase()}`),
+      salt: ENC.encode(`citrate-explorer-settings:${owner}`),
       info: ENC.encode("citrate-explorer-settings-v1"),
     },
     ikm,
@@ -39,6 +44,39 @@ export async function deriveSettingsKey(
     false,
     ["encrypt", "decrypt"],
   );
+}
+
+/**
+ * Derives a per-user **blind-index key** (SR-3) from the same key material, bound
+ * to the owner with a distinct HKDF `info`. Used to compute keyed HMACs of watched
+ * addresses so the server can match on-chain activity WITHOUT learning the address
+ * or the user's list. Distinct from the settings key (different `info`).
+ */
+export async function deriveBlindIndexKey(
+  keyMaterialHex: string,
+  owner: string,
+): Promise<CryptoKey> {
+  const ikm = await crypto.subtle.importKey("raw", hexToBytes(keyMaterialHex), "HKDF", false, [
+    "deriveKey",
+  ]);
+  return crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: ENC.encode(`citrate-explorer-watchlist-index:${owner}`),
+      info: ENC.encode("citrate-explorer-watchlist-index-v1"),
+    },
+    ikm,
+    { name: "HMAC", hash: "SHA-256", length: 256 },
+    false,
+    ["sign"],
+  );
+}
+
+/** Compute the deterministic blind index (hex HMAC) for a watched address. */
+export async function blindIndex(key: CryptoKey, address: string): Promise<string> {
+  const mac = await crypto.subtle.sign("HMAC", key, ENC.encode(address.toLowerCase()));
+  return bytesToBase64(new Uint8Array(mac));
 }
 
 export interface ClientSealed {

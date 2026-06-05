@@ -44,8 +44,8 @@ const hashSchema = z
   .regex(/^0x[0-9a-fA-F]{64}$/, "expected a 0x-prefixed 32-byte hash");
 
 export interface ToolOptions {
-  /** Authenticated wallet address, for per-user audit scoping. */
-  userAddress?: string;
+  /** Authenticated owner (stable OIDC `subject`), for per-user audit scoping. */
+  subject?: string;
 }
 
 export function citrateTools(opts: ToolOptions = {}) {
@@ -53,7 +53,7 @@ export function citrateTools(opts: ToolOptions = {}) {
   const audited =
     <A>(name: string, run: (args: A) => Promise<unknown>) =>
     async (args: A) => {
-      await logToolCall(name, args, opts.userAddress);
+      await logToolCall(name, args, opts.subject);
       return run(args);
     };
 
