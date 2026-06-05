@@ -157,13 +157,49 @@ export function ContractScreen({ addr, tweaks }) {
   const [tab, setTab] = useState("code");
   const [srcTab, setSrcTab] = useState(0);
   const c = SD.CONTRACT[(addr || "").toLowerCase()];
+  // Live on-chain facts for any address (WS-2a) — bytecode + token metadata.
+  const [live, setLive] = useState(null);
+  useEffect(() => {
+    if (c) return;
+    let cancelled = false;
+    fetch(`/api/contract/${addr}`).then((r) => r.json()).then((j) => { if (!cancelled) setLive(j); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [addr]);
   if (!c) {
-    // unverified path
+    // unverified path — show the REAL on-chain code + token facts.
+    const tok = live && live.token;
     return (
       <div className="wrap">
         <Crumb items={[{ label: "Home", route: "" }, { label: "Contract" }, { label: SD.short(addr) }]} />
-        <div className="pagehead"><div><h1>Contract</h1><div className="sub mono">{SD.short(addr)}</div></div></div>
-        <SummaryCard label="What this is" text={{ full: "This contract isn't verified yet. We can show that code is present and let you make raw eth_call reads, but the output is labeled \"unverified raw\" — never presented as decoded or trusted. Verify the source to unlock decoded Read and Write.", short: "Unverified contract — raw reads only until source is matched." }} seed="explain" verbosity={tweaks.verbosity} foot={<button className="ask-cta" onClick={() => scan.nav("verify")}><Icon name="shield" size={14} /> Verify source</button>} />
+        <div className="pagehead"><div><h1 className="row" style={{ gap: 10 }}><Icon name="file" size={24} /> {live && live.label ? live.label : "Contract"}</h1><div className="sub row" style={{ gap: 8 }}><span className="mono" style={{ fontSize: 13 }}>{SD.short(addr)}</span><CopyBtn text={addr} /><span className="badge" style={{ height: 20 }}>unverified</span></div></div></div>
+        <SummaryCard label="What this is" text={{ full: "This contract isn't verified yet. We show its on-chain bytecode and any detected token metadata, and let you make raw eth_call reads (labeled \"unverified raw\" — never presented as decoded or trusted). Verify the source to unlock decoded Read and Write.", short: "Unverified — on-chain bytecode shown; raw reads only until source is matched." }} seed="explain" verbosity={tweaks.verbosity} foot={<button className="ask-cta" onClick={() => scan.nav("verify")}><Icon name="shield" size={14} /> Verify source</button>} />
+        {tok && (
+          <div className="card" style={{ marginTop: 16 }}>
+            <div className="card-h"><span className="t">Token · {tok.standard}</span></div>
+            <div className="card-bd"><div className="stat-rows">
+              <div className="stat-row"><span className="k">Name</span><span className="v">{tok.name || "—"}</span></div>
+              <div className="stat-row"><span className="k">Symbol</span><span className="v">{tok.symbol || "—"}</span></div>
+              {tok.decimals != null && <div className="stat-row"><span className="k">Decimals</span><span className="v mono">{tok.decimals}</span></div>}
+              {tok.totalSupply != null && <div className="stat-row"><span className="k">Total supply</span><span className="v mono">{tok.totalSupply}</span></div>}
+            </div></div>
+          </div>
+        )}
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-h"><span className="t">On-chain bytecode</span><span className="spacer" />{live && live.bytecode && <CopyBtn text={live.bytecode} />}</div>
+          <div className="card-bd">
+            {!live && <div className="empty" style={{ padding: 20 }}><p>Reading code…</p></div>}
+            {live && live.isContract === false && <div className="note info"><span className="ic"><Icon name="info" size={15} /></span> This address is an EOA — no contract code.</div>}
+            {live && live.isContract && (
+              <React.Fragment>
+                <div className="stat-rows" style={{ marginBottom: 12 }}>
+                  <div className="stat-row"><span className="k">Code size</span><span className="v mono">{Number(live.codeSize || 0).toLocaleString()} bytes</span></div>
+                  <div className="stat-row"><span className="k">Code hash</span><span className="v mono" style={{ fontSize: 12 }}>{live.codeHash ? SD.short(live.codeHash) : "—"}</span></div>
+                </div>
+                <div className="codeblock" style={{ maxHeight: 280, overflow: "auto" }}><pre style={{ wordBreak: "break-all", whiteSpace: "pre-wrap", fontSize: 11 }}>{live.bytecode}</pre></div>
+              </React.Fragment>
+            )}
+          </div>
+        </div>
       </div>
     );
   }
