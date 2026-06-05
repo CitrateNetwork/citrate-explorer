@@ -26,7 +26,7 @@ describe("MCP GET — discovery manifest", () => {
     expect(json.protocol).toBe("mcp");
     expect(json.readOnly).toBe(true);
     expect(Array.isArray(json.tools)).toBe(true);
-    expect(json.tools.length).toBe(17);
+    expect(json.tools.length).toBe(18);
     expect(json.tools.map((t: { name: string }) => t.name)).toContain("exploreDag");
   });
 });
@@ -41,7 +41,7 @@ describe("MCP POST — JSON-RPC transport", () => {
 
   it("lists all tools with input schemas", async () => {
     const json = await (await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" })).json();
-    expect(json.result.tools.length).toBe(17);
+    expect(json.result.tools.length).toBe(18);
     for (const t of json.result.tools) {
       expect(t.inputSchema.type).toBe("object");
     }

@@ -26,6 +26,7 @@ import {
   getGasOracle,
   saltDistribution,
   callView,
+  addressActivityLive,
 } from "@/lib/harness/ops";
 import { explainTransaction } from "@/lib/ai/synthesis/explainTransaction";
 import {
@@ -173,10 +174,31 @@ export function citrateTools(opts: ToolOptions = {}) {
     }),
     addressActivity: tool({
       description:
-        "Summarize an address's recent activity (tx counts, first/last seen) from the index.",
+        "Summarize an address's activity. Uses the indexer when provisioned; otherwise FALLS BACK to a " +
+        "live scan of recent blocks (forensic, recent-window) so you can investigate any address even " +
+        "without the index.",
       inputSchema: z.object({ address: addressSchema }),
-      execute: audited("addressActivity", async ({ address }: { address: string }) =>
-        addressActivity(address as Address),
+      execute: audited("addressActivity", async ({ address }: { address: string }) => {
+        const indexed = await addressActivity(address as Address);
+        if (indexed && (indexed as { provisioned?: boolean }).provisioned === false) {
+          return addressActivityLive(address as Address);
+        }
+        return indexed;
+      }),
+    }),
+    recentActivity: tool({
+      description:
+        "Forensic: scan the last N blocks of live RPC for transactions directly involving an address " +
+        "(sender/recipient), with direction + labeled counterparties. Index-free; recent-window only " +
+        "(no internal transfers or old history). Use to trace recent on-chain movement around an address.",
+      inputSchema: z.object({
+        address: addressSchema,
+        blocks: z.number().int().min(1).max(300).default(60),
+      }),
+      execute: audited(
+        "recentActivity",
+        async ({ address, blocks }: { address: string; blocks: number }) =>
+          addressActivityLive(address as Address, blocks),
       ),
     }),
     topHolders: tool({

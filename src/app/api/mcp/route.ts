@@ -30,6 +30,7 @@ import {
   getGasOracle,
   saltDistribution,
   callView,
+  addressActivityLive,
 } from "@/lib/harness/ops";
 import { explainTransaction } from "@/lib/ai/synthesis/explainTransaction";
 import {
@@ -199,14 +200,34 @@ const TOOLS: Record<string, ToolDef> = {
     run: async (a) => searchTransactions(reqAddr(a.address), clampLimit(a.limit, 25, 100)),
   },
   addressActivity: {
-    description: "Summarize an address's recent activity (tx counts, first/last seen) from the index.",
+    description: "Summarize an address's activity. Uses the indexer when provisioned; otherwise falls back to a live recent-block scan.",
     inputSchema: {
       type: "object",
       properties: { address: { type: "string", description: "0x 20-byte address" } },
       required: ["address"],
       additionalProperties: false,
     },
-    run: async (a) => addressActivity(reqAddr(a.address)),
+    run: async (a) => {
+      const addr = reqAddr(a.address);
+      const indexed = await addressActivity(addr);
+      if (indexed && (indexed as { provisioned?: boolean }).provisioned === false) {
+        return addressActivityLive(addr);
+      }
+      return indexed;
+    },
+  },
+  recentActivity: {
+    description: "Forensic: scan the last N blocks of live RPC for txs directly involving an address (direction + labeled counterparties). Index-free, recent-window only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        address: { type: "string", description: "0x 20-byte address" },
+        blocks: { type: "integer", minimum: 1, maximum: 300, default: 60 },
+      },
+      required: ["address"],
+      additionalProperties: false,
+    },
+    run: async (a) => addressActivityLive(reqAddr(a.address), clampLimit(a.blocks, 60, 300)),
   },
   topHolders: {
     description: "Top holders of an ERC-20/721 token from indexed transfers. Requires the indexer. NOT for native SALT — use saltDistribution.",

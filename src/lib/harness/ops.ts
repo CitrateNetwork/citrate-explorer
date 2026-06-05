@@ -473,6 +473,99 @@ export async function getGasOracle(): Promise<GasOracle> {
   };
 }
 
+// ---- live address activity (forensic, index-free) -----------------------
+
+export interface LiveActivityTx {
+  hash: string;
+  from: string;
+  to: string | null;
+  valueSalt: string;
+  blockNumber: number;
+  direction: "out" | "in";
+  counterparty: string | null;
+  counterpartyLabel: string | null;
+}
+
+export interface LiveActivity {
+  address: string;
+  label: string | null;
+  scannedBlocks: number;
+  fromBlock: number;
+  toBlock: number;
+  sent: number;
+  received: number;
+  txs: LiveActivityTx[];
+  truncated: boolean;
+  note: string;
+}
+
+/**
+ * Best-effort forensic activity for an address WITHOUT the indexer: scan the last
+ * `blocks` blocks of live RPC for transactions where the address is sender or
+ * recipient. Honest about its window — it does NOT see older history or internal
+ * (contract-to-contract) transfers; for full history the indexer is required.
+ */
+export async function addressActivityLive(
+  address: Address,
+  blocks = 60,
+  max = 40,
+): Promise<LiveActivity> {
+  const a = address.toLowerCase();
+  const head = Number(await harnessClient().getBlockNumber());
+  const fromBlock = Math.max(0, head - blocks + 1);
+  const heights: number[] = [];
+  for (let h = head; h >= fromBlock; h--) heights.push(h);
+
+  const fetched = await Promise.all(heights.map((h) => getDagBlock(h)));
+  const txs: LiveActivityTx[] = [];
+  let sent = 0;
+  let received = 0;
+  let truncated = false;
+  for (const b of fetched) {
+    if (!b) continue;
+    for (const t of b.raw.transactions ?? []) {
+      const tf = (t.from ?? "").toLowerCase();
+      const tt = (t.to ?? "").toLowerCase();
+      if (tf !== a && tt !== a) continue;
+      if (txs.length >= max) {
+        truncated = true;
+        break;
+      }
+      const direction: "out" | "in" = tf === a ? "out" : "in";
+      if (direction === "out") sent += 1;
+      else received += 1;
+      const counterparty = direction === "out" ? (t.to ?? null) : t.from;
+      txs.push({
+        hash: t.hash,
+        from: t.from,
+        to: t.to ?? null,
+        valueSalt: formatEther(t.value ? BigInt(t.value) : 0n),
+        blockNumber: b.height,
+        direction,
+        counterparty,
+        counterpartyLabel: counterparty ? knownLabel(counterparty) : null,
+      });
+    }
+    if (truncated) break;
+  }
+  return {
+    address,
+    label: knownLabel(address),
+    scannedBlocks: head - fromBlock + 1,
+    fromBlock,
+    toBlock: head,
+    sent,
+    received,
+    txs,
+    truncated,
+    note:
+      `Scanned the last ${head - fromBlock + 1} block(s) (#${fromBlock}–#${head}) of live RPC. ` +
+      `Found ${txs.length} tx(s) directly involving this address` +
+      `${truncated ? ` (capped at ${max})` : ""}. This is a recent-window view only — internal ` +
+      `(contract-to-contract) transfers and older history need the indexer.`,
+  };
+}
+
 // ---- native SALT distribution -------------------------------------------
 
 export interface SaltDistribution {

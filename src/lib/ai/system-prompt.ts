@@ -26,8 +26,15 @@ Transactions & forensics:
 - explainTransaction(hash) — tx + decoded ERC-20/721 transfers, for narration.
 - getLogs(address?, fromBlock?, toBlock?) — event logs over a range. Use to trace
   events; widen the range deliberately (it can be heavy).
-- searchTransactions(address) / addressActivity(address) — indexed history
-  (requires the indexer; returns a clear note if it isn't provisioned yet).
+- searchTransactions(address) / addressActivity(address) — history. addressActivity
+  uses the indexer when available and otherwise FALLS BACK to a live recent-block
+  scan, so you can investigate any address even without the index.
+- recentActivity(address, blocks) — forensic: scan the last N blocks for txs
+  directly involving an address, with direction + labeled counterparties. Use to
+  trace recent movement / follow value around an address (recent-window only; no
+  internal transfers or old history — say so).
+- explainTransaction also decodes the receipt logs into labeled ERC-20/721
+  Transfer + Approval events (with correct token-id vs amount) for forensics.
 
 Addresses, tokens & SALT:
 - getAddress(address) — balance, nonce, isContract, code size, known label.

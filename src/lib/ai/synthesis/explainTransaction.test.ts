@@ -34,3 +34,54 @@ describe("explainTransaction synthesis (WP-1.6, live)", () => {
     expect(ex.note).toContain(ex.from);
   });
 });
+
+// --- pure decodeLog unit tests (no RPC) ---
+import { decodeLog } from "./explainTransaction";
+
+const TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const APPROVAL = "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925";
+const topicAddr = (a: string) => `0x000000000000000000000000${a.replace(/^0x/, "")}` as const;
+const MODEL_REGISTRY = "0x077fbc3338a9e6bad90a3a041e6b7425689754ef"; // known label
+const ALICE = "0x1111111111111111111111111111111111111111";
+const BOB = "0x2222222222222222222222222222222222222222";
+
+describe("decodeLog — labeled ERC-20/721 event decoding", () => {
+  it("decodes an ERC-20 Transfer (3 topics + data = amount)", () => {
+    const e = decodeLog({
+      address: MODEL_REGISTRY,
+      topics: [TRANSFER, topicAddr(ALICE), topicAddr(BOB)],
+      data: "0x0000000000000000000000000000000000000000000000000de0b6b3a7640000", // 1e18
+    });
+    expect(e.type).toBe("ERC-20 Transfer");
+    expect(e.from?.toLowerCase()).toBe(ALICE);
+    expect(e.to?.toLowerCase()).toBe(BOB);
+    expect(e.valueRaw).toBe("1000000000000000000");
+    expect(e.value).toBe("1");
+    expect(e.tokenId).toBeUndefined();
+    expect(e.contractLabel).toBe("ModelRegistry"); // known-address labeling
+  });
+
+  it("decodes an ERC-721 Transfer (4 topics, tokenId indexed, no amount)", () => {
+    const e = decodeLog({
+      address: BOB,
+      topics: [TRANSFER, topicAddr(ALICE), topicAddr(BOB), `0x${"0".repeat(63)}7`],
+      data: "0x",
+    });
+    expect(e.type).toBe("ERC-721 Transfer");
+    expect(e.tokenId).toBe("7");
+    expect(e.valueRaw).toBeUndefined();
+  });
+
+  it("decodes an ERC-20 Approval", () => {
+    const e = decodeLog({ address: ALICE, topics: [APPROVAL, topicAddr(ALICE), topicAddr(BOB)], data: "0x05" });
+    expect(e.type).toBe("ERC-20 Approval");
+    expect(e.owner?.toLowerCase()).toBe(ALICE);
+    expect(e.spender?.toLowerCase()).toBe(BOB);
+  });
+
+  it("flags an unknown event with its topic0", () => {
+    const e = decodeLog({ address: ALICE, topics: ["0xdeadbeef"], data: "0x" });
+    expect(e.type).toBe("unknown");
+    expect(e.topic0).toBe("0xdeadbeef");
+  });
+});
