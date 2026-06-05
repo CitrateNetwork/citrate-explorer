@@ -21,6 +21,7 @@ import { Home } from "./screens/home";
 import { TxScreen } from "./screens/tx";
 import { BlockScreen, AddressScreen, TokenScreen } from "./screens/entity";
 import { ContractScreen } from "./screens/contract";
+import { VerifyScreen } from "./screens/verify";
 import { DagView } from "./screens/dag";
 import { AgentPanel } from "./screens/agent";
 import { SettingsScreen, DevHub } from "./screens/settings";
@@ -150,6 +151,7 @@ function Shell() {
   else if (r.name === "block") view = <BlockScreen id={r.id} tweaks={tweaksForScreens} />;
   else if (r.name === "address") view = <AddressScreen addr={r.id} tweaks={tweaksForScreens} />;
   else if (r.name === "contract") view = <ContractScreen addr={r.id} tweaks={tweaksForScreens} />;
+  else if (r.name === "verify") view = <VerifyScreen addr={r.id} />;
   else if (r.name === "token") view = <TokenScreen addr={r.id} tweaks={tweaksForScreens} />;
   else if (r.name === "dag") view = <DagView reducedMotion={tweaks.reducedMotion} />;
   else if (r.name === "dev") view = <DevHub />;

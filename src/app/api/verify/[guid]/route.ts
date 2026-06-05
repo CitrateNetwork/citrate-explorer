@@ -1,15 +1,26 @@
-/** Poll a verification by guid. The engine (recompile-and-diff) lands in S-4. */
+import { getVerificationByGuid } from "@/lib/verify/engine";
+
+/** Poll a verification by guid — the persisted recompile-and-diff result. */
 export async function GET(
   _req: Request,
   ctx: { params: Promise<{ guid: string }> },
 ) {
   const { guid } = await ctx.params;
+  const row = await getVerificationByGuid(guid);
+  if (!row) {
+    return Response.json(
+      { guid, status: "unknown", message: "No verification found for this guid (or no DB provisioned)." },
+      { status: 404 },
+    );
+  }
   return Response.json({
-    guid,
-    status: "pending",
-    message:
-      "Verification engine ships in S-4 (multi-version solc recompile-and-diff " +
-      "in a sandbox, with proxy detection). This endpoint will then report " +
-      "pass/fail and full vs partial match.",
+    guid: row.guid,
+    address: row.address,
+    status: row.status,
+    matchType: row.matchType,
+    contractName: row.contractName,
+    compilerVersion: row.compilerVersion,
+    message: row.message,
+    verifiedAt: row.verifiedAt,
   });
 }

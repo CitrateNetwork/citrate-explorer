@@ -166,13 +166,23 @@ export function ContractScreen({ addr, tweaks }) {
     return () => { cancelled = true; };
   }, [addr]);
   if (!c) {
-    // unverified path — show the REAL on-chain code + token facts.
+    // live path — show the REAL on-chain code + token facts, and verified source
+    // when the contract has been verified (WS-2b).
     const tok = live && live.token;
+    const ver = live && live.verification && live.verification.verified ? live.verification : null;
     return (
       <div className="wrap">
         <Crumb items={[{ label: "Home", route: "" }, { label: "Contract" }, { label: SD.short(addr) }]} />
-        <div className="pagehead"><div><h1 className="row" style={{ gap: 10 }}><Icon name="file" size={24} /> {live && live.label ? live.label : "Contract"}</h1><div className="sub row" style={{ gap: 8 }}><span className="mono" style={{ fontSize: 13 }}>{SD.short(addr)}</span><CopyBtn text={addr} /><span className="badge" style={{ height: 20 }}>unverified</span></div></div></div>
-        <SummaryCard label="What this is" text={{ full: "This contract isn't verified yet. We show its on-chain bytecode and any detected token metadata, and let you make raw eth_call reads (labeled \"unverified raw\" — never presented as decoded or trusted). Verify the source to unlock decoded Read and Write.", short: "Unverified — on-chain bytecode shown; raw reads only until source is matched." }} seed="explain" verbosity={tweaks.verbosity} foot={<button className="ask-cta" onClick={() => scan.nav("verify")}><Icon name="shield" size={14} /> Verify source</button>} />
+        <div className="pagehead"><div><h1 className="row" style={{ gap: 10 }}><Icon name="file" size={24} /> {(ver && ver.contractName) || (live && live.label) || "Contract"}</h1><div className="sub row" style={{ gap: 8 }}><span className="mono" style={{ fontSize: 13 }}>{SD.short(addr)}</span><CopyBtn text={addr} />{ver ? <span className="badge green" style={{ height: 20 }}><Icon name="shieldCheck" size={11} /> verified · {ver.matchType}</span> : <span className="badge" style={{ height: 20 }}>unverified</span>}</div></div></div>
+        {ver
+          ? <SummaryCard label="What this is" text={{ full: `Verified contract (${ver.matchType} match) compiled with ${ver.compilerVersion}. The source below was recompiled and its bytecode matched the on-chain code — reads can be decoded against the verified ABI.`, short: `Verified (${ver.matchType}) with ${ver.compilerVersion}.` }} seed="explain" verbosity={tweaks.verbosity} />
+          : <SummaryCard label="What this is" text={{ full: "This contract isn't verified yet. We show its on-chain bytecode and any detected token metadata, and let you make raw eth_call reads (labeled \"unverified raw\" — never presented as decoded or trusted). Verify the source to unlock decoded Read and Write.", short: "Unverified — on-chain bytecode shown; raw reads only until source is matched." }} seed="explain" verbosity={tweaks.verbosity} foot={<button className="ask-cta" onClick={() => scan.nav("verify/" + addr)}><Icon name="shield" size={14} /> Verify source</button>} />}
+        {ver && ver.source && (
+          <div className="card" style={{ marginTop: 16 }}>
+            <div className="card-h"><span className="t">Verified source</span><span className="spacer" /><CopyBtn text={ver.source} /></div>
+            <div className="codeblock" style={{ border: "none", borderRadius: 0, maxHeight: 460, overflow: "auto" }}><pre>{ver.source}</pre></div>
+          </div>
+        )}
         {tok && (
           <div className="card" style={{ marginTop: 16 }}>
             <div className="card-h"><span className="t">Token · {tok.standard}</span></div>

@@ -1,5 +1,6 @@
 import type { Address } from "viem";
 import { getAddress, getContractCode, getToken } from "@/lib/harness/ops";
+import { getVerifiedContract } from "@/lib/verify/engine";
 
 /**
  * Contract page data: confirms the address holds bytecode and returns the REAL
@@ -36,6 +37,8 @@ export async function GET(
     } catch {
       /* not a token */
     }
+    // Verified source/ABI, if this contract has been verified (WS-2b).
+    const verified = await getVerifiedContract(info.address).catch(() => null);
     return Response.json({
       address: info.address,
       label: code.label,
@@ -45,10 +48,20 @@ export async function GET(
       bytecode: code.bytecode,
       balanceSalt: info.balanceSalt,
       token,
-      verification: {
-        verified: false,
-        note: "Source verification (recompile-and-diff) lands with the verify engine (WS-2b). Bytecode + behavior (via read calls) are available now.",
-      },
+      verification: verified
+        ? {
+            verified: true,
+            matchType: verified.matchType,
+            contractName: verified.contractName,
+            compilerVersion: verified.compilerVersion,
+            source: verified.source,
+            abi: verified.abi ? JSON.parse(verified.abi) : null,
+            verifiedAt: verified.verifiedAt,
+          }
+        : {
+            verified: false,
+            note: "Not verified. Submit source at POST /api/verify (recompile-and-diff). Bytecode + read calls are available now.",
+          },
     });
   } catch (err) {
     return Response.json({ error: (err as Error).message }, { status: 502 });

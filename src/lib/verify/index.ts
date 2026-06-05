@@ -1,16 +1,16 @@
 /**
- * Contract verification (S-4). This module defines the request/result contract
- * and the intake; the recompile-and-diff ENGINE (multi-version solc in a Vercel
- * Sandbox, constructor-arg / CBOR-auxdata / immutable / library handling, proxy
- * detection) lands in S-4. Until then, intake records a pending request and the
- * engine call fails loudly rather than returning a fake verdict (Rule 11).
+ * Contract verification (WS-2b) — public surface. The recompile-and-diff ENGINE
+ * lives in `engine.ts` (solc-js compile → immutable-mask + metadata-strip → diff)
+ * and persists the verified source/ABI. This module keeps the request/result
+ * types + the deterministic guid, and `submitVerification` runs the engine inline.
  *
- * Etherscan-compatible surface (see EXPLORER_SPEC.md §3):
- *   POST /api/verify                  → submitVerification → { guid }
- *   GET  /api/verify/[guid]           → checkVerification  → { status }
+ * Etherscan-compatible surface (EXPLORER_SPEC.md §3):
+ *   POST /api/verify        → submitVerification → { guid, status, matchType }
+ *   GET  /api/verify/[guid]  → the persisted record
  *   /api/v1?module=contract&action=verifysourcecode|checkverifystatus
  */
 import type { Address } from "viem";
+import { verifyContract } from "./engine";
 
 export type MatchType = "full" | "partial";
 export type VerificationStatus = "pending" | "pass" | "fail";
@@ -24,6 +24,7 @@ export interface VerificationRequest {
   source: string;
   constructorArguments?: string;
   optimizationRuns?: number;
+  evmVersion?: string;
 }
 
 export interface VerificationResult {
@@ -31,40 +32,41 @@ export interface VerificationResult {
   address: string;
   status: VerificationStatus;
   matchType?: MatchType;
+  contractName?: string;
+  compilerVersion?: string;
   message: string;
 }
 
-/** Deterministic-ish guid from inputs (no Date/random in shared libs). */
-function makeGuid(req: VerificationRequest): string {
-  const basis = `${req.address}:${req.compilerVersion}:${req.source.length}`;
+/** Deterministic guid from inputs (no Date/random — stable across retries). */
+export function makeGuid(req: VerificationRequest): string {
+  const basis = `${req.address.toLowerCase()}:${req.compilerVersion}:${req.source.length}`;
   let h = 0;
   for (let i = 0; i < basis.length; i++) h = (h * 31 + basis.charCodeAt(i)) | 0;
   return `vrf_${(h >>> 0).toString(16)}${req.address.slice(2, 10)}`;
 }
 
-/**
- * Accepts a verification request. In S-0..S-3 this records the request as
- * `pending` and returns its guid; the engine runs in S-4. The caller (API route)
- * persists the pending row and enqueues the job.
- */
+/** Verify a contract (runs the engine inline) and return the verdict. */
 export async function submitVerification(
   req: VerificationRequest,
 ): Promise<VerificationResult> {
   const guid = makeGuid(req);
-  return {
+  const outcome = await verifyContract({
     guid,
     address: req.address,
-    status: "pending",
-    message:
-      "Verification accepted and queued. The recompile-and-diff engine ships in " +
-      "S-4 (multi-version solc in a sandbox); poll GET /api/verify/{guid} for status.",
+    format: req.format,
+    compilerVersion: req.compilerVersion,
+    source: req.source,
+    optimizationRuns: req.optimizationRuns,
+    evmVersion: req.evmVersion,
+  });
+  return {
+    guid,
+    address: outcome.address,
+    status: outcome.status,
+    matchType:
+      outcome.matchType === "full" || outcome.matchType === "partial" ? outcome.matchType : undefined,
+    contractName: outcome.contractName,
+    compilerVersion: outcome.compiler,
+    message: outcome.message,
   };
-}
-
-/** Runs the recompile-and-diff. Not implemented until S-4. */
-export async function runVerificationEngine(): Promise<never> {
-  throw new Error(
-    "Verification engine not implemented yet (lands in S-4). " +
-      "See .agentile/planset/2026-06-02-citrate-explorer-v1/sprints/S-4-contract-verification.md",
-  );
 }

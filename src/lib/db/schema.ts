@@ -187,15 +187,26 @@ export const tokenTransfers = pgTable(
   ],
 );
 
-export const contractVerifications = pgTable("contract_verifications", {
-  guid: text("guid").primaryKey(),
-  address: text("address").notNull(),
-  status: text("status").notNull().default("pending"), // pending | pass | fail
-  matchType: text("match_type"), // full | partial | null
-  compilerVersion: text("compiler_version"),
-  sourceHash: text("source_hash"),
-  submittedAt: timestamp("submitted_at", { withTimezone: true }).defaultNow(),
-});
+export const contractVerifications = pgTable(
+  "contract_verifications",
+  {
+    guid: text("guid").primaryKey(),
+    address: text("address").notNull(),
+    status: text("status").notNull().default("pending"), // pending | pass | fail
+    matchType: text("match_type"), // full | partial | null
+    compilerVersion: text("compiler_version"),
+    sourceHash: text("source_hash"),
+    /** The verified contract name (file:Name) once matched. */
+    contractName: text("contract_name"),
+    /** Verified source (public) + ABI JSON, rendered on the contract page. */
+    source: text("source"),
+    abi: text("abi"),
+    message: text("message"),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }).defaultNow(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  },
+  (t) => [index("contract_verifications_address_idx").on(t.address)],
+);
 
 /** Singleton indexer cursor — lets the worker resume with zero gaps/duplicates. */
 export const indexerState = pgTable("indexer_state", {

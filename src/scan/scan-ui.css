@@ -434,3 +434,9 @@
   .chainbadge { display: none; }
   .crumb { flex-wrap: wrap; }
 }
+
+/* Verify-contract form (WS-2b) */
+.vfield { display: flex; flex-direction: column; gap: 6px; }
+.vlbl { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.vinput { width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--r-1); background: var(--surface-2); color: var(--text-1); font-size: 13.5px; outline: none; }
+.vinput:focus { border-color: var(--accent); }
