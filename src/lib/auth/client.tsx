@@ -16,6 +16,7 @@ import {
   createContext,
   useContext,
   useCallback,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -24,6 +25,7 @@ import { WagmiProvider } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { wagmiConfig } from "@/lib/citrate/config";
 import { AUTH_MODE, OIDC_PUBLIC, MOCK_DEV_ADDRESS } from "./config";
+import { oidcEndpoints, sessionEventsUrl, logoutUrl } from "./discovery";
 import type { AuthContextValue } from "./types";
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -88,6 +90,9 @@ function useMockAuth(): AuthContextValue {
 // --- oidc adapter (Authorization Code + PKCE, public client) ----------------
 
 const OIDC_TOKEN_KEY = "citrate.auth.oidc.idtoken";
+const OIDC_ACCESS_KEY = "citrate.auth.oidc.accesstoken";
+const OIDC_STATE_KEY = "citrate.auth.oidc.state";
+const OIDC_VERIFIER_KEY = "citrate.auth.oidc.verifier";
 
 function decodeJwtClaims(jwt: string): Record<string, unknown> | null {
   try {
@@ -118,35 +123,81 @@ function useOidcAuth(): AuthContextValue {
   const ready = true;
 
   const claims = useMemo(() => (token ? decodeJwtClaims(token) : null), [token]);
+  const sub = claims?.sub as string | undefined;
 
   const login = useCallback(async () => {
+    // PKCE verifier + CSRF state, both stored to verify on the callback.
     const verifier = crypto.randomUUID() + crypto.randomUUID();
-    sessionStorage.setItem("citrate.auth.oidc.verifier", verifier);
+    const state = crypto.randomUUID();
+    sessionStorage.setItem(OIDC_VERIFIER_KEY, verifier);
+    sessionStorage.setItem(OIDC_STATE_KEY, state);
     const challenge = await pkceChallenge(verifier);
-    const redirectUri = `${location.origin}${OIDC_PUBLIC.redirectPath}`;
-    const url = new URL(OIDC_PUBLIC.authorizeUrl || `${OIDC_PUBLIC.issuer}/authorize`);
+    // Endpoints come from discovery (panva's is /auth, not /authorize).
+    const ep = await oidcEndpoints();
+    const url = new URL(ep.authorization);
     url.searchParams.set("response_type", "code");
     url.searchParams.set("client_id", OIDC_PUBLIC.clientId);
-    url.searchParams.set("redirect_uri", redirectUri);
+    url.searchParams.set("redirect_uri", `${location.origin}${OIDC_PUBLIC.redirectPath}`);
     url.searchParams.set("scope", OIDC_PUBLIC.scope);
     url.searchParams.set("code_challenge", challenge);
     url.searchParams.set("code_challenge_method", "S256");
-    url.searchParams.set("state", crypto.randomUUID());
+    url.searchParams.set("state", state);
     location.href = url.toString();
   }, []);
 
-  const logout = useCallback(() => {
+  const clearLocal = useCallback(() => {
     localStorage.removeItem(OIDC_TOKEN_KEY);
+    localStorage.removeItem(OIDC_ACCESS_KEY);
     setToken(null);
   }, []);
 
+  const logout = useCallback(() => {
+    // End the session AT THE AUTHORITY (revokes + publishes the logout event that
+    // cascades to other RPs), then drop the local session.
+    const access = (() => {
+      try {
+        return localStorage.getItem(OIDC_ACCESS_KEY);
+      } catch {
+        return null;
+      }
+    })();
+    void fetch(logoutUrl(), {
+      method: "POST",
+      headers: access ? { authorization: `Bearer ${access}` } : undefined,
+      keepalive: true,
+    }).catch(() => {});
+    clearLocal();
+  }, [clearLocal]);
+
+  // Logout cascade (TD-5b): subscribe to the authority's SSE bus and drop the
+  // local session when a `logout` event for THIS subject arrives (logout elsewhere
+  // — another tab, the dashboard, or an admin revoke — signs us out here too).
+  useEffect(() => {
+    if (!token || !sub || typeof EventSource === "undefined") return;
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(sessionEventsUrl(), { withCredentials: false });
+      es.addEventListener("logout", (e: MessageEvent) => {
+        try {
+          const ev = JSON.parse(e.data) as { sub?: string };
+          if (ev.sub && ev.sub.toLowerCase() === sub.toLowerCase()) clearLocal();
+        } catch {
+          /* ignore malformed events */
+        }
+      });
+    } catch {
+      /* SSE unavailable — best-effort */
+    }
+    return () => es?.close();
+  }, [token, sub, clearLocal]);
+
   const getToken = useCallback(async () => token, [token]);
 
-  const wallet = (claims?.wallet_address ?? claims?.["wallet_address"]) as string | undefined;
+  const wallet = claims?.wallet_address as string | undefined;
   return {
     ready,
     authenticated: Boolean(token),
-    sub: claims?.sub as string | undefined,
+    sub,
     address: wallet?.toLowerCase() as `0x${string}` | undefined,
     login,
     logout,
