@@ -19,7 +19,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file=.env.local scripts/db-migrate.mjs",
     "contracts:build": "forge build",
-    "contracts:test": "forge test"
+    "contracts:test": "forge test",
+    "sync-addresses": "node scripts/sync-addresses.mjs",
+    "sync-addresses:check": "node scripts/sync-addresses.mjs --check"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.48",
