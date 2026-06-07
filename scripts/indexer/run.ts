@@ -29,6 +29,23 @@ import { isDbEnabled } from "@/lib/db/client";
 
 const POLL_MS = Number(process.env.INDEXER_POLL_MS ?? 2000);
 const ONCE = process.env.INDEXER_ONCE === "1";
+/**
+ * How many heights to ingest concurrently while catching up. Default 1
+ * preserves the previous strictly-sequential behaviour. Set higher when
+ * the indexer is far behind head — each `ingestBlock` is idempotent
+ * (`onConflictDoNothing` on `blocks` / `receipts` / `logs` / `dag_edges`,
+ * `onConflictDoUpdate(id=1)` on `indexer_state`), so the only effect of a
+ * cursor race is a brief regression that gets retried-and-deduped on the
+ * next loop iteration. With `INDEXER_PARALLEL=8` and ~1s per block, the
+ * sustained ingest rate goes from ~1 block/s to ~8 blocks/s, which is
+ * what closes a 10k+ block gap in minutes instead of hours.
+ *
+ * Capped at 32 to keep the Neon connection pool happy on the free tier.
+ */
+const PARALLEL = Math.max(
+  1,
+  Math.min(32, Number(process.env.INDEXER_PARALLEL ?? 1)),
+);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -47,18 +64,36 @@ async function once() {
 async function loop() {
   let next = await resumeHeight();
   console.log(
-    `[indexer] resuming at height ${next}; db=${isDbEnabled() ? "neon" : "dry"}; poll=${POLL_MS}ms`,
+    `[indexer] resuming at height ${next}; db=${isDbEnabled() ? "neon" : "dry"}; poll=${POLL_MS}ms parallel=${PARALLEL}`,
   );
   for (;;) {
     try {
       const head = await headHeight();
       while (next <= head) {
-        const res = await ingestBlock(next);
-        if (res.persisted || res.hash) {
-          const sup = res.superseded ? ` superseded=${res.superseded}` : "";
-          console.log(`[indexer] block ${next} hash=${res.hash} txs=${res.txCount}${sup}`);
+        // Process up to PARALLEL heights concurrently. Each call is
+        // idempotent at every persist site, so a partial batch failure
+        // just leaves a gap that the next loop iteration re-covers via
+        // the same `next <= head` check.
+        const batchEnd = Math.min(next + PARALLEL - 1, head);
+        const heights: number[] = [];
+        for (let h = next; h <= batchEnd; h++) heights.push(h);
+        const results = await Promise.allSettled(
+          heights.map((h) => ingestBlock(h)),
+        );
+        for (let i = 0; i < heights.length; i++) {
+          const r = results[i];
+          const h = heights[i];
+          if (r.status === "fulfilled") {
+            const v = r.value;
+            if (v.persisted || v.hash) {
+              const sup = v.superseded ? ` superseded=${v.superseded}` : "";
+              console.log(`[indexer] block ${h} hash=${v.hash} txs=${v.txCount}${sup}`);
+            }
+          } else {
+            console.error(`[indexer] block ${h} failed: ${(r.reason as Error).message}`);
+          }
         }
-        next += 1;
+        next = batchEnd + 1;
       }
       if (isDbEnabled()) {
         const f = await reconcileFinality();
