@@ -6,7 +6,7 @@ const live = process.env.LIVE_RPC === "1";
 const liveIt = live ? it : it.skip;
 
 // A real contract on live 40204 (verified has bytecode) and an empty EOA-ish addr.
-const KNOWN_CONTRACT = "0x077fbc3338a9e6bad90a3a041e6b7425689754ef" as Address;
+const KNOWN_CONTRACT = "0x11a5e6f57751d8fa1c5b58ad2bf13528160985f0" as Address;
 const EMPTY_ADDR = "0x0000000000000000000000000000000000000001" as Address;
 
 describe("dual-unit SALT (WP-1.5, X-4, unit)", () => {
