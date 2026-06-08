@@ -135,18 +135,33 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
   const [token, setToken] = useState(null);
   const scrollRef = useRef(null);
 
-  useEffect(() => { auth.getToken().then(setToken).catch(() => {}); }, [auth.authenticated]);
+  // useChat (below) captures its transport ONCE — it rebuilds the underlying Chat
+  // only on chat/id change, never when the transport object changes. So a transport
+  // that baked the token into a STATIC header at first render would send every
+  // request unauthenticated: the token resolves async (one tick after mount, via
+  // getToken()), so at construction it's still null → headers undefined → 401 →
+  // "session expired", on every device, deterministically. Fix: keep the latest
+  // token + threadId in refs and read them live from the transport's header/body
+  // FUNCTIONS, which the SDK re-resolves on every request — so the freshly-minted
+  // token always rides along even though the transport instance is captured once.
+  const tokenRef = useRef(null);
+  useEffect(() => {
+    auth.getToken().then((t) => { tokenRef.current = t; setToken(t); }).catch(() => {});
+  }, [auth.authenticated]);
 
   // A stable id for THIS conversation so the whole session persists to one thread
   // (server-side, when signed in). Regenerate for a "new chat"; set on resume.
   const [conversationId, setConversationId] = useState(newConvId);
+  const convIdRef = useRef(conversationId);
+  useEffect(() => { convIdRef.current = conversationId; }, [conversationId]);
+
   const transport = useMemo(
     () => new DefaultChatTransport({
       api: "/api/chat",
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      body: { threadId: conversationId },
+      headers: () => (tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : {}),
+      body: () => ({ threadId: convIdRef.current }),
     }),
-    [token, conversationId],
+    [],
   );
 
   const { messages, sendMessage, status, error, setMessages } = useChat({ transport });
