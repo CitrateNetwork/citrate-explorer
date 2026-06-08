@@ -295,26 +295,34 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
             </div>
           );
         })}
-        {error && (
-          <div className="msg assistant">
-            {!auth.authenticated ? (
-              <div className="bubble">
-                Sign in to chat with CitrateScan — the agent answers from live on-chain reads on your behalf, so it needs to know who's asking.
-                <div style={{ marginTop: 10 }}>
-                  <button className="btn primary" onClick={() => auth.login()}>
-                    <Icon name="user" size={15} /> Sign in or sign up
-                  </button>
+        {error && (() => {
+          // An expired/stale token reads as authenticated on the client (token in
+          // localStorage, no exp check) but the server 401s it. Treat a 401 the
+          // same as logged-out: clear the dead token and prompt a fresh sign-in.
+          const unauth = !auth.authenticated || /unauthor/i.test(error.message ?? "");
+          return (
+            <div className="msg assistant">
+              {unauth ? (
+                <div className="bubble">
+                  {auth.authenticated
+                    ? "Your session expired — sign in again to keep chatting with CitrateScan."
+                    : "Sign in to chat with CitrateScan — the agent answers from live on-chain reads on your behalf, so it needs to know who's asking."}
+                  <div style={{ marginTop: 10 }}>
+                    <button className="btn primary" onClick={() => { try { auth.logout?.(); } catch {} auth.login(); }}>
+                      <Icon name="user" size={15} /> {auth.authenticated ? "Sign in again" : "Sign in or sign up"}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div className="bubble" style={{ color: "var(--danger)" }}>
-                {error?.message && error.message !== "An error occurred."
-                  ? error.message
-                  : "The agent couldn't reach the inference endpoint right now. Live chain reads still work across the explorer — please try again in a moment."}
-              </div>
-            )}
-          </div>
-        )}
+              ) : (
+                <div className="bubble" style={{ color: "var(--danger)" }}>
+                  {error?.message && error.message !== "An error occurred."
+                    ? error.message
+                    : "The agent couldn't reach the inference endpoint right now. Live chain reads still work across the explorer — please try again in a moment."}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
       <div className="agent-input">
         <div className="box">
