@@ -26,11 +26,11 @@ pragma solidity 0.8.26;
  */
 contract CitratePulse {
     // ---- live AI-native registries on Citrate (chain 40204) ----
-    address public constant MODEL_REGISTRY = 0x077Fbc3338A9e6BAD90A3A041E6b7425689754Ef;
-    address public constant LORA_FACTORY = 0xAc6Bfb1709BCba5A005FE2823B4D8bC55db2b7D9;
-    address public constant INFERENCE_ROUTER = 0xAD7c3135c1B9B3189208FD617B6B058C1c0469f3;
-    address public constant COMPUTE_TRAINING = 0xf1eae5DD4a1639922eA610142f7ce51330065b57;
-    address public constant X402_PAYWALL = 0x11399989175783CDCa8ECB095835c8cD4720C6Fc;
+    address public constant MODEL_REGISTRY = 0x11a5e6F57751d8fa1c5b58ad2bf13528160985f0;
+    address public constant LORA_FACTORY = 0xa1eeD6aE021504e2a1e310E6C0f7C1A0C5bF4647;
+    address public constant INFERENCE_ROUTER = 0x6884ef1907468A13265a0bbb67Da20Ef4B52199B;
+    address public constant COMPUTE_TRAINING = 0x25051e90A110fbE4569f124274ce387eB033bC9c;
+    address public constant X402_PAYWALL = 0xD29D4D059808ADC43b761f41c675F1EB546E1a19;
 
     /// @dev The rotating spotlight vocabulary (one per block, by sequence).
     string[6] private SPOTLIGHTS = ["model", "lora", "inference", "training", "x402", "agent"];
