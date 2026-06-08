@@ -297,9 +297,20 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
         })}
         {error && (
           <div className="msg assistant">
-            <div className="bubble" style={{ color: "var(--danger)" }}>
-              The agent is unavailable right now — the inference endpoint may not be configured. Live chain reads still work across the explorer.
-            </div>
+            {!auth.authenticated ? (
+              <div className="bubble">
+                Sign in to chat with CitrateScan — the agent answers from live on-chain reads on your behalf, so it needs to know who's asking.
+                <div style={{ marginTop: 10 }}>
+                  <button className="btn primary" onClick={() => auth.login()}>
+                    <Icon name="user" size={15} /> Sign in or sign up
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="bubble" style={{ color: "var(--danger)" }}>
+                The agent couldn't reach the inference endpoint right now. Live chain reads still work across the explorer — please try again in a moment.
+              </div>
+            )}
           </div>
         )}
       </div>
