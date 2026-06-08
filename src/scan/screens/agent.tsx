@@ -308,7 +308,9 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
               </div>
             ) : (
               <div className="bubble" style={{ color: "var(--danger)" }}>
-                The agent couldn't reach the inference endpoint right now. Live chain reads still work across the explorer — please try again in a moment.
+                {error?.message && error.message !== "An error occurred."
+                  ? error.message
+                  : "The agent couldn't reach the inference endpoint right now. Live chain reads still work across the explorer — please try again in a moment."}
               </div>
             )}
           </div>

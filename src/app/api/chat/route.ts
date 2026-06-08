@@ -107,7 +107,16 @@ export async function POST(req: Request) {
   });
 
   // Surface the thread id so the client can track + resume the conversation.
+  // onError: the AI SDK masks stream errors by default ("An error occurred"),
+  // which hid the real cause (a failing tool call, gateway hiccup, etc.) behind
+  // a generic message. Log the full error server-side and return a concise,
+  // secret-free reason to the client so the agent can say WHY it failed.
   return result.toUIMessageStreamResponse({
     headers: threadId ? { "x-thread-id": threadId } : undefined,
+    onError: (error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error("[api/chat] stream error:", msg, error);
+      return msg ? `Agent error: ${msg.slice(0, 400)}` : "Agent error (unknown).";
+    },
   });
 }
