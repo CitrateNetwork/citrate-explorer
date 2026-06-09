@@ -39,6 +39,7 @@ import {
   type TokenTransferQuery,
 } from "@/lib/indexer/repository";
 import { resolveAmount, resolveTimeRange, amountRange } from "@/lib/research/resolvers";
+import { describeContract, listContracts, CITRATE_OVERVIEW, CONTRACT_CATEGORIES, type ContractCategory } from "@/lib/citrate/contractCatalog";
 import { logToolCall } from "./audit";
 
 const addressSchema = z
@@ -251,6 +252,27 @@ export function citrateTools(opts: ToolOptions = {}) {
         async ({ address, signature, args }: { address: string; signature: string; args: unknown[] }) =>
           callView(address as Address, signature, args),
       ),
+    }),
+    describeContract: tool({
+      description:
+        "What a Citrate SYSTEM contract IS and does (name, category, purpose) from the documented catalog — " +
+        "use for 'what is the contract at 0x…' / 'what does the InferenceRouter do'. Returns known=false for " +
+        "non-system addresses (then inspect with getAddress/callView). Catalog knowledge — confirm live code with getAddress.",
+      inputSchema: z.object({ address: addressSchema }),
+      execute: audited("describeContract", async ({ address }: { address: string }) => describeContract(address)),
+    }),
+    citrateContracts: tool({
+      description:
+        "Overview of Citrate's system contracts, optionally by category — use for 'what can I do on Citrate', " +
+        "'what AI/compute/LoRA contracts exist'. Returns a one-paragraph overview + the catalog (name, address, purpose).",
+      inputSchema: z.object({
+        category: z.enum(CONTRACT_CATEGORIES as [string, ...string[]]).optional().describe("filter by category"),
+      }),
+      execute: audited("citrateContracts", async ({ category }: { category?: string }) => ({
+        overview: CITRATE_OVERVIEW,
+        categories: CONTRACT_CATEGORIES,
+        contracts: listContracts(category as ContractCategory | undefined),
+      })),
     }),
     getGasOracle: tool({
       description:

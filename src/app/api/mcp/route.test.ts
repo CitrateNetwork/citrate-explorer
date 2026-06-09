@@ -27,11 +27,12 @@ describe("MCP GET — discovery manifest", () => {
     expect(json.readOnly).toBe(true);
     expect(Array.isArray(json.tools)).toBe(true);
     // RA-4: generated from the agent's tool set — same surface, no drift.
-    expect(json.tools.length).toBe(20);
+    expect(json.tools.length).toBe(22);
     const names = json.tools.map((t: { name: string }) => t.name);
     expect(names).toContain("exploreDag");
     expect(names).toContain("findTransfers"); // was missing from the old hand-written list
     expect(names).toContain("ledger");
+    expect(names).toContain("describeContract"); // RA-5 — auto-flows via the shared registry
   });
 });
 
@@ -45,7 +46,7 @@ describe("MCP POST — JSON-RPC transport", () => {
 
   it("lists all tools with input schemas", async () => {
     const json = await (await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" })).json();
-    expect(json.result.tools.length).toBe(20);
+    expect(json.result.tools.length).toBe(22);
     for (const t of json.result.tools) {
       expect(t.inputSchema.type).toBe("object");
     }
