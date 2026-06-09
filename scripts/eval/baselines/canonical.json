@@ -1,35 +1,37 @@
 {
-  "baseline": "ctx128k (DGX context raised to model max + relaxed budget)",
+  "baseline": "RA-5 (contract knowledge)",
   "base_model": "gemma-4-E4B-it-Q4_K_M",
   "lora_id": null,
   "base_url": "https://explorer.citrate.ai",
   "runs": 3,
-  "method": "3-run averaged, robust scoring; DGX llama-server n_ctx 4096->131072, explorer budget 1536/14/8",
+  "method": "3-run averaged, robust scoring; 128K context + contract knowledge pack",
   "metrics": {
     "agent_accuracy": {
-      "mean": 0.942,
-      "stdev": 0.0205
+      "mean": 0.9333,
+      "stdev": 0.0499
     },
     "agent_tool_f1": {
-      "mean": 0.7826,
-      "stdev": 0.0355
+      "mean": 0.744,
+      "stdev": 0.0173
     },
     "agent_groundedness": {
-      "mean": 0.873
+      "mean": 0.8551
     },
-    "agent_latency_p50_ms": 8714
+    "agent_latency_p50_ms": 7499
   },
   "accuracy_by_class": {
-    "chain": 0.75,
+    "chain": 0.833,
     "dag": 1,
     "address": 1,
-    "native_vs_token": 1,
+    "native_vs_token": 0.667,
     "token": 1,
-    "multistep": 0.833,
-    "value": 1
+    "multistep": 1,
+    "value": 0.889
   },
   "flaky": [
-    "multistep-latest-block-txcount"
+    "chain-id-newcomer",
+    "value-biggest-24h-newcomer",
+    "value-ambiguous-30k-native-vs-token"
   ],
-  "note": "Journey: 49.3%% (RA-3, context-starved at 4k) -> 82.6%% (RA-6, trimmed overhead) -> 94.2%%\u00b12.0 (DGX served context raised 4096->131072 = model max, explorer budget relaxed). Empty narration eliminated; variance collapsed to \u00b12.0 (tightest yet). Hard gates: tool-F1 0.783, groundedness 0.873. 1 flaky (multistep tip-drift, eval artifact)."
+  "note": "RA-5 adds contract-purpose knowledge (describeContract/citrateContracts); the 2 new items pass 1.0. Accuracy holds ~93-94% (was 94.2%\u00b12.0 over 25 items; now 27). Hard gates stable. Remaining flaky = known model-variance (chain-id, value-window edge cases)."
 }
