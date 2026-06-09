@@ -14,8 +14,8 @@
  *
  * Data source (Rule 11): live Citrate RPC; written to Neon tables.
  */
-import { and, eq, ne, lte } from "drizzle-orm";
-import type { Hash } from "viem";
+import { and, eq, ne, lte, inArray } from "drizzle-orm";
+import type { Address, Hash } from "viem";
 import { harnessClient } from "@/lib/harness/client";
 import { getDagBlock, dagStats, isFinal, type DagBlock } from "@/lib/citrate/rpc";
 import { getDb } from "@/lib/db/client";
@@ -25,8 +25,12 @@ import {
   transactions,
   receipts,
   logs,
+  tokenTransfers,
+  tokens,
   indexerState,
 } from "@/lib/db/schema";
+import { decodeTransferLog, type RawLog } from "./transferDecode";
+import { getToken } from "@/lib/harness/ops";
 
 const big = (h?: string): string => (h ? BigInt(h).toString() : "0");
 
@@ -74,6 +78,15 @@ export async function ingestBlock(
     )
     .returning({ hash: blocks.hash });
   superseded = displaced.length;
+
+  // Reorg cleanup (RA-3): drop decoded transfers for displaced blocks so aggregates
+  // (rich lists, token activity) never double-count across a reorg. Keyed to the
+  // canonical block hash; the txs/logs rows are re-inserted for the winning block.
+  if (displaced.length) {
+    await db.delete(tokenTransfers).where(
+      inArray(tokenTransfers.blockHash, displaced.map((d) => d.hash)),
+    );
+  }
 
   // 2. Block row (idempotent insert).
   await db
@@ -132,7 +145,11 @@ export async function ingestBlock(
       )
       .onConflictDoNothing();
 
-    await ingestReceipts(db, txs.map((t) => t.hash as Hash), block.height);
+    await ingestReceipts(db, txs.map((t) => t.hash as Hash), {
+      height: block.height,
+      blockHash: block.hash,
+      timestamp: block.timestamp,
+    });
   }
 
   // 5. Advance the resume cursor (monotonic).
@@ -149,8 +166,15 @@ export async function ingestBlock(
 
 type Db = NonNullable<ReturnType<typeof getDb>>;
 
-/** Fetches receipts (and their logs) for a set of tx hashes and persists them. */
-async function ingestReceipts(db: Db, hashes: Hash[], height: number): Promise<void> {
+interface BlockRef {
+  height: number;
+  blockHash: string;
+  timestamp: number | null;
+}
+
+/** Fetches receipts (and their logs) for a set of tx hashes and persists them,
+ *  decoding token transfers into `token_transfers` along the way (RA-3). */
+async function ingestReceipts(db: Db, hashes: Hash[], ref: BlockRef): Promise<void> {
   const client = harnessClient();
   for (const hash of hashes) {
     let r;
@@ -172,23 +196,80 @@ async function ingestReceipts(db: Db, hashes: Hash[], height: number): Promise<v
       .onConflictDoNothing();
 
     if (r.logs.length) {
+      const rawLogs: (RawLog & { txHash: string })[] = r.logs.map((l) => ({
+        txHash: hash,
+        address: l.address.toLowerCase(),
+        topics: l.topics,
+        data: l.data,
+        logIndex: Number(l.logIndex ?? 0),
+      }));
+
       await db
         .insert(logs)
         .values(
-          r.logs.map((l) => ({
-            txHash: hash,
-            logIndex: Number(l.logIndex ?? 0),
-            address: l.address.toLowerCase(),
+          rawLogs.map((l) => ({
+            txHash: l.txHash,
+            logIndex: l.logIndex ?? 0,
+            address: l.address,
             topic0: l.topics[0] ?? null,
             topic1: l.topics[1] ?? null,
             topic2: l.topics[2] ?? null,
             topic3: l.topics[3] ?? null,
             data: l.data,
-            blockHeight: height,
+            blockHeight: ref.height,
           })),
         )
         .onConflictDoNothing();
+
+      await ingestTransfers(db, rawLogs, ref);
     }
+  }
+}
+
+/** Decode token-transfer logs into `token_transfers` + lazily populate `tokens`. */
+async function ingestTransfers(db: Db, rawLogs: (RawLog & { txHash: string })[], ref: BlockRef): Promise<void> {
+  const rows = rawLogs.flatMap((l) =>
+    decodeTransferLog(l).map((tr) => ({
+      txHash: l.txHash,
+      blockHash: ref.blockHash,
+      blockHeight: ref.height,
+      timestamp: ref.timestamp,
+      token: tr.token,
+      standard: tr.standard,
+      from: tr.from,
+      to: tr.to,
+      value: tr.value ?? null,
+      tokenId: tr.tokenId ?? null,
+      logIndex: tr.logIndex ?? 0,
+    })),
+  );
+  if (!rows.length) return;
+
+  await db.insert(tokenTransfers).values(rows).onConflictDoNothing();
+
+  // Populate token metadata once per newly-seen token (cached in `tokens`).
+  const seen = new Map<string, string>(); // address -> standard
+  for (const row of rows) if (!seen.has(row.token)) seen.set(row.token, row.standard);
+  for (const [address, standard] of seen) {
+    const existing = await db.select({ a: tokens.address }).from(tokens).where(eq(tokens.address, address)).limit(1);
+    if (existing.length) continue;
+    let name: string | null = null;
+    let symbol: string | null = null;
+    let decimals: number | null = null;
+    let totalSupply: string | null = null;
+    try {
+      const meta = await getToken(address as Address);
+      name = meta.name ?? null;
+      symbol = meta.symbol ?? null;
+      decimals = meta.decimals ?? null; // honest null — never a fabricated 18
+      totalSupply = meta.totalSupplyRaw ?? null;
+    } catch {
+      // unreadable / non-conforming token — store what we know (standard) honestly
+    }
+    await db
+      .insert(tokens)
+      .values({ address, type: standard, name, symbol, decimals, totalSupply })
+      .onConflictDoNothing();
   }
 }
 

@@ -174,7 +174,12 @@ export const tokenTransfers = pgTable(
   {
     id: serial("id").primaryKey(),
     txHash: text("tx_hash").notNull(),
+    // RA-3: provenance for reorg-safe cleanup + time/standard queries.
+    blockHash: text("block_hash"),
+    blockHeight: bigint("block_height", { mode: "number" }),
+    timestamp: bigint("timestamp", { mode: "number" }),
     token: text("token").notNull(),
+    standard: text("standard"), // erc20 | erc721 | erc1155
     from: text("from_addr").notNull(),
     to: text("to_addr").notNull(),
     value: text("value"),
@@ -182,9 +187,13 @@ export const tokenTransfers = pgTable(
     logIndex: integer("log_index"),
   },
   (t) => [
+    // One row per (tx, logIndex, tokenId) — ERC-1155 batch shares a logIndex across ids.
+    uniqueIndex("tt_tx_log_id_uq").on(t.txHash, t.logIndex, t.tokenId),
     index("tt_token_idx").on(t.token),
     index("tt_from_idx").on(t.from),
     index("tt_to_idx").on(t.to),
+    index("tt_block_idx").on(t.blockHeight),
+    index("tt_timestamp_idx").on(t.timestamp),
   ],
 );
 

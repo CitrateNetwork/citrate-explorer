@@ -6,7 +6,7 @@
 import { and, desc, eq, or, sql } from "drizzle-orm";
 import { formatUnits, type Address } from "viem";
 import { getDb } from "@/lib/db/client";
-import { blocks, transactions } from "@/lib/db/schema";
+import { blocks, transactions, tokenTransfers } from "@/lib/db/schema";
 import { NOT_PROVISIONED, type NotProvisioned } from "./types";
 
 export async function getRecentBlocks(limit = 25) {
@@ -168,18 +168,144 @@ export async function findNativeTransfers(
     })
     .from(transactions);
 
+  // Postgres min/max(bigint) come back as strings via the driver — coerce to numbers
+  // so the result type (and the agent) gets real numbers, not "1004".
+  const num = (v: unknown): number | null => (v == null ? null : Number(v));
   return {
     provisioned: true,
     asset: "SALT (native)",
     coverage: {
-      minTimestamp: cov?.minTs ?? null,
-      maxTimestamp: cov?.maxTs ?? null,
-      minHeight: cov?.minH ?? null,
-      maxHeight: cov?.maxH ?? null,
+      minTimestamp: num(cov?.minTs),
+      maxTimestamp: num(cov?.maxTs),
+      minHeight: num(cov?.minH),
+      maxHeight: num(cov?.maxH),
     },
     truncated,
     count: transfers.length,
     transfers,
+  };
+}
+
+// --- token (ERC-20/721/1155) transfer queries (RA-3) ----------------------
+
+export interface TokenTransferQuery {
+  token: string;
+  minRaw?: bigint;
+  maxRaw?: bigint;
+  counterparty?: string;
+  direction?: "sent" | "received" | "either";
+  fromTs?: number;
+  toTs?: number;
+  order?: "value_desc" | "value_asc" | "time_desc";
+  limit?: number;
+}
+
+export interface TokenTransferRow {
+  txHash: string;
+  blockHeight: number | null;
+  timestamp: number | null;
+  standard: string | null;
+  from: string;
+  to: string;
+  valueRaw: string | null;
+  tokenId: string | null;
+}
+
+export interface TokenTransfersResult {
+  provisioned: true;
+  token: string;
+  truncated: boolean;
+  count: number;
+  transfers: TokenTransferRow[];
+}
+
+/**
+ * Find ERC-20/721/1155 transfers of one token by amount range (raw units), time
+ * window, counterparty, and direction (RA-3). Amounts compare via NUMERIC cast on
+ * the raw value; the caller converts a human amount using the token's decimals.
+ *
+ * Data source (Rule 11): Neon `token_transfers`, decoded at index time from logs.
+ */
+export async function findTokenTransfers(
+  q: TokenTransferQuery,
+): Promise<NotProvisioned | TokenTransfersResult> {
+  const db = getDb();
+  if (!db) return NOT_PROVISIONED;
+
+  const valueNumeric = sql`CAST(${tokenTransfers.value} AS NUMERIC)`;
+  const conds = [eq(tokenTransfers.token, q.token.toLowerCase())];
+  if (q.minRaw !== undefined) conds.push(sql`${valueNumeric} >= CAST(${q.minRaw.toString()} AS NUMERIC)`);
+  if (q.maxRaw !== undefined) conds.push(sql`${valueNumeric} <= CAST(${q.maxRaw.toString()} AS NUMERIC)`);
+  if (q.counterparty) {
+    const cp = q.counterparty.toLowerCase();
+    if (q.direction === "sent") conds.push(eq(tokenTransfers.from, cp));
+    else if (q.direction === "received") conds.push(eq(tokenTransfers.to, cp));
+    else conds.push(or(eq(tokenTransfers.from, cp), eq(tokenTransfers.to, cp))!);
+  }
+  if (q.fromTs !== undefined) conds.push(sql`${tokenTransfers.timestamp} >= ${q.fromTs}`);
+  if (q.toTs !== undefined) conds.push(sql`${tokenTransfers.timestamp} <= ${q.toTs}`);
+
+  const limit = Math.min(Math.max(q.limit ?? 25, 1), 100);
+  const orderBy =
+    q.order === "value_asc" ? sql`${valueNumeric} ASC NULLS LAST` :
+    q.order === "time_desc" ? desc(tokenTransfers.timestamp) :
+    sql`${valueNumeric} DESC NULLS LAST`;
+
+  const rows = await db
+    .select({
+      txHash: tokenTransfers.txHash,
+      blockHeight: tokenTransfers.blockHeight,
+      timestamp: tokenTransfers.timestamp,
+      standard: tokenTransfers.standard,
+      from: tokenTransfers.from,
+      to: tokenTransfers.to,
+      value: tokenTransfers.value,
+      tokenId: tokenTransfers.tokenId,
+    })
+    .from(tokenTransfers)
+    .where(and(...conds))
+    .orderBy(orderBy)
+    .limit(limit + 1);
+
+  const truncated = rows.length > limit;
+  const transfers: TokenTransferRow[] = rows.slice(0, limit).map((r) => ({
+    txHash: r.txHash,
+    blockHeight: r.blockHeight,
+    timestamp: r.timestamp,
+    standard: r.standard,
+    from: r.from,
+    to: r.to,
+    valueRaw: r.value,
+    tokenId: r.tokenId,
+  }));
+
+  return { provisioned: true, token: q.token.toLowerCase(), truncated, count: transfers.length, transfers };
+}
+
+/** Count a token's transfers (and distinct counterparties) in a time window. */
+export async function tokenActivity(
+  token: string,
+  opts: { fromTs?: number; toTs?: number } = {},
+): Promise<NotProvisioned | { provisioned: true; token: string; transfers: number; senders: number; recipients: number }> {
+  const db = getDb();
+  if (!db) return NOT_PROVISIONED;
+  const conds = [eq(tokenTransfers.token, token.toLowerCase())];
+  if (opts.fromTs !== undefined) conds.push(sql`${tokenTransfers.timestamp} >= ${opts.fromTs}`);
+  if (opts.toTs !== undefined) conds.push(sql`${tokenTransfers.timestamp} <= ${opts.toTs}`);
+  const [row] = await db
+    .select({
+      transfers: sql<number>`count(*)::int`,
+      senders: sql<number>`count(distinct ${tokenTransfers.from})::int`,
+      recipients: sql<number>`count(distinct ${tokenTransfers.to})::int`,
+    })
+    .from(tokenTransfers)
+    .where(and(...conds));
+  return {
+    provisioned: true,
+    token: token.toLowerCase(),
+    transfers: row?.transfers ?? 0,
+    senders: row?.senders ?? 0,
+    recipients: row?.recipients ?? 0,
   };
 }
 

@@ -34,7 +34,9 @@ import {
   addressActivity,
   topHolders,
   findNativeTransfers,
+  findTokenTransfers,
   type NativeTransferQuery,
+  type TokenTransferQuery,
 } from "@/lib/indexer/repository";
 import { resolveAmount, resolveTimeRange, amountRange } from "@/lib/research/resolvers";
 import { logToolCall } from "./audit";
@@ -270,7 +272,9 @@ export function citrateTools(opts: ToolOptions = {}) {
         "(about = ±1%, the default; atleast; atmost; exact). `since` is a time phrase ('last week', " +
         "'last 24 hours', or a YYYY-MM-DD). `address`+`direction` filter by sender/recipient. Results are " +
         "NATIVE SALT — always say so. The result includes the index `coverage` window; if the answer might " +
-        "be outside it, say so rather than implying 'none exist'. (ERC-20/token transfers aren't indexed yet.)",
+        "be outside it, say so rather than implying 'none exist'. Pass `token` (a 0x address) to search that " +
+        "ERC-20/721/1155 token's transfers instead — amounts are then in that token's units and the result is " +
+        "labeled with the token's symbol (say WHICH token, never conflate it with native SALT).",
       inputSchema: z.object({
         amount: z.string().optional().describe("human amount, e.g. '30k SALT' or '0.5 SALT'"),
         comparator: z.enum(["about", "atleast", "atmost", "exact"]).optional().default("about"),
@@ -279,7 +283,7 @@ export function citrateTools(opts: ToolOptions = {}) {
         direction: z.enum(["sent", "received", "either"]).optional().default("either"),
         order: z.enum(["biggest", "smallest", "recent"]).optional().default("biggest"),
         limit: z.number().int().min(1).max(100).optional().default(10),
-        token: addressSchema.optional().describe("not supported yet — omit for native SALT"),
+        token: addressSchema.optional().describe("an ERC-20/721/1155 token address; omit for native SALT"),
       }),
       execute: audited(
         "findTransfers",
@@ -293,14 +297,40 @@ export function citrateTools(opts: ToolOptions = {}) {
           limit: number;
           token?: string;
         }) => {
+          const order: NativeTransferQuery["order"] =
+            args.order === "smallest" ? "value_asc" : args.order === "recent" ? "time_desc" : "value_desc";
+
+          // Token transfers (RA-3): convert the human amount with the token's own
+          // decimals, query token_transfers, and label with the token's identity (X-3).
           if (args.token) {
+            const meta = await getToken(args.token as Address);
+            const tq: TokenTransferQuery = { token: args.token, limit: args.limit, order };
+            if (args.amount) {
+              const a = resolveAmount(args.amount, meta.decimals ?? 18);
+              if (!a.ok) return { error: `I couldn't read the amount "${args.amount}": ${a.error}` };
+              const range = amountRange(a.grains, args.comparator);
+              tq.minRaw = range.minGrains;
+              tq.maxRaw = range.maxGrains;
+            }
+            if (args.since) {
+              const tr = resolveTimeRange(args.since, Math.floor(Date.now() / 1000));
+              if (!tr.ok) return { error: `I couldn't read the time range "${args.since}": ${tr.error}` };
+              tq.fromTs = tr.fromTs;
+              tq.toTs = tr.toTs;
+            }
+            if (args.address) {
+              tq.counterparty = args.address;
+              tq.direction = args.direction;
+            }
+            const res = await findTokenTransfers(tq);
             return {
-              error:
-                "Token (ERC-20/721) transfers aren't indexed yet — that lands in a later release. " +
-                "I can search NATIVE SALT transfers: omit the token to do that.",
+              token: { address: args.token, symbol: meta.symbol, decimals: meta.decimals, standard: meta.standard, label: meta.label },
+              decimalsNote: meta.decimals == null ? "token decimals unknown — amounts are raw base units" : undefined,
+              ...res,
             };
           }
-          const q: NativeTransferQuery = { limit: args.limit, order: "value_desc" };
+
+          const q: NativeTransferQuery = { limit: args.limit, order };
           if (args.amount) {
             const a = resolveAmount(args.amount);
             if (!a.ok) return { error: `I couldn't read the amount "${args.amount}": ${a.error}` };
@@ -316,7 +346,6 @@ export function citrateTools(opts: ToolOptions = {}) {
             q.counterparty = args.address;
             q.direction = args.direction;
           }
-          q.order = args.order === "smallest" ? "value_asc" : args.order === "recent" ? "time_desc" : "value_desc";
           return findNativeTransfers(q);
         },
       ),
