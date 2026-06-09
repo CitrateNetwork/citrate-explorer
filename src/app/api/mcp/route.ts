@@ -1,302 +1,54 @@
 /**
- * MCP server for CitrateScan (P-7 WP-7.4). Exposes the explorer's READ-ONLY
- * harness over the Model Context Protocol so external agents (Claude, ChatGPT,
- * Cursor) use CitrateScan as their on-chain tool — the Blockscout-validated
- * pattern: decoded, dual-unit (SALT + raw grains), structured outputs.
+ * MCP server for CitrateScan (P-7 WP-7.4; RA-4 unified registry).
  *
- * Single source of truth (Rule 11): every tool here dispatches to the SAME
- * read-only ops the AI agent uses (`src/lib/harness/ops.ts`) and the same indexer
- * repository (`src/lib/indexer/repository.ts`). There is no write/sign tool by
- * construction. Data is live Citrate RPC + the indexed Neon DB (honest
- * not-provisioned notes when the index is absent).
+ * Exposes the explorer's READ-ONLY tools over the Model Context Protocol so
+ * external agents (Claude, ChatGPT, Cursor) use CitrateScan as their on-chain tool.
+ *
+ * SINGLE SOURCE OF TRUTH (ADR-003): the tools here are GENERATED from the exact
+ * same `citrateTools()` the in-app agent uses — same names, zod input schemas
+ * (converted to JSON Schema via zod's `toJSONSchema`), and `execute`. There is no
+ * separate hand-maintained MCP tool list to drift (the old one was missing
+ * findTransfers / its token support / ledger). Tool calls are audited under the
+ * API-key identity.
  *
  * Transport: JSON-RPC 2.0 over HTTP POST (`initialize`, `tools/list`,
- * `tools/call`, `ping`, and the `notifications/initialized` notification). GET
- * returns a human/agent-readable discovery manifest.
+ * `tools/call`, `ping`, `notifications/initialized`). GET returns a discovery
+ * manifest.
  */
-import type { Address, Hex } from "viem";
-import {
-  getChainStatus,
-  getBlock,
-  getTransaction,
-  getAddress,
-  getBalance,
-  getLogs,
-  exploreDag,
-  dagOverview,
-  isContract,
-  getContractCode,
-  getToken,
-  getGasOracle,
-  saltDistribution,
-  callView,
-  addressActivityLive,
-} from "@/lib/harness/ops";
-import { explainTransaction } from "@/lib/ai/synthesis/explainTransaction";
-import {
-  searchTransactions,
-  addressActivity,
-  topHolders,
-} from "@/lib/indexer/repository";
+import { z } from "zod";
+import { citrateTools } from "@/lib/ai/tools";
 import { extractApiKey, validateApiKey, clientIp } from "@/lib/api/keys";
 import { checkRateLimit } from "@/lib/api/ratelimit";
 
 const PROTOCOL_VERSION = "2025-06-18";
-const SERVER_INFO = { name: "citratescan", version: "1.0.0" };
-
-const ADDR = /^0x[0-9a-fA-F]{40}$/;
-const HASH = /^0x[0-9a-fA-F]{64}$/;
+const SERVER_INFO = { name: "citratescan", version: "1.1.0" };
 
 type Json = Record<string, unknown>;
-interface ToolDef {
+interface McpTool {
   description: string;
-  inputSchema: Json;
-  run: (args: Json) => Promise<unknown>;
+  inputSchema: z.ZodType;
+  execute: (args: unknown, opts?: unknown) => Promise<unknown>;
 }
 
-/** Throwable JSON-RPC error so handlers can signal -32602 invalid params. */
-class RpcError extends Error {
-  constructor(public code: number, message: string, public data?: unknown) {
-    super(message);
-  }
+/** Build the tool set (auditing under `subject` when known). Cheap — no IO. */
+function buildTools(subject?: string): Record<string, McpTool> {
+  return citrateTools({ subject }) as unknown as Record<string, McpTool>;
 }
-const badArg = (msg: string): never => {
-  throw new RpcError(-32602, msg);
-};
-const reqAddr = (v: unknown, field = "address"): Address => {
-  if (typeof v !== "string" || !ADDR.test(v)) badArg(`${field} must be a 0x 20-byte address`);
-  return (v as string) as Address;
-};
-const reqHash = (v: unknown, field = "hash"): Hex => {
-  if (typeof v !== "string" || !HASH.test(v)) badArg(`${field} must be a 0x 32-byte hash`);
-  return (v as string) as Hex;
-};
-const optInt = (v: unknown, field: string): number | undefined => {
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== "number" || !Number.isInteger(v)) badArg(`${field} must be an integer`);
-  return v as number;
-};
-const clampLimit = (v: unknown, def: number, max: number): number => {
-  const n = optInt(v, "limit");
-  if (n === undefined) return def;
-  return Math.min(Math.max(n, 1), max);
-};
 
-/** The tool registry — names/semantics mirror src/lib/ai/tools.ts 1:1. */
-const TOOLS: Record<string, ToolDef> = {
-  getChainStatus: {
-    description: "Live chain status: chain id, latest block number, and gas price (dual-unit).",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
-    run: async () => getChainStatus(),
-  },
-  getBlock: {
-    description: "Fetch a block by height (number-as-string), 0x hash, or 'latest'.",
-    inputSchema: {
-      type: "object",
-      properties: { ref: { type: "string", description: "block height, 0x hash, or 'latest'", default: "latest" } },
-      additionalProperties: false,
-    },
-    run: async (a) => {
-      const ref = typeof a.ref === "string" && a.ref.length ? a.ref : "latest";
-      const r = ref === "latest" ? "latest" : ref.startsWith("0x") ? (ref as Hex) : Number(ref);
-      if (r !== "latest" && typeof r === "number" && Number.isNaN(r)) badArg("ref must be a height, 0x hash, or 'latest'");
-      return getBlock(r);
-    },
-  },
-  getTransaction: {
-    description: "Fetch a transaction and its receipt by hash.",
-    inputSchema: {
-      type: "object",
-      properties: { hash: { type: "string", description: "0x 32-byte tx hash" } },
-      required: ["hash"],
-      additionalProperties: false,
-    },
-    run: async (a) => getTransaction(reqHash(a.hash)),
-  },
-  explainTransaction: {
-    description: "Fetch a tx plus decoded events (ERC-20/721 transfers, approvals) as a structured bundle to narrate a plain-English 'what happened'.",
-    inputSchema: {
-      type: "object",
-      properties: { hash: { type: "string", description: "0x 32-byte tx hash" } },
-      required: ["hash"],
-      additionalProperties: false,
-    },
-    run: async (a) => explainTransaction(reqHash(a.hash)),
-  },
-  getAddress: {
-    description: "An address's SALT balance, nonce, and whether it is a contract.",
-    inputSchema: {
-      type: "object",
-      properties: { address: { type: "string", description: "0x 20-byte address" } },
-      required: ["address"],
-      additionalProperties: false,
-    },
-    run: async (a) => getAddress(reqAddr(a.address)),
-  },
-  getBalance: {
-    description: "An address's SALT balance (dual-unit: SALT + raw grains/wei).",
-    inputSchema: {
-      type: "object",
-      properties: { address: { type: "string", description: "0x 20-byte address" } },
-      required: ["address"],
-      additionalProperties: false,
-    },
-    run: async (a) => getBalance(reqAddr(a.address)),
-  },
-  isContract: {
-    description: "Whether an address holds contract bytecode.",
-    inputSchema: {
-      type: "object",
-      properties: { address: { type: "string", description: "0x 20-byte address" } },
-      required: ["address"],
-      additionalProperties: false,
-    },
-    run: async (a) => {
-      const address = reqAddr(a.address);
-      return { address, isContract: await isContract(address) };
-    },
-  },
-  getLogs: {
-    description: "Event logs, optionally filtered by contract address and block range.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        address: { type: "string", description: "optional 0x contract address" },
-        fromBlock: { type: "integer", description: "optional start block height" },
-        toBlock: { type: "integer", description: "optional end block height" },
-      },
-      additionalProperties: false,
-    },
-    run: async (a) => {
-      const from = optInt(a.fromBlock, "fromBlock");
-      const to = optInt(a.toBlock, "toBlock");
-      return getLogs({
-        address: a.address === undefined ? undefined : reqAddr(a.address),
-        fromBlock: from !== undefined ? BigInt(from) : undefined,
-        toBlock: to !== undefined ? BigInt(to) : undefined,
-      });
-    },
-  },
-  exploreDag: {
-    description: "GHOSTDAG topology. With no blockHash: the overview (tips, blue/red, max blue score, finality params). With a blockHash: that block's selected-parent ancestor chain, its merge parents, and finalization.",
-    inputSchema: {
-      type: "object",
-      properties: { blockHash: { type: "string", description: "optional 0x block hash to walk" } },
-      additionalProperties: false,
-    },
-    run: async (a) => (a.blockHash !== undefined ? exploreDag(reqHash(a.blockHash, "blockHash"), 10) : dagOverview()),
-  },
-  searchTransactions: {
-    description: "Search indexed transactions by address (from/to). Requires the indexer; returns a not-provisioned note otherwise.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        address: { type: "string", description: "0x 20-byte address" },
-        limit: { type: "integer", minimum: 1, maximum: 100, default: 25 },
-      },
-      required: ["address"],
-      additionalProperties: false,
-    },
-    run: async (a) => searchTransactions(reqAddr(a.address), clampLimit(a.limit, 25, 100)),
-  },
-  addressActivity: {
-    description: "Summarize an address's activity. Uses the indexer when provisioned; otherwise falls back to a live recent-block scan.",
-    inputSchema: {
-      type: "object",
-      properties: { address: { type: "string", description: "0x 20-byte address" } },
-      required: ["address"],
-      additionalProperties: false,
-    },
-    run: async (a) => {
-      const addr = reqAddr(a.address);
-      const indexed = await addressActivity(addr);
-      if (indexed && (indexed as { provisioned?: boolean }).provisioned === false) {
-        return addressActivityLive(addr);
-      }
-      return indexed;
-    },
-  },
-  recentActivity: {
-    description: "Forensic: scan the last N blocks of live RPC for txs directly involving an address (direction + labeled counterparties). Index-free, recent-window only.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        address: { type: "string", description: "0x 20-byte address" },
-        blocks: { type: "integer", minimum: 1, maximum: 300, default: 60 },
-      },
-      required: ["address"],
-      additionalProperties: false,
-    },
-    run: async (a) => addressActivityLive(reqAddr(a.address), clampLimit(a.blocks, 60, 300)),
-  },
-  topHolders: {
-    description: "Top holders of an ERC-20/721 token from indexed transfers. Requires the indexer. NOT for native SALT — use saltDistribution.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        token: { type: "string", description: "0x 20-byte token address" },
-        limit: { type: "integer", minimum: 1, maximum: 100, default: 10 },
-      },
-      required: ["token"],
-      additionalProperties: false,
-    },
-    run: async (a) => topHolders(reqAddr(a.token, "token"), clampLimit(a.limit, 10, 100)),
-  },
-  getContractCode: {
-    description: "A contract's deployed bytecode: size, keccak code hash, raw bytecode, EOA-vs-contract. Source needs verification.",
-    inputSchema: {
-      type: "object",
-      properties: { address: { type: "string", description: "0x 20-byte address" } },
-      required: ["address"],
-      additionalProperties: false,
-    },
-    run: async (a) => getContractCode(reqAddr(a.address)),
-  },
-  getToken: {
-    description: "Token metadata (auto-detects ERC-20/721): name, symbol, decimals, total supply, + optional holder balance.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        address: { type: "string", description: "0x 20-byte token address" },
-        holder: { type: "string", description: "optional 0x holder to read balance of" },
-      },
-      required: ["address"],
-      additionalProperties: false,
-    },
-    run: async (a) => getToken(reqAddr(a.address), a.holder === undefined ? undefined : reqAddr(a.holder, "holder")),
-  },
-  callView: {
-    description: "Read ANY view/pure function by Solidity signature, e.g. \"function getModel(bytes32) view returns (address,string,uint256)\". Read-only.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        address: { type: "string", description: "0x 20-byte contract address" },
-        signature: { type: "string", description: "full Solidity function signature" },
-        args: { type: "array", description: "function arguments", items: {} },
-      },
-      required: ["address", "signature"],
-      additionalProperties: false,
-    },
-    run: async (a) => callView(reqAddr(a.address), String(a.signature), Array.isArray(a.args) ? (a.args as unknown[]) : []),
-  },
-  getGasOracle: {
-    description: "Current gas price (wei + gwei) and reference cost estimates for common operations, dual-unit.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
-    run: async () => getGasOracle(),
-  },
-  saltDistribution: {
-    description: "Who holds the most native SALT: known genesis allocations with LIVE balances (biggest first). SALT is native (no Transfer events), so a full leaderboard needs a balance indexer.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
-    run: async () => saltDistribution(),
-  },
-};
+/** JSON Schema for a tool's inputs (MCP wants a plain object schema). */
+function jsonSchema(tool: McpTool): Json {
+  const js = z.toJSONSchema(tool.inputSchema, { target: "draft-7" }) as Json;
+  delete js.$schema;
+  return js;
+}
 
-const toolList = () =>
-  Object.entries(TOOLS).map(([name, t]) => ({
+function toolList(tools: Record<string, McpTool>) {
+  return Object.entries(tools).map(([name, t]) => ({
     name,
     description: t.description,
-    inputSchema: t.inputSchema,
+    inputSchema: jsonSchema(t),
   }));
+}
 
 /** GET — discovery manifest (also handy for humans hitting the endpoint). */
 export async function GET() {
@@ -309,7 +61,7 @@ export async function GET() {
     capabilities: { tools: { listChanged: false } },
     readOnly: true,
     units: "dual (SALT + raw grains/wei)",
-    tools: toolList(),
+    tools: toolList(buildTools()),
   });
 }
 
@@ -328,7 +80,7 @@ function rpcErr(id: RpcReq["id"], code: number, message: string, data?: unknown)
 }
 
 /** Dispatch one JSON-RPC message. Returns null for notifications (no response). */
-async function handleOne(msg: RpcReq): Promise<object | null> {
+async function handleOne(msg: RpcReq, tools: Record<string, McpTool>): Promise<object | null> {
   if (!msg || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") {
     return rpcErr(msg?.id ?? null, -32600, "Invalid Request");
   }
@@ -352,29 +104,31 @@ async function handleOne(msg: RpcReq): Promise<object | null> {
     case "ping":
       return rpcOk(id, {});
     case "tools/list":
-      return rpcOk(id, { tools: toolList() });
+      return rpcOk(id, { tools: toolList(tools) });
     case "tools/call": {
       const params = msg.params ?? {};
       const name = params.name as string | undefined;
-      const args = (params.arguments as Json) ?? {};
-      const tool = name ? TOOLS[name] : undefined;
+      const rawArgs = (params.arguments as Json) ?? {};
+      const tool = name ? tools[name] : undefined;
       if (!tool) return rpcErr(id, -32602, `Unknown tool: ${name ?? "(missing)"}`);
+
+      // Validate + coerce (defaults) with the SAME zod schema the agent uses.
+      const parsed = tool.inputSchema.safeParse(rawArgs);
+      if (!parsed.success) {
+        return rpcErr(id, -32602, "Invalid params", parsed.error.issues.map((e) => ({ path: e.path.join("."), message: e.message })));
+      }
       try {
-        const result = await tool.run(args);
+        const result = await tool.execute(parsed.data);
         return rpcOk(id, {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
           structuredContent: result as Json,
           isError: false,
         });
       } catch (err) {
-        if (err instanceof RpcError) return rpcErr(id, err.code, err.message, err.data);
-        // Tool execution failure is reported as an MCP tool result with isError,
-        // not a protocol error, so the agent can read the message.
+        // Tool execution failure → an MCP tool result with isError (the agent can read it),
+        // not a protocol error.
         const message = (err as Error)?.message ?? "tool execution failed";
-        return rpcOk(id, {
-          content: [{ type: "text", text: `Error: ${message}` }],
-          isError: true,
-        });
+        return rpcOk(id, { content: [{ type: "text", text: `Error: ${message}` }], isError: true });
       }
     }
     default:
@@ -399,6 +153,10 @@ export async function POST(req: Request) {
     });
   }
 
+  // Audit MCP tool calls under the caller's key identity (anon per-IP otherwise).
+  const subject = keyInfo?.valid ? `mcp:key:${keyInfo.keyId}` : undefined;
+  const tools = buildTools(subject);
+
   let body: unknown;
   try {
     body = await req.json();
@@ -408,13 +166,12 @@ export async function POST(req: Request) {
 
   if (Array.isArray(body)) {
     if (body.length === 0) return Response.json(rpcErr(null, -32600, "Empty batch"), { status: 400 });
-    const out = (await Promise.all(body.map((m) => handleOne(m as RpcReq)))).filter(Boolean);
-    // An all-notification batch yields no responses → 204.
+    const out = (await Promise.all(body.map((m) => handleOne(m as RpcReq, tools)))).filter(Boolean);
     if (out.length === 0) return new Response(null, { status: 204 });
     return Response.json(out);
   }
 
-  const res = await handleOne(body as RpcReq);
+  const res = await handleOne(body as RpcReq, tools);
   if (res === null) return new Response(null, { status: 204 });
   return Response.json(res);
 }

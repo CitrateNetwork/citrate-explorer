@@ -26,8 +26,12 @@ describe("MCP GET — discovery manifest", () => {
     expect(json.protocol).toBe("mcp");
     expect(json.readOnly).toBe(true);
     expect(Array.isArray(json.tools)).toBe(true);
-    expect(json.tools.length).toBe(18);
-    expect(json.tools.map((t: { name: string }) => t.name)).toContain("exploreDag");
+    // RA-4: generated from the agent's tool set — same surface, no drift.
+    expect(json.tools.length).toBe(20);
+    const names = json.tools.map((t: { name: string }) => t.name);
+    expect(names).toContain("exploreDag");
+    expect(names).toContain("findTransfers"); // was missing from the old hand-written list
+    expect(names).toContain("ledger");
   });
 });
 
@@ -41,7 +45,7 @@ describe("MCP POST — JSON-RPC transport", () => {
 
   it("lists all tools with input schemas", async () => {
     const json = await (await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" })).json();
-    expect(json.result.tools.length).toBe(18);
+    expect(json.result.tools.length).toBe(20);
     for (const t of json.result.tools) {
       expect(t.inputSchema.type).toBe("object");
     }
@@ -79,7 +83,9 @@ describe("MCP POST — JSON-RPC transport", () => {
       })
     ).json();
     expect(json.error.code).toBe(-32602);
-    expect(json.error.message).toMatch(/address/i);
+    // RA-4: zod validation — message is "Invalid params"; the field detail is in data.
+    expect(json.error.message).toMatch(/invalid params/i);
+    expect(JSON.stringify(json.error.data)).toMatch(/address/i);
   });
 
   it("returns 204 with no body for a notification", async () => {
