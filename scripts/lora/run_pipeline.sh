@@ -27,6 +27,12 @@ EOF
 fi
 echo "   access OK"
 
+echo "== 0.5 free page cache (GB10 unified-memory quirk) =="
+# On the GB10, torch's CUDA allocator counts only truly-FREE RAM, not reclaimable
+# page-cache — so training OOMs at model load with tens of GB "available". Drop the
+# cache first (safe; reclaimable). Needs sudo.
+sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches' && echo "   page cache dropped" || echo "   (couldn't drop cache — train may OOM; free RAM manually)"
+
 echo "== 1. build corpus =="
 cd "${REPO_ROOT}"
 npx tsx scripts/lora/build-corpus.ts
@@ -35,7 +41,9 @@ echo "== 2. train LoRA (peft, on the GB10) =="
 python3 scripts/lora/train_lora.py --base "${BASE}" --data scripts/lora/corpus/citrate-sft.jsonl --out "${OUT}"
 
 echo "== 3. convert adapter → GGUF =="
-python3 "${LLAMA}/convert_lora_to_gguf.py" "${OUT}" --base "${BASE}" --outfile "${GGUF_OUT}"
+# convert_lora_to_gguf.py --base needs a LOCAL base dir (the HF snapshot), not a repo id.
+BASE_DIR="$(python3 -c "from huggingface_hub import snapshot_download; print(snapshot_download('${BASE}', allow_patterns=['*.json','*.safetensors','*.txt']))")"
+python3 "${LLAMA}/convert_lora_to_gguf.py" "${OUT}" --base "${BASE_DIR}" --outfile "${GGUF_OUT}"
 echo "   wrote ${GGUF_OUT}"
 
 cat <<EOF

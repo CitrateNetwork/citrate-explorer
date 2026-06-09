@@ -73,7 +73,22 @@ the hard gates (tool-F1, groundedness). Expected wins: better chain reasoning on
 out-of-distribution queries + the ability to trim the system prompt (knowledge moves
 into the weights), which also helps latency.
 
+## Validated end-to-end (2026-06-09, on ungated Qwen2.5-1.5B)
+While the gemma-3n gate is pending Google's manual approval, the whole pipeline was
+proven on an ungated model: corpus → `train_lora.py` (peft, 18.5M LoRA params, loss
+3.0→1.2, 53s on the GB10) → `convert_lora_to_gguf.py` → 73.9M GGUF adapter → served on a
+temp `llama-server --lora` (prod :8181 untouched). The LoRA-loaded model answered a
+Citrate fact the base model can't ("LoRAFactory — factory that creates LoRAs / LoRA
+fine-tuning"), confirming knowledge transfer. So the gemma run is push-button on approval.
+
 ## Notes
+- **GB10 memory quirk (important):** torch's CUDA allocator on the GB10 counts only
+  truly-FREE RAM, not reclaimable page-cache — training OOMs at model load with tens of
+  GB "available". `run_pipeline.sh` drops the cache first (`echo 3 > drop_caches`);
+  `train_lora.py` sets `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` and avoids
+  `device_map="auto"`.
+- `convert_lora_to_gguf.py --base` needs a LOCAL base-model dir (the HF snapshot path),
+  not a repo id — `run_pipeline.sh` resolves it via `snapshot_download`.
 - Gemma-3n is a MatFormer/multimodal arch; if a `target_modules` name differs, adjust
   it in `train_lora.py` (peft will error with the valid module names).
 - Keep the golden set OUT of training (the corpus generator enforces this). Re-run

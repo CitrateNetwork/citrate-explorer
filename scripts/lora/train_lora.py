@@ -44,6 +44,9 @@ def main():
     ap.add_argument("--max-len", type=int, default=2048)
     args = ap.parse_args()
 
+    # GB10 unified memory reports N/A to nvidia-smi, which trips torch's allocator into
+    # spurious OOMs; expandable segments + explicit single-device placement avoid it.
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     import torch
     from datasets import Dataset
     from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments, Trainer, DataCollatorForLanguageModeling
@@ -67,7 +70,12 @@ def main():
 
     ds = Dataset.from_list(rows).map(fmt, remove_columns=["messages"])
 
-    model = AutoModelForCausalLM.from_pretrained(args.base, torch_dtype=torch.bfloat16, device_map="auto")
+    # Load to a single device explicitly (no device_map="auto" — it misreads the GB10's
+    # N/A memory and pre-reserves badly). bf16, gradient checkpointing for a low peak.
+    model = AutoModelForCausalLM.from_pretrained(args.base, dtype=torch.bfloat16)
+    model.to("cuda")
+    model.gradient_checkpointing_enable()
+    model.config.use_cache = False
     model = get_peft_model(model, LoraConfig(
         r=args.rank, lora_alpha=args.rank * 2, lora_dropout=0.05, bias="none", task_type="CAUSAL_LM",
         # Gemma attention/MLP projections; adjust if a Gemma-3n submodule name differs.
@@ -78,9 +86,10 @@ def main():
     trainer = Trainer(
         model=model,
         args=TrainingArguments(
-            output_dir=args.out, num_train_epochs=args.epochs, per_device_train_batch_size=2,
-            gradient_accumulation_steps=4, learning_rate=args.lr, lr_scheduler_type="cosine",
+            output_dir=args.out, num_train_epochs=args.epochs, per_device_train_batch_size=1,
+            gradient_accumulation_steps=8, learning_rate=args.lr, lr_scheduler_type="cosine",
             warmup_ratio=0.03, logging_steps=10, save_strategy="epoch", bf16=True, report_to=[],
+            gradient_checkpointing=True, optim="adamw_torch",
         ),
         train_dataset=ds,
         data_collator=DataCollatorForLanguageModeling(tok, mlm=False),
