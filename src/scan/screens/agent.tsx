@@ -12,6 +12,7 @@ import { Icon } from "@/scan/icons";
 import { EntityChip } from "@/scan/components";
 import { useScan } from "@/scan/context";
 import { useAuth } from "@/lib/auth/client";
+import { parseRichBlocks } from "@/lib/markdown/richBlocks";
 
 const AG = SD.AGENT;
 
@@ -49,21 +50,26 @@ function Inline({ text }) {
 }
 
 function renderRich(text) {
-  const lines = String(text).split("\n");
-  const blocks = [];
-  let list = null, listType = null;
-  const flush = () => { if (list) { blocks.push({ type: listType, items: list }); list = null; listType = null; } };
-  lines.forEach((ln) => {
-    const t = ln.trim();
-    if (!t) { flush(); return; }
-    let m;
-    if ((m = t.match(/^(\d+)\.\s+(.*)/))) { if (listType !== "ol") { flush(); listType = "ol"; list = []; } list.push(m[2]); }
-    else if ((m = t.match(/^[-*]\s+(.*)/))) { if (listType !== "ul") { flush(); listType = "ul"; list = []; } list.push(m[1]); }
-    else { flush(); blocks.push({ type: "p", text: t }); }
-  });
-  flush();
+  const blocks = parseRichBlocks(text);
+  const th = { border: "1px solid var(--border)", padding: "5px 9px", textAlign: "left", fontWeight: 600, background: "var(--surface-sunk)", whiteSpace: "nowrap" };
+  const td = { border: "1px solid var(--border)", padding: "5px 9px", textAlign: "left", verticalAlign: "top" };
+
   return blocks.map((b, i) => {
     if (b.type === "p") return <p key={i}><Inline text={b.text} /></p>;
+    if (b.type === "table") {
+      return (
+        <div key={i} style={{ overflowX: "auto", margin: "8px 0" }}>
+          <table className="agent-table" style={{ borderCollapse: "collapse", width: "100%", fontSize: 13, fontFamily: "var(--font-mono)" }}>
+            <thead><tr>{b.header.map((h, k) => <th key={k} style={th}><Inline text={h} /></th>)}</tr></thead>
+            <tbody>
+              {b.rows.map((r, ri) => (
+                <tr key={ri}>{b.header.map((_, ci) => <td key={ci} style={td}><Inline text={r[ci] ?? ""} /></td>)}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
     const Tag = b.type === "ol" ? "ol" : "ul";
     return <Tag key={i}>{b.items.map((it, j) => <li key={j}><Inline text={it} /></li>)}</Tag>;
   });
