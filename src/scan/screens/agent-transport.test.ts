@@ -45,7 +45,7 @@ describe("scan agent chat transport — auth header attachment", () => {
     const transport = new DefaultChatTransport({
       api: "/api/chat",
       fetch: fetchImpl as unknown as typeof fetch,
-      headers: () => (tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : {}),
+      headers: (): Record<string, string> => (tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : {}),
     });
 
     // Token arrives one tick later (mirrors auth.getToken().then(setToken)).

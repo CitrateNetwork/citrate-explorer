@@ -1,0 +1,141 @@
+{
+  "run_id": "2026-06-09T002144Z_ba085660",
+  "timestamp": "2026-06-09T002144Z",
+  "git_sha": "ba085660700c4519de3c48c0a4aab4186d7b7bb6",
+  "git_branch": "feat/RA-1-eval-harness",
+  "scenarios": [
+    {
+      "name": "agent_research.sh",
+      "status": "ok",
+      "elapsed_seconds": 164.212,
+      "metrics": {
+        "agent_tool_f1": {
+          "value": 0.8421,
+          "unit": ""
+        },
+        "agent_groundedness": {
+          "value": 1.0,
+          "unit": ""
+        },
+        "agent_accuracy": {
+          "value": 0.8947,
+          "unit": ""
+        },
+        "agent_latency_p50": {
+          "value": 6496,
+          "unit": "ms"
+        },
+        "agent_latency_p95": {
+          "value": 18574,
+          "unit": "ms"
+        },
+        "agent_mean_steps": {
+          "value": 1.95,
+          "unit": ""
+        },
+        "agent_scored": {
+          "value": 19,
+          "unit": ""
+        },
+        "agent_not_yet_supported": {
+          "value": 0,
+          "unit": ""
+        },
+        "agent_indeterminate": {
+          "value": 0,
+          "unit": ""
+        },
+        "agent_accuracy_chain": {
+          "value": 1.0,
+          "unit": ""
+        },
+        "agent_accuracy_dag": {
+          "value": 1.0,
+          "unit": ""
+        },
+        "agent_accuracy_address": {
+          "value": 0.7143,
+          "unit": ""
+        },
+        "agent_accuracy_native_vs_token": {
+          "value": 1.0,
+          "unit": ""
+        },
+        "agent_accuracy_token": {
+          "value": 1.0,
+          "unit": ""
+        },
+        "agent_accuracy_multistep": {
+          "value": 1.0,
+          "unit": ""
+        }
+      },
+      "log_excerpt": "teps 1.95\nBENCH agent_scored 19\nBENCH agent_not_yet_supported 0\nBENCH agent_indeterminate 0\nBENCH agent_accuracy_chain 1.0000\nBENCH agent_accuracy_dag 1.0000\nBENCH agent_accuracy_address 0.7143\nBENCH agent_accuracy_native_vs_token 1.0000\nBENCH agent_accuracy_token 1.0000\nBENCH agent_accuracy_multistep 1.0000\nagent-eval: wrote /home/saul/Projects/Citrate-Labs/citrate-explorer/scripts/eval/baselines/agent-detail-baseline.json\nagent-eval: accuracy=89.5% toolF1=0.842 grounded=100.0% scored=19 nys=0\n"
+    }
+  ],
+  "metrics": {
+    "agent_research.sh.agent_tool_f1": {
+      "value": 0.8421,
+      "unit": ""
+    },
+    "agent_research.sh.agent_groundedness": {
+      "value": 1.0,
+      "unit": ""
+    },
+    "agent_research.sh.agent_accuracy": {
+      "value": 0.8947,
+      "unit": ""
+    },
+    "agent_research.sh.agent_latency_p50": {
+      "value": 6496,
+      "unit": "ms"
+    },
+    "agent_research.sh.agent_latency_p95": {
+      "value": 18574,
+      "unit": "ms"
+    },
+    "agent_research.sh.agent_mean_steps": {
+      "value": 1.95,
+      "unit": ""
+    },
+    "agent_research.sh.agent_scored": {
+      "value": 19,
+      "unit": ""
+    },
+    "agent_research.sh.agent_not_yet_supported": {
+      "value": 0,
+      "unit": ""
+    },
+    "agent_research.sh.agent_indeterminate": {
+      "value": 0,
+      "unit": ""
+    },
+    "agent_research.sh.agent_accuracy_chain": {
+      "value": 1.0,
+      "unit": ""
+    },
+    "agent_research.sh.agent_accuracy_dag": {
+      "value": 1.0,
+      "unit": ""
+    },
+    "agent_research.sh.agent_accuracy_address": {
+      "value": 0.7143,
+      "unit": ""
+    },
+    "agent_research.sh.agent_accuracy_native_vs_token": {
+      "value": 1.0,
+      "unit": ""
+    },
+    "agent_research.sh.agent_accuracy_token": {
+      "value": 1.0,
+      "unit": ""
+    },
+    "agent_research.sh.agent_accuracy_multistep": {
+      "value": 1.0,
+      "unit": ""
+    }
+  },
+  "base_model": "gemma-4-E4B-it-Q4_K_M",
+  "lora_id": null,
+  "note": "RA-1 baseline: base Gemma, no LoRA. Captured against explorer.citrate.ai."
+}

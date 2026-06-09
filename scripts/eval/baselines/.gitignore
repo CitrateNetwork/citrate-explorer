@@ -1,0 +1,4 @@
+# Per-run benchmark snapshots + detail reports + the latest symlink are noisy and
+# change every run — keep them out of git. The pinned reference is committed.
+*.json
+!canonical.json

@@ -1,0 +1,15 @@
+{
+  "agent_research.sh.agent_tool_f1": "higher_better",
+  "agent_research.sh.agent_groundedness": "higher_better",
+  "agent_research.sh.agent_accuracy": "higher_better",
+  "agent_research.sh.agent_latency_p50": "lower_better",
+  "agent_research.sh.agent_latency_p95": "lower_better",
+  "agent_research.sh.agent_mean_steps": "lower_better",
+  "agent_research.sh.agent_accuracy_chain": "higher_better",
+  "agent_research.sh.agent_accuracy_address": "higher_better",
+  "agent_research.sh.agent_accuracy_dag": "higher_better",
+  "agent_research.sh.agent_accuracy_token": "higher_better",
+  "agent_research.sh.agent_accuracy_value": "higher_better",
+  "agent_research.sh.agent_accuracy_native_vs_token": "higher_better",
+  "agent_research.sh.agent_accuracy_multistep": "higher_better"
+}
