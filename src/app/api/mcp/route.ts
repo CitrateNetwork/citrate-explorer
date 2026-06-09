@@ -17,6 +17,7 @@
  */
 import { z } from "zod";
 import { citrateTools } from "@/lib/ai/tools";
+import { RESOURCES, PROMPTS, getResource, getPrompt } from "@/lib/ai/mcpResources";
 import { extractApiKey, validateApiKey, clientIp } from "@/lib/api/keys";
 import { checkRateLimit } from "@/lib/api/ratelimit";
 
@@ -50,6 +51,14 @@ function toolList(tools: Record<string, McpTool>) {
   }));
 }
 
+const CAPABILITIES = {
+  tools: { listChanged: false },
+  resources: { listChanged: false },
+  prompts: { listChanged: false },
+};
+const resourceList = () => RESOURCES.map(({ uri, name, description, mimeType }) => ({ uri, name, description, mimeType }));
+const promptList = () => PROMPTS.map(({ name, description, arguments: a }) => ({ name, description, arguments: a }));
+
 /** GET — discovery manifest (also handy for humans hitting the endpoint). */
 export async function GET() {
   return Response.json({
@@ -58,10 +67,12 @@ export async function GET() {
     protocol: "mcp",
     protocolVersion: PROTOCOL_VERSION,
     transport: "json-rpc-2.0 over HTTP POST",
-    capabilities: { tools: { listChanged: false } },
+    capabilities: CAPABILITIES,
     readOnly: true,
     units: "dual (SALT + raw grains/wei)",
     tools: toolList(buildTools()),
+    resources: resourceList(),
+    prompts: promptList(),
   });
 }
 
@@ -91,7 +102,7 @@ async function handleOne(msg: RpcReq, tools: Record<string, McpTool>): Promise<o
     case "initialize":
       return rpcOk(id, {
         protocolVersion: PROTOCOL_VERSION,
-        capabilities: { tools: { listChanged: false } },
+        capabilities: CAPABILITIES,
         serverInfo: SERVER_INFO,
         instructions:
           "Read-only on-chain tools for the Citrate Network (chain 40204, native SALT). " +
@@ -105,6 +116,26 @@ async function handleOne(msg: RpcReq, tools: Record<string, McpTool>): Promise<o
       return rpcOk(id, {});
     case "tools/list":
       return rpcOk(id, { tools: toolList(tools) });
+    case "resources/list":
+      return rpcOk(id, { resources: resourceList() });
+    case "resources/read": {
+      const uri = (msg.params?.uri as string) ?? "";
+      const r = getResource(uri);
+      if (!r) return rpcErr(id, -32602, `Unknown resource: ${uri || "(missing)"}`);
+      return rpcOk(id, { contents: [{ uri: r.uri, mimeType: r.mimeType, text: r.read() }] });
+    }
+    case "prompts/list":
+      return rpcOk(id, { prompts: promptList() });
+    case "prompts/get": {
+      const name = (msg.params?.name as string) ?? "";
+      const prompt = getPrompt(name);
+      if (!prompt) return rpcErr(id, -32602, `Unknown prompt: ${name || "(missing)"}`);
+      const args = (msg.params?.arguments as Record<string, string>) ?? {};
+      return rpcOk(id, {
+        description: prompt.description,
+        messages: [{ role: "user", content: { type: "text", text: prompt.render(args) } }],
+      });
+    }
     case "tools/call": {
       const params = msg.params ?? {};
       const name = params.name as string | undefined;
