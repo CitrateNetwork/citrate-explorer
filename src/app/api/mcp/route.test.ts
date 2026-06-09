@@ -119,3 +119,47 @@ describe("MCP POST — JSON-RPC transport", () => {
     expect(json.error.code).toBe(-32700);
   });
 });
+
+describe("MCP resources + prompts (RA-7)", () => {
+  it("initialize advertises resources + prompts capabilities", async () => {
+    const json = await (await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })).json();
+    expect(json.result.capabilities.resources).toBeDefined();
+    expect(json.result.capabilities.prompts).toBeDefined();
+  });
+
+  it("resources/list + resources/read return content", async () => {
+    const list = await (await rpc({ jsonrpc: "2.0", id: 2, method: "resources/list" })).json();
+    const uris = list.result.resources.map((r: { uri: string }) => r.uri);
+    expect(uris).toContain("citrate://contracts");
+
+    const read = await (
+      await rpc({ jsonrpc: "2.0", id: 3, method: "resources/read", params: { uri: "citrate://contracts" } })
+    ).json();
+    expect(read.result.contents[0].text).toMatch(/InferenceRouter/);
+
+    const bad = await (
+      await rpc({ jsonrpc: "2.0", id: 4, method: "resources/read", params: { uri: "citrate://nope" } })
+    ).json();
+    expect(bad.error.code).toBe(-32602);
+  });
+
+  it("prompts/list + prompts/get render with arguments", async () => {
+    const list = await (await rpc({ jsonrpc: "2.0", id: 5, method: "prompts/list" })).json();
+    expect(list.result.prompts.map((p: { name: string }) => p.name)).toEqual(
+      expect.arrayContaining(["audit_address", "trace_token", "explain_finality", "summarize_contract"]),
+    );
+
+    const got = await (
+      await rpc({
+        jsonrpc: "2.0",
+        id: 6,
+        method: "prompts/get",
+        params: { name: "audit_address", arguments: { address: "0xabc0000000000000000000000000000000000001" } },
+      })
+    ).json();
+    expect(got.result.messages[0].content.text).toContain("0xabc0000000000000000000000000000000000001");
+
+    const bad = await (await rpc({ jsonrpc: "2.0", id: 7, method: "prompts/get", params: { name: "nope" } })).json();
+    expect(bad.error.code).toBe(-32602);
+  });
+});
