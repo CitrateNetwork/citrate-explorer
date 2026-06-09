@@ -216,11 +216,15 @@ export function citrateTools(opts: ToolOptions = {}) {
     }),
     getContractCode: tool({
       description:
-        "A contract's bytecode: size, code hash, raw bytecode; confirms contract vs EOA. Source needs verification.",
+        "A contract's bytecode facts: size, code hash, label; confirms contract vs EOA. Source needs verification.",
       inputSchema: z.object({ address: addressSchema }),
-      execute: audited("getContractCode", async ({ address }: { address: string }) =>
-        getContractCode(address as Address),
-      ),
+      execute: audited("getContractCode", async ({ address }: { address: string }) => {
+        // Strip the raw bytecode before handing it to the model — it's huge (10s of
+        // KB) and blows the small context window, leaving no room to narrate (RA-6).
+        // The size/hash/label are what an answer needs; behavior is read via callView.
+        const { bytecode, ...facts } = await getContractCode(address as Address);
+        return { ...facts, bytecodePreview: bytecode && bytecode.length > 2 ? `${bytecode.slice(0, 42)}…` : bytecode };
+      }),
     }),
     getToken: tool({
       description:

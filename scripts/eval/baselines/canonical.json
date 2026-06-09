@@ -1,39 +1,37 @@
 {
-  "baseline": "RA-3-postdeploy",
+  "baseline": "RA-6",
   "base_model": "gemma-4-E4B-it-Q4_K_M",
   "lora_id": null,
   "base_url": "https://explorer.citrate.ai",
   "runs": 3,
-  "method": "3-run averaged, robust scoring; post-RA-3 deploy",
+  "method": "3-run averaged, robust scoring; post-RA-6 context-budget fix",
   "metrics": {
     "agent_accuracy": {
-      "mean": 0.4928,
-      "stdev": 0.0542
+      "mean": 0.8261,
+      "stdev": 0.0355
     },
     "agent_tool_f1": {
-      "mean": 0.7343,
-      "stdev": 0.0068
+      "mean": 0.6957,
+      "stdev": 0.0355
     },
     "agent_groundedness": {
-      "mean": 0.8571
+      "mean": 0.8095
     },
-    "agent_latency_p50_ms": 5206
+    "agent_latency_p50_ms": 7064
   },
   "accuracy_by_class": {
-    "chain": 0.833,
-    "dag": 0.583,
-    "address": 0.429,
-    "native_vs_token": 0.667,
+    "chain": 0.75,
+    "dag": 1,
+    "address": 0.667,
+    "native_vs_token": 0.833,
     "token": 1,
-    "multistep": 0.167,
-    "value": 0
+    "multistep": 1,
+    "value": 0.889
   },
   "flaky": [
-    "chain-id-newcomer",
-    "dag-finality-auditor",
-    "dag-bluescore-vs-height",
-    "multistep-latest-block-txcount",
+    "addr-nonce-deployer",
+    "value-biggest-24h-newcomer",
     "value-ambiguous-30k-native-vs-token"
   ],
-  "note": "HARD GATES STABLE across RA-1.5->RA-3: tool_f1 0.754->0.734, groundedness ~87->86. accuracy 65.2->49.3 is driven by EMPTY NARRATION \u2014 the small model calls the right tool (findTransfers/saltDistribution, http 200) but returns no text in some runs. NOT a capability/code regression (findNativeTransfers verified against real Neon data). Dominant fix target = RA-6 (narration/formatting scaffold) + a growing system prompt argues for moving knowledge into the model (RA-8 LoRA)."
+  "note": "RA-6 context-budget fix: fixed overhead ~4840->~1700 tokens. accuracy 49.3->82.6%, value class 0->89%, multistep 17->100%, empty narration ~6->2/23. The 2 residual empties (getContractCode raw bytecode) fixed post-pin. Single highest-impact change of the project."
 }
