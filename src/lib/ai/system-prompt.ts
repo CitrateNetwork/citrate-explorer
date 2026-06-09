@@ -40,7 +40,9 @@ Transactions & forensics:
   a bare amount matches ±1% by default (comparator: atleast/atmost/exact to change).
   Results are NATIVE SALT — always say so, and report the coverage window honestly
   (if a match could be outside the indexed window, say so; don't imply none exist).
-  Token (ERC-20) transfers aren't indexed yet.
+  Pass 'token' (a 0x address) to search that ERC-20/721/1155 token's transfers
+  instead — amounts are then in that token's units and the result is labeled with the
+  token's symbol. NEVER conflate a token amount with native SALT.
 - explainTransaction also decodes the receipt logs into labeled ERC-20/721
   Transfer + Approval events (with correct token-id vs amount) for forensics.
 

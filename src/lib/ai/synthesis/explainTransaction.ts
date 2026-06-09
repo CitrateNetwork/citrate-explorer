@@ -12,10 +12,9 @@ import { formatEther, type Hex } from "viem";
 import { harnessClient } from "@/lib/harness/client";
 import { getTransaction } from "@/lib/harness/ops";
 import { knownLabel } from "@/lib/citrate/addresses";
+import { decodeTransferLog } from "@/lib/indexer/transferDecode";
 
-// keccak256 topic0 of the standard ERC-20/721 events.
-const TRANSFER_TOPIC =
-  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+// keccak256 topic0 of the ERC-20 Approval event (transfers use the shared decoder).
 const APPROVAL_TOPIC =
   "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925";
 
@@ -23,7 +22,7 @@ const addrFromTopic = (t?: string): string | null =>
   t ? `0x${t.slice(26)}` : null;
 
 export interface DecodedEvent {
-  type: "ERC-20 Transfer" | "ERC-721 Transfer" | "ERC-20 Approval" | "unknown";
+  type: "ERC-20 Transfer" | "ERC-721 Transfer" | "ERC-1155 Transfer" | "ERC-20 Approval" | "unknown";
   contract: string;
   contractLabel: string | null;
   from?: string | null;
@@ -51,24 +50,28 @@ interface RawLog {
 export function decodeLog(log: RawLog): DecodedEvent {
   const t0 = log.topics[0];
   const contractLabel = knownLabel(log.address);
-  if (t0 === TRANSFER_TOPIC) {
-    const from = addrFromTopic(log.topics[1]);
-    const to = addrFromTopic(log.topics[2]);
-    const isNft = log.topics.length === 4; // tokenId is the indexed 4th topic
+  // Transfers (ERC-20/721/1155) go through the shared index-time decoder so read
+  // time and index time classify identically. Batch logs surface as their first leg.
+  const [tr] = decodeTransferLog(log);
+  if (tr) {
+    const typeByStd = {
+      erc20: "ERC-20 Transfer",
+      erc721: "ERC-721 Transfer",
+      erc1155: "ERC-1155 Transfer",
+    } as const;
     const base: DecodedEvent = {
-      type: isNft ? "ERC-721 Transfer" : "ERC-20 Transfer",
+      type: typeByStd[tr.standard],
       contract: log.address,
       contractLabel,
-      from,
-      fromLabel: from ? knownLabel(from) : null,
-      to,
-      toLabel: to ? knownLabel(to) : null,
+      from: tr.from,
+      fromLabel: tr.from ? knownLabel(tr.from) : null,
+      to: tr.to,
+      toLabel: tr.to ? knownLabel(tr.to) : null,
     };
-    if (isNft) {
-      base.tokenId = log.topics[3] ? BigInt(log.topics[3]).toString() : undefined;
-    } else if (log.data && log.data !== "0x") {
-      base.valueRaw = BigInt(log.data).toString();
-      base.value = formatEther(BigInt(log.data)); // assumes 18 decimals; raw is authoritative
+    if (tr.tokenId !== undefined) base.tokenId = tr.tokenId;
+    if (tr.value !== undefined && tr.standard !== "erc721") {
+      base.valueRaw = tr.value;
+      base.value = formatEther(BigInt(tr.value)); // assumes 18 decimals; raw is authoritative
     }
     return base;
   }
