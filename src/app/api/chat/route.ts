@@ -84,15 +84,21 @@ export async function POST(req: Request) {
     }
   }
 
-  const historyTurns = Number(process.env.CITRATE_HISTORY_TURNS ?? 30);
-  const maxOutputTokens = Number(process.env.CITRATE_MAX_OUTPUT_TOKENS ?? 4096);
+  // Context budget (RA-6). The gateway serves a SMALL-context model; the fixed
+  // overhead (system prompt + tool schemas) plus history + tool results must leave
+  // room to actually generate an answer. The old defaults (30 turns, 4096 output)
+  // blew past ~4k and the model returned empty/errored. Keep these lean — and
+  // env-tunable so a larger served context can relax them.
+  const historyTurns = Number(process.env.CITRATE_HISTORY_TURNS ?? 6);
+  const maxOutputTokens = Number(process.env.CITRATE_MAX_OUTPUT_TOKENS ?? 896);
+  const maxSteps = Number(process.env.CITRATE_MAX_STEPS ?? 6);
 
   const result = streamText({
     model: provider.languageModel(),
     system: buildSystemPrompt(),
     messages: await convertToModelMessages(messages.slice(-historyTurns)),
     tools: citrateTools({ subject: owner }),
-    stopWhen: stepCountIs(8),
+    stopWhen: stepCountIs(maxSteps),
     maxOutputTokens,
     temperature: 0.3,
     onFinish: async ({ text }) => {
