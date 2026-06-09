@@ -94,9 +94,8 @@ export function citrateTools(opts: ToolOptions = {}) {
     }),
     explainTransaction: tool({
       description:
-        "Fetch a tx plus its decoded events (ERC-20/721 transfers, approvals) as a " +
-        "structured bundle to narrate a plain-English 'what happened'. Use facts " +
-        "from the result only.",
+        "Fetch a tx + its decoded transfers/approvals as a structured bundle to narrate " +
+        "'what happened'. Use its facts only.",
       inputSchema: z.object({ hash: hashSchema }),
       execute: audited("explainTransaction", async ({ hash }: { hash: string }) =>
         explainTransaction(hash as Hex),
@@ -154,9 +153,8 @@ export function citrateTools(opts: ToolOptions = {}) {
     }),
     exploreDag: tool({
       description:
-        "Explore GHOSTDAG topology. With no blockHash: the overview (tips, blue/red, " +
-        "max blue score, finality params). With a blockHash: that block's selected-parent " +
-        "ancestor chain, its merge parents, and whether it is finalized.",
+        "GHOSTDAG topology. No blockHash → overview (tips, blue/red, finality params); " +
+        "with a blockHash → its selected-parent chain, merge parents, and finalized?.",
       inputSchema: z.object({
         blockHash: hashSchema.optional().describe("optional 0x block hash to walk"),
       }),
@@ -169,7 +167,7 @@ export function citrateTools(opts: ToolOptions = {}) {
         "Search indexed transactions by address (from/to). Requires the indexer; returns a note if not provisioned.",
       inputSchema: z.object({
         address: addressSchema,
-        limit: z.number().int().min(1).max(100).default(25),
+        limit: z.number().int().min(1).max(100).default(10),
       }),
       execute: audited(
         "searchTransactions",
@@ -179,9 +177,7 @@ export function citrateTools(opts: ToolOptions = {}) {
     }),
     addressActivity: tool({
       description:
-        "Summarize an address's activity. Uses the indexer when provisioned; otherwise FALLS BACK to a " +
-        "live scan of recent blocks (forensic, recent-window) so you can investigate any address even " +
-        "without the index.",
+        "Summarize an address's activity (sent/received). Indexed when available, else a live recent-block scan.",
       inputSchema: z.object({ address: addressSchema }),
       execute: audited("addressActivity", async ({ address }: { address: string }) => {
         const indexed = await addressActivity(address as Address);
@@ -193,9 +189,8 @@ export function citrateTools(opts: ToolOptions = {}) {
     }),
     recentActivity: tool({
       description:
-        "Forensic: scan the last N blocks of live RPC for transactions directly involving an address " +
-        "(sender/recipient), with direction + labeled counterparties. Index-free; recent-window only " +
-        "(no internal transfers or old history). Use to trace recent on-chain movement around an address.",
+        "Forensic: scan the last N blocks for txs involving an address (direction + labeled counterparties). " +
+        "Index-free, recent-window only. Use to trace recent movement around an address.",
       inputSchema: z.object({
         address: addressSchema,
         blocks: z.number().int().min(1).max(300).default(60),
@@ -208,8 +203,7 @@ export function citrateTools(opts: ToolOptions = {}) {
     }),
     topHolders: tool({
       description:
-        "List top holders of an ERC-20/721 TOKEN from indexed transfers. Requires the indexer. " +
-        "NOTE: SALT is the native coin, not a token — for 'who holds the most SALT' use saltDistribution.",
+        "Top holders of an ERC-20/721 TOKEN from the index (NOT for SALT — use saltDistribution).",
       inputSchema: z.object({
         token: addressSchema,
         limit: z.number().int().min(1).max(100).default(10),
@@ -222,8 +216,7 @@ export function citrateTools(opts: ToolOptions = {}) {
     }),
     getContractCode: tool({
       description:
-        "Get a contract's deployed bytecode: size, keccak code hash, and the raw bytecode. " +
-        "Confirms whether an address is a contract or an EOA. Source code needs verification (not yet wired).",
+        "A contract's bytecode: size, code hash, raw bytecode; confirms contract vs EOA. Source needs verification.",
       inputSchema: z.object({ address: addressSchema }),
       execute: audited("getContractCode", async ({ address }: { address: string }) =>
         getContractCode(address as Address),
@@ -231,8 +224,7 @@ export function citrateTools(opts: ToolOptions = {}) {
     }),
     getToken: tool({
       description:
-        "Read token metadata (auto-detects ERC-20 vs ERC-721): name, symbol, decimals, total supply, " +
-        "and optionally a holder's balance. Use for any token contract.",
+        "Token metadata (ERC-20/721): name, symbol, decimals, supply, + optional holder balance.",
       inputSchema: z.object({
         address: addressSchema,
         holder: addressSchema.optional().describe("optional address to also read the balance of"),
@@ -243,9 +235,8 @@ export function citrateTools(opts: ToolOptions = {}) {
     }),
     callView: tool({
       description:
-        "Read ANY view/pure function on a contract by its Solidity signature — the forensic read tool. " +
-        "Provide the full signature, e.g. \"function getModel(bytes32) view returns (address,string,uint256)\" " +
-        "or \"balanceOf(address)\", plus args. Read-only; the node rejects non-view calls.",
+        "Read ANY view/pure function by Solidity signature, e.g. \"function getModel(bytes32) view returns " +
+        "(address,string,uint256)\", plus args. The forensic contract-state read. Read-only.",
       inputSchema: z.object({
         address: addressSchema,
         signature: z.string().describe("full Solidity function signature"),
@@ -259,22 +250,16 @@ export function citrateTools(opts: ToolOptions = {}) {
     }),
     getGasOracle: tool({
       description:
-        "Current gas price (wei + gwei) and reference cost estimates for common operations (transfer, " +
-        "ERC-20, contract call, deploy), dual-unit. Use to answer 'how much does X cost'.",
+        "Current gas price + reference cost estimates for common ops. Use for 'how much does X cost'.",
       inputSchema: z.object({}),
       execute: audited("getGasOracle", async () => getGasOracle()),
     }),
     findTransfers: tool({
       description:
-        "Find native SALT transfers by AMOUNT, TIME, and counterparty — WITHOUT a tx hash. Use for " +
-        "'when was 30k SALT sent', 'biggest SALT transfers last week', 'did 0x… send more than 10k SALT'. " +
-        "`amount` is a human phrase ('30k SALT', '0.5 SALT'); `comparator` says how to match it " +
-        "(about = ±1%, the default; atleast; atmost; exact). `since` is a time phrase ('last week', " +
-        "'last 24 hours', or a YYYY-MM-DD). `address`+`direction` filter by sender/recipient. Results are " +
-        "NATIVE SALT — always say so. The result includes the index `coverage` window; if the answer might " +
-        "be outside it, say so rather than implying 'none exist'. Pass `token` (a 0x address) to search that " +
-        "ERC-20/721/1155 token's transfers instead — amounts are then in that token's units and the result is " +
-        "labeled with the token's symbol (say WHICH token, never conflate it with native SALT).",
+        "Find transfers by AMOUNT/TIME/counterparty WITHOUT a tx hash ('when was 30k SALT sent', " +
+        "'biggest transfers last week', 'did 0x… send >10k'). amount is a phrase ('30k SALT'); comparator " +
+        "about(±1%,default)|atleast|atmost|exact; since is a time phrase. Native SALT by default — pass a " +
+        "token address for a token (amounts in its units). Say WHICH asset; honor the coverage window.",
       inputSchema: z.object({
         amount: z.string().optional().describe("human amount, e.g. '30k SALT' or '0.5 SALT'"),
         comparator: z.enum(["about", "atleast", "atmost", "exact"]).optional().default("about"),
@@ -352,17 +337,16 @@ export function citrateTools(opts: ToolOptions = {}) {
     }),
     saltDistribution: tool({
       description:
-        "Who holds the most SALT: SALT is the NATIVE coin (no Transfer events), so this returns the known " +
-        "genesis allocations with their LIVE balances, biggest first, and explains that a full all-address " +
-        "leaderboard needs a balance indexer. Use this for any 'top SALT holders' / 'richest address' question.",
+        "Top SALT holders — known genesis allocations with LIVE balances, biggest first. SALT is native " +
+        "(no Transfer events); a full all-address leaderboard needs a balance indexer. Use for 'richest / " +
+        "top SALT holders'.",
       inputSchema: z.object({}),
       execute: audited("saltDistribution", async () => saltDistribution()),
     }),
     ledger: tool({
       description:
-        "A precise running tab / accounting calculator. Pass the line items you've gathered (label + a SALT or " +
-        "grains amount, negative for debits) and it returns the exact totals in dual units — use this instead of " +
-        "doing arithmetic yourself, and re-send the accumulated items to keep a running total across the chat.",
+        "Exact accounting calculator. Pass line items (label + salt or grains, negative for debits) → exact " +
+        "totals. Use instead of doing math yourself; re-send items to keep a running tab.",
       inputSchema: z.object({
         items: z
           .array(
