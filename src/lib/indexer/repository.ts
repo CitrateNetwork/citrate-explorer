@@ -168,14 +168,17 @@ export async function findNativeTransfers(
     })
     .from(transactions);
 
+  // Postgres min/max(bigint) come back as strings via the driver — coerce to numbers
+  // so the result type (and the agent) gets real numbers, not "1004".
+  const num = (v: unknown): number | null => (v == null ? null : Number(v));
   return {
     provisioned: true,
     asset: "SALT (native)",
     coverage: {
-      minTimestamp: cov?.minTs ?? null,
-      maxTimestamp: cov?.maxTs ?? null,
-      minHeight: cov?.minH ?? null,
-      maxHeight: cov?.maxH ?? null,
+      minTimestamp: num(cov?.minTs),
+      maxTimestamp: num(cov?.maxTs),
+      minHeight: num(cov?.minH),
+      maxHeight: num(cov?.maxH),
     },
     truncated,
     count: transfers.length,

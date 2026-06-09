@@ -59,7 +59,7 @@ d("findTokenTransfers (DB integration)", () => {
 
   it("tokenActivity counts the token's transfers + distinct parties", async () => {
     const a = await tokenActivity(TOKEN);
-    if ("provisioned" in a) {
+    if (a.provisioned) {
       expect(a.transfers).toBe(3);
       expect(a.senders).toBe(2);
     }
