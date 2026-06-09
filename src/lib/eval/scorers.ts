@@ -46,6 +46,25 @@ export type AccuracyOutcome = "pass" | "fail" | "indeterminate" | "not_supported
 
 const norm = (s: string) => s.toLowerCase();
 
+const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
+
+/**
+ * Match an expected address tolerant of truncation — small models routinely abbreviate
+ * (`0xaceaa7…`, `0xaceaa7d0...`). We accept the answer if it contains the leading
+ * `0x` + first 6 hex chars (collision-negligible for our address set), which also
+ * matches the full address.
+ */
+function addressMatch(answer: string, addr: string): boolean {
+  const a = norm(answer);
+  const lower = norm(addr);
+  return a.includes(lower) || a.includes(lower.slice(0, 8)); // 0x + 6 hex
+}
+
+/** Substring match, but address-typed expected values match tolerant of truncation. */
+function valueMatch(answer: string, value: string): boolean {
+  return ADDR_RE.test(value) ? addressMatch(answer, value) : norm(answer).includes(norm(value));
+}
+
 export function extractNumbers(text: string): number[] {
   const cleaned = text.replace(/(\d),(?=\d)/g, "$1"); // 30,000 -> 30000
   const matches = cleaned.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi) ?? [];
@@ -61,8 +80,8 @@ function numericPass(answer: string, expected: number, tolerance = 0): boolean {
   });
 }
 
-const containsAll = (answer: string, values: string[]) => values.every((v) => norm(answer).includes(norm(v)));
-const containsAny = (answer: string, values: string[]) => values.some((v) => norm(answer).includes(norm(v)));
+const containsAll = (answer: string, values: string[]) => values.every((v) => valueMatch(answer, v));
+const containsAny = (answer: string, values: string[]) => values.some((v) => valueMatch(answer, v));
 
 function labeledNative(answer: string): boolean {
   const hasSalt = /\bSALT\b/i.test(answer);
@@ -106,7 +125,7 @@ export function scoreAccuracy(
     case "contains_any":
       return expectedValues ? ok(containsAny(answer, expectedValues)) : "indeterminate";
     case "address":
-      return expectedValues?.[0] ? ok(norm(answer).includes(norm(expectedValues[0]))) : "indeterminate";
+      return expectedValues?.[0] ? ok(addressMatch(answer, expectedValues[0])) : "indeterminate";
     case "set_contains":
       return expectedValues ? ok(containsAll(answer, expectedValues)) : "indeterminate";
     case "numeric":
@@ -170,6 +189,76 @@ export interface AggregateMetrics {
   latencyP50: number;
   latencyP95: number;
   meanSteps: number;
+}
+
+export function meanStdev(values: number[]): { mean: number; stdev: number } {
+  if (values.length === 0) return { mean: 0, stdev: 0 };
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length;
+  return { mean, stdev: Math.sqrt(variance) };
+}
+
+/**
+ * Aggregate K independent suite runs into stable, variance-aware metrics. Per-item
+ * pass-rate (fraction of scored runs that passed) exposes flaky items; the headline
+ * metrics carry a stdev so a single lucky/unlucky run can't masquerade as signal.
+ */
+export interface MultiRunMetrics {
+  runs: number;
+  accuracy: { mean: number; stdev: number };
+  toolF1: { mean: number; stdev: number };
+  groundedness: { mean: number; stdev: number };
+  latencyP50Mean: number;
+  perItemPassRate: Record<string, number>;
+  flaky: string[]; // items with a pass-rate strictly between 0 and 1
+  accuracyByClassMean: Record<string, number>;
+}
+
+export function aggregateRuns(runs: ItemScore[][]): MultiRunMetrics {
+  const perRun = runs.map(aggregate);
+  const acc = meanStdev(perRun.map((m) => m.accuracy));
+  const f1 = meanStdev(perRun.map((m) => m.toolF1));
+  const grnd = meanStdev(perRun.map((m) => m.groundedness));
+  const p50 = perRun.map((m) => m.latencyP50);
+
+  // Per-item pass-rate over runs where the item was actually scored (pass|fail).
+  const byId: Record<string, { pass: number; scored: number }> = {};
+  for (const run of runs) {
+    for (const it of run) {
+      if (it.blocked) continue;
+      if (it.accuracy === "pass" || it.accuracy === "fail") {
+        const e = (byId[it.id] ??= { pass: 0, scored: 0 });
+        e.scored += 1;
+        if (it.accuracy === "pass") e.pass += 1;
+      }
+    }
+  }
+  const perItemPassRate: Record<string, number> = {};
+  const flaky: string[] = [];
+  for (const [id, v] of Object.entries(byId)) {
+    const rate = v.scored ? v.pass / v.scored : 0;
+    perItemPassRate[id] = rate;
+    if (rate > 0 && rate < 1) flaky.push(id);
+  }
+
+  // Mean per-class accuracy across runs.
+  const classSums: Record<string, number[]> = {};
+  for (const m of perRun) {
+    for (const [c, v] of Object.entries(m.accuracyByClass)) (classSums[c] ??= []).push(v);
+  }
+  const accuracyByClassMean: Record<string, number> = {};
+  for (const [c, vs] of Object.entries(classSums)) accuracyByClassMean[c] = meanStdev(vs).mean;
+
+  return {
+    runs: runs.length,
+    accuracy: acc,
+    toolF1: f1,
+    groundedness: grnd,
+    latencyP50Mean: meanStdev(p50).mean,
+    perItemPassRate,
+    flaky,
+    accuracyByClassMean,
+  };
 }
 
 function percentile(values: number[], p: number): number {

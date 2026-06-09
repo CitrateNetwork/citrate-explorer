@@ -1,141 +1,63 @@
 {
-  "run_id": "2026-06-09T002144Z_ba085660",
-  "timestamp": "2026-06-09T002144Z",
-  "git_sha": "ba085660700c4519de3c48c0a4aab4186d7b7bb6",
-  "git_branch": "feat/RA-1-eval-harness",
-  "scenarios": [
-    {
-      "name": "agent_research.sh",
-      "status": "ok",
-      "elapsed_seconds": 164.212,
-      "metrics": {
-        "agent_tool_f1": {
-          "value": 0.8421,
-          "unit": ""
-        },
-        "agent_groundedness": {
-          "value": 1.0,
-          "unit": ""
-        },
-        "agent_accuracy": {
-          "value": 0.8947,
-          "unit": ""
-        },
-        "agent_latency_p50": {
-          "value": 6496,
-          "unit": "ms"
-        },
-        "agent_latency_p95": {
-          "value": 18574,
-          "unit": "ms"
-        },
-        "agent_mean_steps": {
-          "value": 1.95,
-          "unit": ""
-        },
-        "agent_scored": {
-          "value": 19,
-          "unit": ""
-        },
-        "agent_not_yet_supported": {
-          "value": 0,
-          "unit": ""
-        },
-        "agent_indeterminate": {
-          "value": 0,
-          "unit": ""
-        },
-        "agent_accuracy_chain": {
-          "value": 1.0,
-          "unit": ""
-        },
-        "agent_accuracy_dag": {
-          "value": 1.0,
-          "unit": ""
-        },
-        "agent_accuracy_address": {
-          "value": 0.7143,
-          "unit": ""
-        },
-        "agent_accuracy_native_vs_token": {
-          "value": 1.0,
-          "unit": ""
-        },
-        "agent_accuracy_token": {
-          "value": 1.0,
-          "unit": ""
-        },
-        "agent_accuracy_multistep": {
-          "value": 1.0,
-          "unit": ""
-        }
-      },
-      "log_excerpt": "teps 1.95\nBENCH agent_scored 19\nBENCH agent_not_yet_supported 0\nBENCH agent_indeterminate 0\nBENCH agent_accuracy_chain 1.0000\nBENCH agent_accuracy_dag 1.0000\nBENCH agent_accuracy_address 0.7143\nBENCH agent_accuracy_native_vs_token 1.0000\nBENCH agent_accuracy_token 1.0000\nBENCH agent_accuracy_multistep 1.0000\nagent-eval: wrote /home/saul/Projects/Citrate-Labs/citrate-explorer/scripts/eval/baselines/agent-detail-baseline.json\nagent-eval: accuracy=89.5% toolF1=0.842 grounded=100.0% scored=19 nys=0\n"
-    }
-  ],
-  "metrics": {
-    "agent_research.sh.agent_tool_f1": {
-      "value": 0.8421,
-      "unit": ""
-    },
-    "agent_research.sh.agent_groundedness": {
-      "value": 1.0,
-      "unit": ""
-    },
-    "agent_research.sh.agent_accuracy": {
-      "value": 0.8947,
-      "unit": ""
-    },
-    "agent_research.sh.agent_latency_p50": {
-      "value": 6496,
-      "unit": "ms"
-    },
-    "agent_research.sh.agent_latency_p95": {
-      "value": 18574,
-      "unit": "ms"
-    },
-    "agent_research.sh.agent_mean_steps": {
-      "value": 1.95,
-      "unit": ""
-    },
-    "agent_research.sh.agent_scored": {
-      "value": 19,
-      "unit": ""
-    },
-    "agent_research.sh.agent_not_yet_supported": {
-      "value": 0,
-      "unit": ""
-    },
-    "agent_research.sh.agent_indeterminate": {
-      "value": 0,
-      "unit": ""
-    },
-    "agent_research.sh.agent_accuracy_chain": {
-      "value": 1.0,
-      "unit": ""
-    },
-    "agent_research.sh.agent_accuracy_dag": {
-      "value": 1.0,
-      "unit": ""
-    },
-    "agent_research.sh.agent_accuracy_address": {
-      "value": 0.7143,
-      "unit": ""
-    },
-    "agent_research.sh.agent_accuracy_native_vs_token": {
-      "value": 1.0,
-      "unit": ""
-    },
-    "agent_research.sh.agent_accuracy_token": {
-      "value": 1.0,
-      "unit": ""
-    },
-    "agent_research.sh.agent_accuracy_multistep": {
-      "value": 1.0,
-      "unit": ""
-    }
-  },
+  "baseline": "RA-1.5",
   "base_model": "gemma-4-E4B-it-Q4_K_M",
   "lora_id": null,
-  "note": "RA-1 baseline: base Gemma, no LoRA. Captured against explorer.citrate.ai."
+  "base_url": "https://explorer.citrate.ai",
+  "runs": 3,
+  "method": "3-run averaged, robust scoring (truncation-tolerant address match + synonym contains_any); RA-1.5",
+  "metrics": {
+    "agent_accuracy": {
+      "mean": 0.6522,
+      "stdev": 0.0355
+    },
+    "agent_tool_f1": {
+      "mean": 0.7536,
+      "stdev": 0.0205
+    },
+    "agent_groundedness": {
+      "mean": 0.873
+    },
+    "agent_latency_p50_ms": 6752
+  },
+  "accuracy_by_class": {
+    "chain": 0.833,
+    "dag": 1,
+    "address": 0.476,
+    "native_vs_token": 0.833,
+    "token": 1,
+    "multistep": 0.333,
+    "value": 0.333
+  },
+  "flaky": [
+    "chain-id-newcomer",
+    "addr-nonce-deployer",
+    "multistep-latest-block-txcount",
+    "value-ambiguous-30k-native-vs-token"
+  ],
+  "per_item_pass_rate": {
+    "chain-id-newcomer": 0.33,
+    "chain-gas-newcomer": 1,
+    "chain-tip-native": 1,
+    "chain-gasprice-auditor": 1,
+    "dag-ordering-native": 1,
+    "dag-finality-auditor": 1,
+    "dag-bluescore-vs-height": 1,
+    "dag-tips-native": 1,
+    "addr-iscontract-router": 1,
+    "addr-label-router": 0,
+    "addr-balance-treasury": 1,
+    "addr-iscontract-eoa": 1,
+    "addr-nonce-deployer": 0.33,
+    "addr-code-lorafactory": 0,
+    "salt-richlist-native": 0,
+    "salt-vs-token-newcomer": 1,
+    "token-meta-wrappedsalt": 1,
+    "multistep-latest-block-txcount": 0.67,
+    "multistep-contract-then-token": 0,
+    "value-30k-salt-auditor": 1,
+    "value-biggest-24h-newcomer": 0,
+    "value-over-10k-from-treasury": 0,
+    "value-ambiguous-30k-native-vs-token": 0.67
+  },
+  "note": "Hard gates = tool_f1 + groundedness (stable). accuracy is a soft signal (still phrasing-sensitive); watch per-item pass-rate + flaky. Supersedes the RA-1 single-run baseline (89.5% was an optimistic sample)."
 }
