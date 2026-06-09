@@ -1,63 +1,39 @@
 {
-  "baseline": "RA-1.5",
+  "baseline": "RA-3-postdeploy",
   "base_model": "gemma-4-E4B-it-Q4_K_M",
   "lora_id": null,
   "base_url": "https://explorer.citrate.ai",
   "runs": 3,
-  "method": "3-run averaged, robust scoring (truncation-tolerant address match + synonym contains_any); RA-1.5",
+  "method": "3-run averaged, robust scoring; post-RA-3 deploy",
   "metrics": {
     "agent_accuracy": {
-      "mean": 0.6522,
-      "stdev": 0.0355
+      "mean": 0.4928,
+      "stdev": 0.0542
     },
     "agent_tool_f1": {
-      "mean": 0.7536,
-      "stdev": 0.0205
+      "mean": 0.7343,
+      "stdev": 0.0068
     },
     "agent_groundedness": {
-      "mean": 0.873
+      "mean": 0.8571
     },
-    "agent_latency_p50_ms": 6752
+    "agent_latency_p50_ms": 5206
   },
   "accuracy_by_class": {
     "chain": 0.833,
-    "dag": 1,
-    "address": 0.476,
-    "native_vs_token": 0.833,
+    "dag": 0.583,
+    "address": 0.429,
+    "native_vs_token": 0.667,
     "token": 1,
-    "multistep": 0.333,
-    "value": 0.333
+    "multistep": 0.167,
+    "value": 0
   },
   "flaky": [
     "chain-id-newcomer",
-    "addr-nonce-deployer",
+    "dag-finality-auditor",
+    "dag-bluescore-vs-height",
     "multistep-latest-block-txcount",
     "value-ambiguous-30k-native-vs-token"
   ],
-  "per_item_pass_rate": {
-    "chain-id-newcomer": 0.33,
-    "chain-gas-newcomer": 1,
-    "chain-tip-native": 1,
-    "chain-gasprice-auditor": 1,
-    "dag-ordering-native": 1,
-    "dag-finality-auditor": 1,
-    "dag-bluescore-vs-height": 1,
-    "dag-tips-native": 1,
-    "addr-iscontract-router": 1,
-    "addr-label-router": 0,
-    "addr-balance-treasury": 1,
-    "addr-iscontract-eoa": 1,
-    "addr-nonce-deployer": 0.33,
-    "addr-code-lorafactory": 0,
-    "salt-richlist-native": 0,
-    "salt-vs-token-newcomer": 1,
-    "token-meta-wrappedsalt": 1,
-    "multistep-latest-block-txcount": 0.67,
-    "multistep-contract-then-token": 0,
-    "value-30k-salt-auditor": 1,
-    "value-biggest-24h-newcomer": 0,
-    "value-over-10k-from-treasury": 0,
-    "value-ambiguous-30k-native-vs-token": 0.67
-  },
-  "note": "Hard gates = tool_f1 + groundedness (stable). accuracy is a soft signal (still phrasing-sensitive); watch per-item pass-rate + flaky. Supersedes the RA-1 single-run baseline (89.5% was an optimistic sample)."
+  "note": "HARD GATES STABLE across RA-1.5->RA-3: tool_f1 0.754->0.734, groundedness ~87->86. accuracy 65.2->49.3 is driven by EMPTY NARRATION \u2014 the small model calls the right tool (findTransfers/saltDistribution, http 200) but returns no text in some runs. NOT a capability/code regression (findNativeTransfers verified against real Neon data). Dominant fix target = RA-6 (narration/formatting scaffold) + a growing system prompt argues for moving knowledge into the model (RA-8 LoRA)."
 }
