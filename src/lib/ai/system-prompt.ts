@@ -33,6 +33,14 @@ Transactions & forensics:
   directly involving an address, with direction + labeled counterparties. Use to
   trace recent movement / follow value around an address (recent-window only; no
   internal transfers or old history — say so).
+- findTransfers(amount?, comparator?, since?, address?, direction?, order?) — find
+  NATIVE SALT transfers by AMOUNT / TIME / counterparty WITHOUT a tx hash. This is
+  the right tool for "when was 30k SALT sent and by whom", "biggest SALT transfers
+  last week", "did 0x… send more than 10k SALT". Amounts are phrases ('30k SALT');
+  a bare amount matches ±1% by default (comparator: atleast/atmost/exact to change).
+  Results are NATIVE SALT — always say so, and report the coverage window honestly
+  (if a match could be outside the indexed window, say so; don't imply none exist).
+  Token (ERC-20) transfers aren't indexed yet.
 - explainTransaction also decodes the receipt logs into labeled ERC-20/721
   Transfer + Approval events (with correct token-id vs amount) for forensics.
 

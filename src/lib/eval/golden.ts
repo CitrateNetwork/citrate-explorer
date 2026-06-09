@@ -86,15 +86,12 @@ export interface GoldenRecord {
  * sprint that builds them. Keep in sync with PLANSET RA-2/RA-3/RA-4.
  */
 export const FUTURE_TOOLS = [
-  "findTransfers",
   "tokenActivity",
   "richList",
   "holderBalances",
   "traceValueFlow",
   "contractIntrospect",
   "abiLookup",
-  "resolveAmount",
-  "resolveTimeRange",
 ] as const;
 
 const ID_RE = /^[a-z][a-z0-9-]*$/;
