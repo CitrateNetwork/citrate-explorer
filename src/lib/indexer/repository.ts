@@ -3,8 +3,8 @@
  * to a "not provisioned" note when DATABASE_URL is unset, so the explorer + agent
  * keep working against live RPC for single-entity reads (Rule 11: never fake).
  */
-import { desc, eq, or, sql } from "drizzle-orm";
-import type { Address } from "viem";
+import { and, desc, eq, or, sql } from "drizzle-orm";
+import { formatUnits, type Address } from "viem";
 import { getDb } from "@/lib/db/client";
 import { blocks, transactions } from "@/lib/db/schema";
 import { NOT_PROVISIONED, type NotProvisioned } from "./types";
@@ -60,6 +60,127 @@ export async function searchTransactions(
     .orderBy(desc(transactions.timestamp))
     .limit(limit);
   return { provisioned: true, results };
+}
+
+// --- native SALT value queries (RA-2) -------------------------------------
+
+export interface NativeTransferQuery {
+  minGrains?: bigint;
+  maxGrains?: bigint;
+  counterparty?: string;
+  direction?: "sent" | "received" | "either";
+  fromTs?: number;
+  toTs?: number;
+  successOnly?: boolean;
+  order?: "value_desc" | "value_asc" | "time_desc";
+  limit?: number;
+}
+
+export interface NativeTransferRow {
+  hash: string;
+  blockHeight: number | null;
+  timestamp: number | null;
+  from: string;
+  to: string | null;
+  grains: string;
+  salt: string;
+  status: number | null;
+}
+
+export interface NativeTransfersResult {
+  provisioned: true;
+  asset: "SALT (native)";
+  coverage: { minTimestamp: number | null; maxTimestamp: number | null; minHeight: number | null; maxHeight: number | null };
+  truncated: boolean;
+  count: number;
+  transfers: NativeTransferRow[];
+}
+
+/**
+ * Find native SALT transfers (`transactions.value`) by amount range, time window,
+ * counterparty, and direction — the RA-2 hash-free value query. Value comparison
+ * uses NUMERIC casting so 256-bit magnitudes order correctly (the column is a
+ * decimal-string of grains). Zero-value txs are excluded (not value transfers).
+ * Always reports the index `coverage` window and a `truncated` flag (X-2: no
+ * silent truncation). Native SALT only — token transfers land in RA-3.
+ *
+ * Data source (Rule 11): Neon `transactions`, written by the indexer from live RPC.
+ */
+export async function findNativeTransfers(
+  q: NativeTransferQuery,
+): Promise<NotProvisioned | NativeTransfersResult> {
+  const db = getDb();
+  if (!db) return NOT_PROVISIONED;
+
+  const valueNumeric = sql`CAST(${transactions.value} AS NUMERIC)`;
+  const conds = [sql`${valueNumeric} > 0`];
+  if (q.minGrains !== undefined) conds.push(sql`${valueNumeric} >= CAST(${q.minGrains.toString()} AS NUMERIC)`);
+  if (q.maxGrains !== undefined) conds.push(sql`${valueNumeric} <= CAST(${q.maxGrains.toString()} AS NUMERIC)`);
+  if (q.counterparty) {
+    const cp = q.counterparty.toLowerCase();
+    if (q.direction === "sent") conds.push(eq(transactions.from, cp));
+    else if (q.direction === "received") conds.push(eq(transactions.to, cp));
+    else conds.push(or(eq(transactions.from, cp), eq(transactions.to, cp))!);
+  }
+  if (q.fromTs !== undefined) conds.push(sql`${transactions.timestamp} >= ${q.fromTs}`);
+  if (q.toTs !== undefined) conds.push(sql`${transactions.timestamp} <= ${q.toTs}`);
+  if (q.successOnly) conds.push(sql`(${transactions.status} = 1 OR ${transactions.status} IS NULL)`);
+
+  const limit = Math.min(Math.max(q.limit ?? 25, 1), 100);
+  const orderBy =
+    q.order === "value_asc" ? sql`${valueNumeric} ASC` :
+    q.order === "time_desc" ? desc(transactions.timestamp) :
+    sql`${valueNumeric} DESC`;
+
+  const rows = await db
+    .select({
+      hash: transactions.hash,
+      blockHeight: transactions.blockHeight,
+      timestamp: transactions.timestamp,
+      from: transactions.from,
+      to: transactions.to,
+      value: transactions.value,
+      status: transactions.status,
+    })
+    .from(transactions)
+    .where(and(...conds))
+    .orderBy(orderBy)
+    .limit(limit + 1);
+
+  const truncated = rows.length > limit;
+  const transfers: NativeTransferRow[] = rows.slice(0, limit).map((r) => ({
+    hash: r.hash,
+    blockHeight: r.blockHeight,
+    timestamp: r.timestamp,
+    from: r.from,
+    to: r.to,
+    grains: r.value,
+    salt: formatUnits(BigInt(r.value || "0"), 18),
+    status: r.status,
+  }));
+
+  const [cov] = await db
+    .select({
+      minTs: sql<number | null>`min(${transactions.timestamp})`,
+      maxTs: sql<number | null>`max(${transactions.timestamp})`,
+      minH: sql<number | null>`min(${transactions.blockHeight})`,
+      maxH: sql<number | null>`max(${transactions.blockHeight})`,
+    })
+    .from(transactions);
+
+  return {
+    provisioned: true,
+    asset: "SALT (native)",
+    coverage: {
+      minTimestamp: cov?.minTs ?? null,
+      maxTimestamp: cov?.maxTs ?? null,
+      minHeight: cov?.minH ?? null,
+      maxHeight: cov?.maxH ?? null,
+    },
+    truncated,
+    count: transfers.length,
+    transfers,
+  };
 }
 
 export async function addressActivity(

@@ -33,7 +33,10 @@ import {
   searchTransactions,
   addressActivity,
   topHolders,
+  findNativeTransfers,
+  type NativeTransferQuery,
 } from "@/lib/indexer/repository";
+import { resolveAmount, resolveTimeRange, amountRange } from "@/lib/research/resolvers";
 import { logToolCall } from "./audit";
 
 const addressSchema = z
@@ -258,6 +261,65 @@ export function citrateTools(opts: ToolOptions = {}) {
         "ERC-20, contract call, deploy), dual-unit. Use to answer 'how much does X cost'.",
       inputSchema: z.object({}),
       execute: audited("getGasOracle", async () => getGasOracle()),
+    }),
+    findTransfers: tool({
+      description:
+        "Find native SALT transfers by AMOUNT, TIME, and counterparty — WITHOUT a tx hash. Use for " +
+        "'when was 30k SALT sent', 'biggest SALT transfers last week', 'did 0x… send more than 10k SALT'. " +
+        "`amount` is a human phrase ('30k SALT', '0.5 SALT'); `comparator` says how to match it " +
+        "(about = ±1%, the default; atleast; atmost; exact). `since` is a time phrase ('last week', " +
+        "'last 24 hours', or a YYYY-MM-DD). `address`+`direction` filter by sender/recipient. Results are " +
+        "NATIVE SALT — always say so. The result includes the index `coverage` window; if the answer might " +
+        "be outside it, say so rather than implying 'none exist'. (ERC-20/token transfers aren't indexed yet.)",
+      inputSchema: z.object({
+        amount: z.string().optional().describe("human amount, e.g. '30k SALT' or '0.5 SALT'"),
+        comparator: z.enum(["about", "atleast", "atmost", "exact"]).optional().default("about"),
+        since: z.string().optional().describe("time phrase, e.g. 'last week', 'last 24 hours', '2026-06-01'"),
+        address: addressSchema.optional().describe("a counterparty to filter by"),
+        direction: z.enum(["sent", "received", "either"]).optional().default("either"),
+        order: z.enum(["biggest", "smallest", "recent"]).optional().default("biggest"),
+        limit: z.number().int().min(1).max(100).optional().default(10),
+        token: addressSchema.optional().describe("not supported yet — omit for native SALT"),
+      }),
+      execute: audited(
+        "findTransfers",
+        async (args: {
+          amount?: string;
+          comparator: "about" | "atleast" | "atmost" | "exact";
+          since?: string;
+          address?: string;
+          direction: "sent" | "received" | "either";
+          order: "biggest" | "smallest" | "recent";
+          limit: number;
+          token?: string;
+        }) => {
+          if (args.token) {
+            return {
+              error:
+                "Token (ERC-20/721) transfers aren't indexed yet — that lands in a later release. " +
+                "I can search NATIVE SALT transfers: omit the token to do that.",
+            };
+          }
+          const q: NativeTransferQuery = { limit: args.limit, order: "value_desc" };
+          if (args.amount) {
+            const a = resolveAmount(args.amount);
+            if (!a.ok) return { error: `I couldn't read the amount "${args.amount}": ${a.error}` };
+            Object.assign(q, amountRange(a.grains, args.comparator));
+          }
+          if (args.since) {
+            const tr = resolveTimeRange(args.since, Math.floor(Date.now() / 1000));
+            if (!tr.ok) return { error: `I couldn't read the time range "${args.since}": ${tr.error}` };
+            q.fromTs = tr.fromTs;
+            q.toTs = tr.toTs;
+          }
+          if (args.address) {
+            q.counterparty = args.address;
+            q.direction = args.direction;
+          }
+          q.order = args.order === "smallest" ? "value_asc" : args.order === "recent" ? "time_desc" : "value_desc";
+          return findNativeTransfers(q);
+        },
+      ),
     }),
     saltDistribution: tool({
       description:
