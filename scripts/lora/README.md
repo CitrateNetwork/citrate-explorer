@@ -23,6 +23,16 @@ the gateway. The whole pipeline runs on the **DGX** (`spark-2e01`, GB10) — tor
   safetensors (the local file is only the GGUF quant). One-time owner step.
 - ⏳ **Train → convert → serve → register → measure** — steps below.
 
+## Auto-watch (armed 2026-06-09)
+A systemd timer polls for the gemma-3n approval every 20 min and, the moment HF access
+is granted, auto-runs train → convert → smoke-test (stopping before prod-serve /
+on-chain registration — those stay a human go):
+- watcher: `scripts/lora/watch-and-train.sh`; units: `/etc/systemd/system/citrate-lora-watch.{service,timer}`
+- log: `~/.citrate/lora/watch.log`; done marker: `~/.citrate/lora/.gemma-pipeline-done`
+- the watcher self-disables once the GGUF adapter is built + smoke-tested, and logs the
+  exact SERVE / REGISTER / MEASURE commands to finish.
+Check progress: `tail ~/.citrate/lora/watch.log`. Disable: `sudo systemctl disable --now citrate-lora-watch.timer`.
+
 ## 1. Acquire base weights (owner, one-time)
 Accept the license at https://huggingface.co/google/gemma-3n-E4B-it then:
 ```bash
