@@ -173,4 +173,32 @@ describe("OIDC RP verification — citrate-explorer ⇄ Citrate authority", () =
     expect(s.required).toBe(true);
     expect(s.authenticated).toBe(false);
   });
+
+  // FUA-EXPLORER-01 (SECREM-02): audience/issuer enforcement must not be optional.
+  // A fresh module loaded with OIDC_AUDIENCE / OIDC_ISSUER unset must FAIL CLOSED —
+  // never silently skip the claim check and accept an otherwise-valid token.
+  async function loadVerifierMissing(which: "aud" | "iss") {
+    vi.resetModules();
+    process.env.NEXT_PUBLIC_AUTH_MODE = "oidc";
+    process.env.OIDC_JWKS_URL = jwksUrl;
+    process.env.OIDC_ISSUER = ISSUER;
+    process.env.OIDC_AUDIENCE = AUDIENCE;
+    if (which === "aud") delete process.env.OIDC_AUDIENCE;
+    if (which === "iss") delete process.env.OIDC_ISSUER;
+    return import("./session");
+  }
+
+  it("FAILS CLOSED when OIDC_AUDIENCE is unset (no silent skip of aud check)", async () => {
+    const { verifySession } = await loadVerifierMissing("aud");
+    const token = await mintToken(); // perfectly valid iss/aud/sig token
+    const s = await verifySession(bearerReq(token));
+    expect(s.authenticated).toBe(false);
+  });
+
+  it("FAILS CLOSED when OIDC_ISSUER is unset (no silent skip of iss check)", async () => {
+    const { verifySession } = await loadVerifierMissing("iss");
+    const token = await mintToken();
+    const s = await verifySession(bearerReq(token));
+    expect(s.authenticated).toBe(false);
+  });
 });

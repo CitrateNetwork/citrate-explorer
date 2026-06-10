@@ -68,13 +68,45 @@ function jwkSet() {
   return jwks;
 }
 
+let warnedOidcConfig = false;
+
+/**
+ * FUA-EXPLORER-01 (SECREM-02): the issuer + audience MUST be enforced. The old
+ * code passed `process.env.OIDC_ISSUER || undefined` / `... AUDIENCE || undefined`
+ * to `jwtVerify`, so when either env was unset that claim was NOT checked — any
+ * token signed by a key in the configured JWKS was accepted regardless of which
+ * relying party it was minted for, breaking per-RP token isolation
+ * (auth.citrate.ai is a shared authority across explorer/dashboard/gui). We now
+ * require both and fail closed (reject every token, loudly) when either is
+ * missing — never pass `undefined`.
+ */
+function requiredOidcConfig(): { issuer: string; audience: string } | null {
+  const issuer = process.env.OIDC_ISSUER;
+  const audience = process.env.OIDC_AUDIENCE;
+  if (!issuer || !audience) return null;
+  return { issuer, audience };
+}
+
 async function verifyOidc(req: Request): Promise<AuthSession> {
   const token = bearer(req);
   if (!token) return { required: true, authenticated: false };
+  const cfg = requiredOidcConfig();
+  if (!cfg) {
+    if (!warnedOidcConfig) {
+      warnedOidcConfig = true;
+      console.error(
+        "[auth] OIDC_ISSUER and OIDC_AUDIENCE must both be set in oidc mode; " +
+          "refusing all tokens until configured (fail closed, pre-audit " +
+          "FUA-EXPLORER-01). A token minted for a different relying party must " +
+          "never be accepted here.",
+      );
+    }
+    return { required: true, authenticated: false };
+  }
   try {
     const { payload } = await jwtVerify(token, jwkSet(), {
-      issuer: process.env.OIDC_ISSUER || undefined,
-      audience: process.env.OIDC_AUDIENCE || undefined,
+      issuer: cfg.issuer,
+      audience: cfg.audience,
     });
     const sub = payload[claimSub()] as string | undefined;
     const walletAddress = (payload[claimWallet()] as string | undefined)?.toLowerCase();
