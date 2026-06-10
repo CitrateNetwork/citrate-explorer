@@ -10,6 +10,8 @@ import { privateKeyToAccount } from "viem/accounts";
 import { citrate } from "@/lib/citrate/chain";
 import { PROJECT_ADDRESSES } from "@/lib/citrate/addresses";
 import { forwarderAbi } from "@/lib/citrate/abi";
+import { clientIp } from "@/lib/api/keys";
+import { checkRelayRateLimit } from "@/lib/relay/rateLimit";
 
 /**
  * Gasless write relay (EIP-2771). The user signs an EIP-712 ForwardRequest in the
@@ -41,6 +43,19 @@ export async function POST(req: Request) {
     return Response.json(
       { error: "invalid ForwardRequest", issues: parsed.error.issues },
       { status: 400 },
+    );
+  }
+
+  // SECREM-01 WEB-2 (pre-audit 2026-06-09): on-chain `verify` only blocks
+  // cross-user forgery — a valid account holder could still spam self-signed
+  // requests and drain the relayer's gas. Cap per `from` address AND per
+  // client IP per hour, BEFORE any chain interaction (limits + multi-instance
+  // caveat in src/lib/relay/rateLimit.ts).
+  const rl = checkRelayRateLimit(parsed.data.request.from, clientIp(req));
+  if (!rl.ok) {
+    return Response.json(
+      { error: `relay rate limit exceeded (per-${rl.scope ?? "client"} hourly cap)` },
+      { status: 429, headers: { "retry-after": String(rl.retryAfter ?? 60) } },
     );
   }
 

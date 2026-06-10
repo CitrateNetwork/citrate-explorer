@@ -16,7 +16,36 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { AuthSession } from "./types";
 
-const MODE = process.env.NEXT_PUBLIC_AUTH_MODE || "mock";
+/**
+ * WEB-1 (SECREM-01, pre-audit 2026-06-09): the server-side mode resolution is
+ * fail-closed. The previous default (`|| "mock"`) meant an undeployed/unset
+ * NEXT_PUBLIC_AUTH_MODE silently accepted FORGED, UNSIGNED bearer tokens in
+ * production — any caller could become any user. Now:
+ *  - unset or unrecognized mode  → `oidc` (rejects everything until a JWKS is
+ *    configured — fail closed, never fail open);
+ *  - `mock` in production        → disabled (every request unauthenticated)
+ *    unless the operator explicitly sets ALLOW_MOCK_AUTH=1.
+ * Exported for direct unit testing of the resolution matrix.
+ */
+export type ServerAuthMode = "oidc" | "privy" | "mock" | "mock-disabled";
+export function resolveServerAuthMode(
+  env: Record<string, string | undefined> = process.env,
+): ServerAuthMode {
+  const requested = env.NEXT_PUBLIC_AUTH_MODE;
+  if (requested === "oidc" || requested === "privy") return requested;
+  if (requested === "mock") {
+    if (env.NODE_ENV === "production" && env.ALLOW_MOCK_AUTH !== "1") {
+      return "mock-disabled";
+    }
+    return "mock";
+  }
+  // Unset or unknown value: fail closed onto the verifying path.
+  return "oidc";
+}
+
+const MODE = resolveServerAuthMode();
+
+let warnedMockDisabled = false;
 
 const claimSub = () =>
   process.env.AUTH_CLAIM_SUB || process.env.NEXT_PUBLIC_AUTH_CLAIM_SUB || "sub";
@@ -85,6 +114,21 @@ export async function verifySession(req: Request): Promise<AuthSession> {
   if (MODE === "privy") {
     const { verifyPrivy } = await import("./adapters/privy.server");
     return verifyPrivy(req);
+  }
+  if (MODE === "mock-disabled") {
+    // WEB-1: mock requested in production without the explicit
+    // ALLOW_MOCK_AUTH=1 opt-in. Hard-fail every request rather than
+    // trust unsigned tokens.
+    if (!warnedMockDisabled) {
+      warnedMockDisabled = true;
+      console.error(
+        "[auth] NEXT_PUBLIC_AUTH_MODE=mock is DISABLED in production " +
+          "(forged-token risk, pre-audit WEB-1). All requests are " +
+          "unauthenticated. Set NEXT_PUBLIC_AUTH_MODE=oidc, or set " +
+          "ALLOW_MOCK_AUTH=1 only for a non-public staging deploy.",
+      );
+    }
+    return { required: true, authenticated: false };
   }
   return verifyMock(req);
 }

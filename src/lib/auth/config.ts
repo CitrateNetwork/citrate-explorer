@@ -7,9 +7,15 @@
  */
 import type { AuthMode } from "./types";
 
-/** Selected backend. Default `mock` until auth.citrate.ai ships. */
+/**
+ * Selected backend. WEB-1 (SECREM-01): the default is `oidc`, never `mock` —
+ * an unset NEXT_PUBLIC_AUTH_MODE must fail closed, not open the forged-token
+ * dev gate. Local dev sets NEXT_PUBLIC_AUTH_MODE=mock explicitly (.env.local).
+ * The server-side enforcement matrix lives in `session.ts`
+ * (`resolveServerAuthMode`).
+ */
 export const AUTH_MODE: AuthMode =
-  (process.env.NEXT_PUBLIC_AUTH_MODE as AuthMode) || "mock";
+  (process.env.NEXT_PUBLIC_AUTH_MODE as AuthMode) || "oidc";
 
 /** Public OIDC client config (Authorization Code + PKCE; public client, no secret). */
 export const OIDC_PUBLIC = {
