@@ -1,11 +1,15 @@
-import { describe, it, expect } from "vitest";
-import { requireOwner, sessionOwner } from "./session";
+import { afterAll, beforeAll, describe, it, expect, vi } from "vitest";
+import { sessionOwner } from "./session";
 
 /**
  * SR-0: per-user data is owned by the stable OIDC `subject`, NOT the wallet.
  * These guard the directive that the Web2/Privy-like portal (Google/email/passkey)
  * produces first-class owners even with no wallet, and that `sub` is opaque +
  * case-sensitive (never lower-cased).
+ *
+ * The requireOwner cases exercise the mock issuer, which (post-WEB-1) must be
+ * selected explicitly — the default mode is fail-closed oidc. Env is set before
+ * a fresh module import (session.ts reads NEXT_PUBLIC_AUTH_MODE at load).
  */
 function mockToken(claims: Record<string, unknown>): string {
   return Buffer.from(JSON.stringify(claims)).toString("base64url");
@@ -15,6 +19,20 @@ function req(token?: string): Request {
     headers: token ? { authorization: `Bearer ${token}` } : {},
   });
 }
+
+let requireOwner: (typeof import("./session"))["requireOwner"];
+const savedMode = process.env.NEXT_PUBLIC_AUTH_MODE;
+
+beforeAll(async () => {
+  process.env.NEXT_PUBLIC_AUTH_MODE = "mock";
+  vi.resetModules();
+  ({ requireOwner } = await import("./session"));
+});
+
+afterAll(() => {
+  if (savedMode === undefined) delete process.env.NEXT_PUBLIC_AUTH_MODE;
+  else process.env.NEXT_PUBLIC_AUTH_MODE = savedMode;
+});
 
 describe("SR-0 — owner is the OIDC subject", () => {
   it("sessionOwner returns sub, ignoring the wallet, verbatim (no lower-casing)", () => {
