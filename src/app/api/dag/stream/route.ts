@@ -1,5 +1,7 @@
 import { getDagBlock, dagStats } from "@/lib/citrate/rpc";
 import { harnessClient } from "@/lib/harness/client";
+import { clientIp } from "@/lib/api/keys";
+import { checkRateLimit } from "@/lib/api/ratelimit";
 
 /**
  * Live DAG stream (P-5 WP-5.1) as Server-Sent Events.
@@ -24,6 +26,12 @@ const SNAPSHOT_N = 14;
 const POLL_MS = 2500;
 const STATUS_EVERY = 4; // emit fresh stats every Nth poll
 const MAX_STREAM_MS = 250_000; // close before the 300s cap → client reconnects
+
+// FUA-EXPLORER-06: this is an UNAUTHENTICATED, long-lived (250s) RPC-polling
+// connection. Cap total concurrent streams so it can't be used for connection /
+// RPC-amplification DoS. Generous default; env-tunable.
+const MAX_CONCURRENT_STREAMS = Number(process.env.CITRATE_DAG_MAX_STREAMS ?? 50);
+let activeStreams = 0;
 
 interface Vertex {
   hash: string;
@@ -65,6 +73,23 @@ async function safeStats() {
 }
 
 export async function GET(req: Request) {
+  // FUA-EXPLORER-06: rate-limit opens per trusted IP, then cap total concurrent
+  // streams — refuse with 429/503 rather than open another 250s RPC-poller.
+  const rl = await checkRateLimit(`dagstream:${clientIp(req)}`, 0.5, 10);
+  if (!rl.ok) {
+    return new Response("rate limited", {
+      status: 429,
+      headers: { "retry-after": String(rl.retryAfter ?? 5) },
+    });
+  }
+  if (activeStreams >= MAX_CONCURRENT_STREAMS) {
+    return new Response("too many active streams", {
+      status: 503,
+      headers: { "retry-after": "5" },
+    });
+  }
+  activeStreams += 1;
+
   const encoder = new TextEncoder();
   const startedAt = Date.now();
 
@@ -81,6 +106,7 @@ export async function GET(req: Request) {
       const close = () => {
         if (closed) return;
         closed = true;
+        activeStreams = Math.max(0, activeStreams - 1); // FUA-EXPLORER-06: release the slot
         clearInterval(timer);
         try {
           controller.close();
