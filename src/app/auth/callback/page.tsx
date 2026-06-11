@@ -4,9 +4,10 @@
  * OIDC Authorization Code + PKCE callback (auth seam). Active only in AUTH_MODE=oidc:
  * the Citrate authority redirects here with `?code&state`; we verify the CSRF
  * state, exchange the code (with the stored PKCE verifier) for tokens at the
- * discovered token endpoint, store the id_token (claims + app auth) and the
- * access_token (authority /logout + /userinfo), and return home. Public-client
- * exchange (no client secret). Inert in mock mode.
+ * discovered token endpoint, then hand the id_token + access_token to
+ * POST /api/auth/session, which sets httpOnly SameSite=Strict cookies
+ * (FUA-EXPLORER-04 — tokens never touch web storage; page script can't read
+ * them). Public-client exchange (no client secret). Inert in mock mode.
  */
 import { useEffect, useState } from "react";
 import { OIDC_PUBLIC } from "@/lib/auth/config";
@@ -51,8 +52,16 @@ export default function AuthCallback() {
         const tok = await res.json();
         const idToken = tok.id_token || tok.access_token;
         if (!idToken) throw new Error("no id_token in response");
-        localStorage.setItem("citrate.auth.oidc.idtoken", idToken);
-        if (tok.access_token) localStorage.setItem("citrate.auth.oidc.accesstoken", tok.access_token);
+        // FUA-EXPLORER-04: the server sets httpOnly cookies — no web storage.
+        const set = await fetch("/api/auth/session", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id_token: idToken,
+            access_token: tok.access_token || undefined,
+          }),
+        });
+        if (!set.ok) throw new Error("session cookie could not be set");
         sessionStorage.removeItem("citrate.auth.oidc.verifier");
         sessionStorage.removeItem("citrate.auth.oidc.state");
         location.replace("/");

@@ -36,9 +36,10 @@ export default function CookiesPage() {
 
       <h2>Authentication storage</h2>
       <p>
-        Signing in stores a session token in your browser so requests can be
-        attributed to you. When the Citrate identity authority is used, it may set
-        its own essential cookies as part of the standard OIDC sign-in flow.
+        Signing in sets secure, httpOnly session cookies (not readable by page
+        scripts) so requests can be attributed to you. When the Citrate identity
+        authority is used, it may set its own essential cookies as part of the
+        standard OIDC sign-in flow.
       </p>
 
       <h2>Your choices</h2>

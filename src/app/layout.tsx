@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { Space_Grotesk, Geist, Geist_Mono, Cormorant } from "next/font/google";
 import "../scan/scan.css";
 import "../scan/scan-ui.css";
@@ -70,14 +71,20 @@ export const viewport: Viewport = {
   colorScheme: "light dark",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  // Per-request CSP nonce from the proxy (SECREM-02 WP 7.1). Reading headers()
+  // makes every route dynamic — required: a nonce'd CSP cannot serve build-time
+  // prerendered HTML (its inline scripts would carry a stale or missing nonce).
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html lang="en" data-theme="light" className={fontVars} suppressHydrationWarning>
       <head>
-        {/* No-flash theme: apply the saved theme/accent before first paint. */}
+        {/* No-flash theme: apply the saved theme/accent before first paint.
+            Nonce'd so it survives the strict (no unsafe-inline) script-src. */}
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var t=JSON.parse(localStorage.getItem("citrate.tweaks")||"{}");if(t.theme)document.documentElement.setAttribute("data-theme",t.theme);if(t.accent)document.documentElement.style.setProperty("--accent",t.accent);}catch(e){}})();`,
           }}
