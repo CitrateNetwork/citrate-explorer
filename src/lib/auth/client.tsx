@@ -17,7 +17,6 @@ import {
   useContext,
   useCallback,
   useEffect,
-  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -25,7 +24,7 @@ import { WagmiProvider, useAccount, useConnect, useSignMessage } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { wagmiConfig } from "@/lib/citrate/config";
 import { AUTH_MODE, OIDC_PUBLIC, MOCK_DEV_ADDRESS } from "./config";
-import { oidcEndpoints, sessionEventsUrl, logoutUrl } from "./discovery";
+import { oidcEndpoints, sessionEventsUrl } from "./discovery";
 import { E2EE_KEY_MESSAGE } from "@/lib/crypto-client";
 import type { AuthContextValue } from "./types";
 
@@ -108,18 +107,18 @@ function useMockAuth(): AuthContextValue {
 
 // --- oidc adapter (Authorization Code + PKCE, public client) ----------------
 
-const OIDC_TOKEN_KEY = "citrate.auth.oidc.idtoken";
-const OIDC_ACCESS_KEY = "citrate.auth.oidc.accesstoken";
+// FUA-EXPLORER-04 (SECREM-02): tokens are NOT stored in web storage anymore.
+// The /auth/callback page hands them to POST /api/auth/session, which sets
+// httpOnly SameSite=Strict cookies that page script can never read. Only the
+// one-shot PKCE verifier + CSRF state (non-bearer flow artifacts) remain in
+// sessionStorage for the redirect round-trip.
 const OIDC_STATE_KEY = "citrate.auth.oidc.state";
 const OIDC_VERIFIER_KEY = "citrate.auth.oidc.verifier";
 
-function decodeJwtClaims(jwt: string): Record<string, unknown> | null {
-  try {
-    const payload = jwt.split(".")[1];
-    return JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
-  } catch {
-    return null;
-  }
+interface OidcSessionInfo {
+  authenticated: boolean;
+  sub?: string;
+  walletAddress?: string;
 }
 
 async function pkceChallenge(verifier: string): Promise<string> {
@@ -132,20 +131,33 @@ async function pkceChallenge(verifier: string): Promise<string> {
 }
 
 function useOidcAuth(): AuthContextValue {
-  const [token, setToken] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem(OIDC_TOKEN_KEY);
-    } catch {
-      return null;
-    }
-  });
-  const ready = true;
+  // Session state hydrates from GET /api/auth/session (claims decoded from the
+  // httpOnly cookie server-side). The token itself never reaches page script.
+  const [session, setSession] = useState<OidcSessionInfo | null>(null);
+  const [ready, setReady] = useState(false);
   const { isConnected } = useAccount();
   const { connectAsync, connectors } = useConnect();
   const { signMessageAsync } = useSignMessage();
 
-  const claims = useMemo(() => (token ? decodeJwtClaims(token) : null), [token]);
-  const sub = claims?.sub as string | undefined;
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/auth/session", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { authenticated: false }))
+      .then((j: OidcSessionInfo) => {
+        if (!cancelled) setSession(j);
+      })
+      .catch(() => {
+        if (!cancelled) setSession({ authenticated: false });
+      })
+      .finally(() => {
+        if (!cancelled) setReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const sub = session?.sub;
 
   const login = useCallback(async () => {
     // PKCE verifier + CSRF state, both stored to verify on the callback.
@@ -168,26 +180,16 @@ function useOidcAuth(): AuthContextValue {
   }, []);
 
   const clearLocal = useCallback(() => {
-    localStorage.removeItem(OIDC_TOKEN_KEY);
-    localStorage.removeItem(OIDC_ACCESS_KEY);
-    setToken(null);
+    // Server-side logout: DELETE clears the httpOnly cookies (the client
+    // cannot — it can't even read them) and best-effort ends the session at
+    // the authority with the access token, which also lives only server-side.
+    void fetch("/api/auth/session", { method: "DELETE", keepalive: true }).catch(
+      () => {},
+    );
+    setSession({ authenticated: false });
   }, []);
 
   const logout = useCallback(() => {
-    // End the session AT THE AUTHORITY (revokes + publishes the logout event that
-    // cascades to other RPs), then drop the local session.
-    const access = (() => {
-      try {
-        return localStorage.getItem(OIDC_ACCESS_KEY);
-      } catch {
-        return null;
-      }
-    })();
-    void fetch(logoutUrl(), {
-      method: "POST",
-      headers: access ? { authorization: `Bearer ${access}` } : undefined,
-      keepalive: true,
-    }).catch(() => {});
     clearLocal();
   }, [clearLocal]);
 
@@ -195,7 +197,7 @@ function useOidcAuth(): AuthContextValue {
   // local session when a `logout` event for THIS subject arrives (logout elsewhere
   // — another tab, the dashboard, or an admin revoke — signs us out here too).
   useEffect(() => {
-    if (!token || !sub || typeof EventSource === "undefined") return;
+    if (!session?.authenticated || !sub || typeof EventSource === "undefined") return;
     let es: EventSource | null = null;
     try {
       es = new EventSource(sessionEventsUrl(), { withCredentials: false });
@@ -211,9 +213,13 @@ function useOidcAuth(): AuthContextValue {
       /* SSE unavailable — best-effort */
     }
     return () => es?.close();
-  }, [token, sub, clearLocal]);
+  }, [session?.authenticated, sub, clearLocal]);
 
-  const getToken = useCallback(async () => token, [token]);
+  // FUA-EXPLORER-04: there is no client-readable token anymore. The httpOnly
+  // cookie rides along on every same-origin fetch automatically, and the
+  // server's `verifySession` reads it when no Authorization header is present.
+  // Callers already attach headers conditionally, so null = "cookie auth".
+  const getToken = useCallback(async () => null, []);
 
   // E2EE key material = a deterministic wallet signature over the fixed message
   // (the established sign-to-derive-key pattern; secp256k1/RFC-6979 makes it stable
@@ -236,12 +242,11 @@ function useOidcAuth(): AuthContextValue {
     }
   }, [isConnected, connectAsync, connectors, signMessageAsync]);
 
-  const wallet = claims?.wallet_address as string | undefined;
   return {
     ready,
-    authenticated: Boolean(token),
+    authenticated: Boolean(session?.authenticated),
     sub,
-    address: wallet?.toLowerCase() as `0x${string}` | undefined,
+    address: session?.walletAddress?.toLowerCase() as `0x${string}` | undefined,
     login,
     logout,
     getToken,

@@ -317,9 +317,10 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
           );
         })}
         {error && (() => {
-          // An expired/stale token reads as authenticated on the client (token in
-          // localStorage, no exp check) but the server 401s it. Treat a 401 the
-          // same as logged-out: clear the dead token and prompt a fresh sign-in.
+          // An expired/stale session can read as authenticated on the client
+          // (the httpOnly session cookie's claims are decoded, not exp-checked,
+          // for UI state) but the server 401s it. Treat a 401 the same as
+          // logged-out: prompt a fresh sign-in.
           const unauth = !auth.authenticated || /unauthor/i.test(error.message ?? "");
           return (
             <div className="msg assistant">

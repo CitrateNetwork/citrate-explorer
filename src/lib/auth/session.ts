@@ -14,6 +14,7 @@
  * Data source (Rule 11): the Bearer JWT verified against the configured JWKS.
  */
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { ID_COOKIE, cookieValue } from "./cookies";
 import type { AuthSession } from "./types";
 
 /**
@@ -54,8 +55,21 @@ const claimWallet = () =>
   process.env.NEXT_PUBLIC_AUTH_CLAIM_WALLET ||
   "wallet_address";
 
+/**
+ * The caller's credential: the Authorization Bearer header when present,
+ * otherwise the httpOnly session cookie (FUA-EXPLORER-04 — tokens moved out of
+ * localStorage, so the browser now carries them as SameSite=Strict cookies and
+ * sends no header). Both paths feed the SAME verification below; the cookie is
+ * transport, not trust.
+ */
+export function tokenFromRequest(req: Request): string | null {
+  const header = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  if (header) return header;
+  return cookieValue(req, ID_COOKIE);
+}
+
 function bearer(req: Request): string | null {
-  return req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || null;
+  return tokenFromRequest(req);
 }
 
 // --- OIDC (real authority) --------------------------------------------------
