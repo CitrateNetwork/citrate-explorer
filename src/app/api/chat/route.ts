@@ -56,8 +56,11 @@ export async function POST(req: Request) {
   try {
     provider = getInferenceProvider();
   } catch (err) {
-    // Honest failure when inference isn't configured (Rule 11: no fake tokens).
-    return Response.json({ error: (err as Error).message }, { status: 503 });
+    // FUA-EXPLORER-05: log the full reason server-side, but return a generic
+    // message — the raw error can carry internal config (env names, gateway
+    // URLs) we must not reflect to an unauthenticated caller.
+    console.error("[api/chat] inference provider unavailable:", err);
+    return Response.json({ error: "Inference is not available right now." }, { status: 503 });
   }
 
   // Per-user persistence (WS-4): when signed in + a DB is provisioned, keep the
@@ -113,16 +116,15 @@ export async function POST(req: Request) {
   });
 
   // Surface the thread id so the client can track + resume the conversation.
-  // onError: the AI SDK masks stream errors by default ("An error occurred"),
-  // which hid the real cause (a failing tool call, gateway hiccup, etc.) behind
-  // a generic message. Log the full error server-side and return a concise,
-  // secret-free reason to the client so the agent can say WHY it failed.
+  // onError (FUA-EXPLORER-05): log the FULL stream/upstream error server-side for
+  // debugging, but return a generic, secret-free message to the client. Raw
+  // upstream text (gateway errors, tool exceptions, URLs) must never be reflected
+  // — the detail lives in the server logs.
   return result.toUIMessageStreamResponse({
     headers: threadId ? { "x-thread-id": threadId } : undefined,
     onError: (error) => {
-      const msg = error instanceof Error ? error.message : String(error);
-      console.error("[api/chat] stream error:", msg, error);
-      return msg ? `Agent error: ${msg.slice(0, 400)}` : "Agent error (unknown).";
+      console.error("[api/chat] stream error:", error);
+      return "The agent hit an error while processing this request. Please try again.";
     },
   });
 }
