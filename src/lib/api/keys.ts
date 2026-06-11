@@ -57,11 +57,27 @@ export function extractApiKey(req: Request): string | null {
   return null;
 }
 
-/** Best-effort client IP for rate-limit bucketing. */
+/**
+ * Trusted client IP for rate-limit bucketing (FUA-EXPLORER-02).
+ *
+ * The previous implementation took the LEFT-most `X-Forwarded-For` value, which
+ * the client fully controls — an attacker rotates it to get a fresh limiter
+ * bucket every request, defeating per-IP limits. On Vercel the trusted value is
+ * the platform-set `x-real-ip` (the real client IP, not forgeable); equivalently
+ * the RIGHT-most `X-Forwarded-For` hop that Vercel appends. We never trust the
+ * left-most hop. (Self-hosted deploys behind their own proxy should rate-limit at
+ * that proxy / set `x-real-ip` there.)
+ */
 export function clientIp(req: Request): string {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    req.headers.get("x-real-ip") ||
-    "0.0.0.0"
-  );
+  const real = req.headers.get("x-real-ip")?.trim();
+  if (real) return real;
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) {
+    const hops = xff
+      .split(",")
+      .map((h) => h.trim())
+      .filter(Boolean);
+    if (hops.length > 0) return hops[hops.length - 1];
+  }
+  return "0.0.0.0";
 }
