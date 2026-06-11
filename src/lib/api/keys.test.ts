@@ -26,16 +26,32 @@ describe("extractApiKey", () => {
   });
 });
 
-describe("clientIp", () => {
-  it("takes the first hop of x-forwarded-for", () => {
+describe("clientIp (FUA-EXPLORER-02 — trusted IP)", () => {
+  it("prefers the platform-set x-real-ip", () => {
+    const req = new Request("http://x", {
+      headers: { "x-forwarded-for": "1.2.3.4, 9.9.9.9", "x-real-ip": "9.9.9.9" },
+    });
+    expect(clientIp(req)).toBe("9.9.9.9");
+  });
+
+  it("uses the RIGHT-most x-forwarded-for hop (the one the trusted proxy appended)", () => {
     const req = new Request("http://x", {
       headers: { "x-forwarded-for": "203.0.113.7, 10.0.0.1" },
     });
-    expect(clientIp(req)).toBe("203.0.113.7");
+    expect(clientIp(req)).toBe("10.0.0.1");
   });
 
-  it("falls back to x-real-ip then a sentinel", () => {
-    expect(clientIp(new Request("http://x", { headers: { "x-real-ip": "198.51.100.2" } }))).toBe("198.51.100.2");
+  it("does NOT trust the spoofable left-most hop", () => {
+    // An attacker prepends a fake IP to rotate the limiter bucket; the trusted
+    // (appended) hop is what we key on.
+    const req = new Request("http://x", {
+      headers: { "x-forwarded-for": "evil-spoof, 9.9.9.9" },
+    });
+    expect(clientIp(req)).not.toBe("evil-spoof");
+    expect(clientIp(req)).toBe("9.9.9.9");
+  });
+
+  it("falls back to a sentinel when no IP headers are present", () => {
     expect(clientIp(new Request("http://x"))).toBe("0.0.0.0");
   });
 });
