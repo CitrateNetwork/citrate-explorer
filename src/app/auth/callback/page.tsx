@@ -59,6 +59,9 @@ export default function AuthCallback() {
           body: JSON.stringify({
             id_token: idToken,
             access_token: tok.access_token || undefined,
+            // TD-9: present when the authority granted offline_access — enables
+            // silent rotating renewal so the session outlives the 1h id token.
+            refresh_token: tok.refresh_token || undefined,
           }),
         });
         if (!set.ok) throw new Error("session cookie could not be set");

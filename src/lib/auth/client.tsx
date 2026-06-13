@@ -17,6 +17,7 @@ import {
   useContext,
   useCallback,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -119,6 +120,8 @@ interface OidcSessionInfo {
   authenticated: boolean;
   sub?: string;
   walletAddress?: string;
+  /** id-token expiry (unix seconds) — drives the silent-refresh schedule (TD-9). */
+  exp?: number;
 }
 
 async function pkceChallenge(verifier: string): Promise<string> {
@@ -135,6 +138,7 @@ function useOidcAuth(): AuthContextValue {
   // httpOnly cookie server-side). The token itself never reaches page script.
   const [session, setSession] = useState<OidcSessionInfo | null>(null);
   const [ready, setReady] = useState(false);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { isConnected } = useAccount();
   const { connectAsync, connectors } = useConnect();
   const { signMessageAsync } = useSignMessage();
@@ -172,7 +176,15 @@ function useOidcAuth(): AuthContextValue {
     url.searchParams.set("response_type", "code");
     url.searchParams.set("client_id", OIDC_PUBLIC.clientId);
     url.searchParams.set("redirect_uri", `${location.origin}${OIDC_PUBLIC.redirectPath}`);
-    url.searchParams.set("scope", OIDC_PUBLIC.scope);
+    // TD-9: request a refresh token. `offline_access` is required for the
+    // refresh_token grant, and the OIDC spec only grants it when `prompt=consent`
+    // is present (the trusted first-party explorer still auto-consents — no
+    // visible screen). Append + dedupe so this works without an env change.
+    const scope = Array.from(
+      new Set([...OIDC_PUBLIC.scope.split(/\s+/).filter(Boolean), "offline_access"]),
+    ).join(" ");
+    url.searchParams.set("scope", scope);
+    url.searchParams.set("prompt", "consent");
     url.searchParams.set("code_challenge", challenge);
     url.searchParams.set("code_challenge_method", "S256");
     url.searchParams.set("state", state);
@@ -191,6 +203,30 @@ function useOidcAuth(): AuthContextValue {
 
   const logout = useCallback(() => {
     clearLocal();
+  }, [clearLocal]);
+
+  // TD-9 silent renewal: swap the httpOnly refresh cookie for fresh tokens. The
+  // server re-sets the (rotated) cookies and returns the new exp; we mirror it
+  // into session state so the schedule chains. A 401 means the refresh token is
+  // genuinely dead (expired/revoked) → sign out; a network blip leaves the
+  // session intact for the next tick.
+  const doRefresh = useCallback(async () => {
+    try {
+      const r = await fetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
+      if (!r.ok) {
+        if (r.status === 401) clearLocal();
+        return;
+      }
+      const j = (await r.json()) as { exp?: number; sub?: string; walletAddress?: string };
+      setSession((prev) => ({
+        authenticated: true,
+        sub: j.sub ?? prev?.sub,
+        walletAddress: j.walletAddress ?? prev?.walletAddress,
+        exp: j.exp,
+      }));
+    } catch {
+      /* authority/network blip — keep the session; retry on the next tick */
+    }
   }, [clearLocal]);
 
   // Logout cascade (TD-5b): subscribe to the authority's SSE bus and drop the
@@ -214,6 +250,39 @@ function useOidcAuth(): AuthContextValue {
     }
     return () => es?.close();
   }, [session?.authenticated, sub, clearLocal]);
+
+  // Schedule the silent refresh ~60s before the id token expires, and also
+  // refresh on tab-focus when expiry is imminent (mobile timers are throttled
+  // while backgrounded — the phone case). Re-runs whenever exp advances, so each
+  // successful refresh chains the next one.
+  const exp = session?.exp;
+  useEffect(() => {
+    if (!session?.authenticated || !exp) return;
+    const schedule = () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+      const now = Math.floor(Date.now() / 1000);
+      refreshTimer.current = setTimeout(() => void doRefresh(), Math.max(exp - now - 60, 5) * 1000);
+    };
+    schedule();
+    const onVisible = () => {
+      if (typeof document === "undefined" || document.visibilityState !== "visible") return;
+      const now = Math.floor(Date.now() / 1000);
+      if (exp - now <= 60) void doRefresh();
+      else schedule();
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisible);
+    }
+    return () => {
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisible);
+      }
+      if (refreshTimer.current) {
+        clearTimeout(refreshTimer.current);
+        refreshTimer.current = null;
+      }
+    };
+  }, [session?.authenticated, exp, doRefresh]);
 
   // FUA-EXPLORER-04: there is no client-readable token anymore. The httpOnly
   // cookie rides along on every same-origin fetch automatically, and the

@@ -22,6 +22,8 @@
 import {
   ID_COOKIE,
   ACCESS_COOKIE,
+  REFRESH_COOKIE,
+  REFRESH_MAX_AGE,
   cookieValue,
   decodeJwtPayload,
   looksLikeJwt,
@@ -29,6 +31,7 @@ import {
   serializeAuthCookie,
   clearAuthCookie,
 } from "@/lib/auth/cookies";
+import { serverOidcEndpoints, serverClientId } from "@/lib/auth/discovery.server";
 
 export const runtime = "nodejs";
 
@@ -42,7 +45,7 @@ export async function POST(req: Request): Promise<Response> {
   if (crossSite(req)) {
     return Response.json({ error: "cross-site request rejected" }, { status: 403 });
   }
-  let body: { id_token?: unknown; access_token?: unknown };
+  let body: { id_token?: unknown; access_token?: unknown; refresh_token?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -50,13 +53,17 @@ export async function POST(req: Request): Promise<Response> {
   }
   const idToken = typeof body.id_token === "string" ? body.id_token : null;
   const accessToken = typeof body.access_token === "string" ? body.access_token : null;
+  const refreshToken = typeof body.refresh_token === "string" ? body.refresh_token : null;
   if (!idToken || !looksLikeJwt(idToken)) {
     return Response.json({ error: "id_token must be a JWT" }, { status: 400 });
   }
-  // The access token is OPAQUE by OAuth design (the authority issues opaque
-  // tokens, not JWTs) — accept any well-formed token, just don't accept garbage.
+  // The access + refresh tokens are OPAQUE by OAuth design (the authority issues
+  // opaque tokens, not JWTs) — accept any well-formed token, just not garbage.
   if (accessToken && !looksLikeOpaqueToken(accessToken)) {
     return Response.json({ error: "access_token is malformed" }, { status: 400 });
+  }
+  if (refreshToken && !looksLikeOpaqueToken(refreshToken)) {
+    return Response.json({ error: "refresh_token is malformed" }, { status: 400 });
   }
 
   // Cookie lifetime tracks the token's own exp (capped at 24h, floor 60s);
@@ -70,6 +77,11 @@ export async function POST(req: Request): Promise<Response> {
   headers.append("set-cookie", serializeAuthCookie(ID_COOKIE, idToken, maxAge));
   if (accessToken) {
     headers.append("set-cookie", serializeAuthCookie(ACCESS_COOKIE, accessToken, maxAge));
+  }
+  if (refreshToken) {
+    // The refresh cookie outlives the id/access cookies (TD-9 silent renewal):
+    // its lifetime tracks the authority RefreshToken TTL, not the 1h id token.
+    headers.append("set-cookie", serializeAuthCookie(REFRESH_COOKIE, refreshToken, REFRESH_MAX_AGE));
   }
   return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }
@@ -87,8 +99,12 @@ export async function GET(req: Request): Promise<Response> {
     typeof claims[walletClaim] === "string"
       ? (claims[walletClaim] as string).toLowerCase()
       : undefined;
+  // `exp` lets the client schedule a silent /api/auth/refresh just before the id
+  // token expires (TD-9). Display-only hint; expiry is still enforced by JWKS
+  // verification on every API request.
+  const exp = typeof claims.exp === "number" ? (claims.exp as number) : undefined;
   return Response.json(
-    { authenticated: Boolean(sub), sub, walletAddress },
+    { authenticated: Boolean(sub), sub, walletAddress, exp },
     { status: 200 },
   );
 }
@@ -101,6 +117,7 @@ export async function DELETE(req: Request): Promise<Response> {
   // in the httpOnly cookie now, so the server makes the /logout call the
   // client used to make. Never blocks the local logout.
   const access = cookieValue(req, ACCESS_COOKIE);
+  const refresh = cookieValue(req, REFRESH_COOKIE);
   const issuer = (
     process.env.OIDC_ISSUER ||
     process.env.NEXT_PUBLIC_OIDC_ISSUER ||
@@ -117,8 +134,30 @@ export async function DELETE(req: Request): Promise<Response> {
       /* authority unreachable — local logout still proceeds */
     }
   }
+  // Revoke the (14d) refresh token so it can't outlive logout. Best-effort; the
+  // local cookie clear below is what the user actually sees.
+  if (refresh) {
+    try {
+      const { revocation } = await serverOidcEndpoints();
+      if (revocation) {
+        await fetch(revocation, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            token: refresh,
+            token_type_hint: "refresh_token",
+            client_id: serverClientId(),
+          }),
+          signal: AbortSignal.timeout(3000),
+        });
+      }
+    } catch {
+      /* authority unreachable — local logout still proceeds */
+    }
+  }
   const headers = new Headers({ "content-type": "application/json" });
   headers.append("set-cookie", clearAuthCookie(ID_COOKIE));
   headers.append("set-cookie", clearAuthCookie(ACCESS_COOKIE));
+  headers.append("set-cookie", clearAuthCookie(REFRESH_COOKIE));
   return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }

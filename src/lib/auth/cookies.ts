@@ -12,6 +12,15 @@
 export const ID_COOKIE = "citrate_oidc_id";
 /** httpOnly cookie carrying the authority access token (logout/userinfo). */
 export const ACCESS_COOKIE = "citrate_oidc_access";
+/**
+ * httpOnly cookie carrying the (rotating) OIDC refresh token (TD-9 silent
+ * renewal). Outlives the id/access cookies — its lifetime tracks the authority's
+ * RefreshToken TTL (14d), so a returning user is renewed silently rather than
+ * forced to re-login hourly. Opaque, never readable by page script.
+ */
+export const REFRESH_COOKIE = "citrate_oidc_refresh";
+/** Refresh-cookie lifetime — matches the authority RefreshToken TTL (14 days). */
+export const REFRESH_MAX_AGE = 14 * 24 * 3600;
 
 /** Loose JWT shape check (three base64url segments, bounded size). */
 export function looksLikeJwt(token: string): boolean {

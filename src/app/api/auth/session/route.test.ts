@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { GET, POST, DELETE } from "./route";
-import { ID_COOKIE, ACCESS_COOKIE } from "@/lib/auth/cookies";
+import { ID_COOKIE, ACCESS_COOKIE, REFRESH_COOKIE } from "@/lib/auth/cookies";
 
 function b64url(obj: unknown): string {
   return Buffer.from(JSON.stringify(obj)).toString("base64url");
@@ -54,6 +54,27 @@ describe("POST /api/auth/session", () => {
     const cookies = res.headers.getSetCookie();
     expect(cookies.some((c) => c.startsWith(`${ID_COOKIE}=`))).toBe(true);
     expect(cookies.some((c) => c.startsWith(`${ACCESS_COOKIE}=`))).toBe(true);
+  });
+
+  it("stores the refresh token in a third cookie with the 14-day TTL (TD-9)", async () => {
+    const id = mintToken({ sub: "user-1", exp: NOW + 3600 });
+    const res = await POST(
+      post({ id_token: id, access_token: "opaqueAccess", refresh_token: "opaqueRefresh" }),
+    );
+    expect(res.status).toBe(200);
+    const cookies = res.headers.getSetCookie();
+    const refresh = cookies.find((c) => c.startsWith(`${REFRESH_COOKIE}=`));
+    expect(refresh).toBeDefined();
+    expect(refresh).toContain("HttpOnly");
+    expect(refresh).toContain(`Max-Age=${14 * 24 * 3600}`);
+    // No refresh token → no refresh cookie.
+    const none = await POST(post({ id_token: id }));
+    expect(none.headers.getSetCookie().some((c) => c.startsWith(`${REFRESH_COOKIE}=`))).toBe(false);
+  });
+
+  it("rejects a malformed refresh token", async () => {
+    const id = mintToken({ sub: "u", exp: NOW + 3600 });
+    expect((await POST(post({ id_token: id, refresh_token: "has space" }))).status).toBe(400);
   });
 
   it("caps the cookie lifetime at the token exp (and at 24h)", async () => {
@@ -113,6 +134,16 @@ describe("GET /api/auth/session", () => {
     expect(j.sub).toBe("did:cit:User-1"); // verbatim — sub is case-sensitive (SR-0)
     expect(j.walletAddress).toBe("0xabcdef0000000000000000000000000000000001");
   });
+
+  it("returns the id-token exp so the client can schedule a silent refresh (TD-9)", async () => {
+    const token = mintToken({ sub: "u", exp: NOW + 1234 });
+    const res = await GET(
+      new Request("http://localhost/api/auth/session", {
+        headers: { cookie: `${ID_COOKIE}=${encodeURIComponent(token)}` },
+      }),
+    );
+    expect((await res.json()).exp).toBe(NOW + 1234);
+  });
 });
 
 describe("DELETE /api/auth/session", () => {
@@ -122,6 +153,7 @@ describe("DELETE /api/auth/session", () => {
     const cookies = res.headers.getSetCookie();
     expect(cookies.some((c) => c.startsWith(`${ID_COOKIE}=;`))).toBe(true);
     expect(cookies.some((c) => c.startsWith(`${ACCESS_COOKIE}=;`))).toBe(true);
+    expect(cookies.some((c) => c.startsWith(`${REFRESH_COOKIE}=;`))).toBe(true);
     for (const c of cookies) {
       expect(c).toContain("Max-Age=0");
       expect(c).toContain("HttpOnly");

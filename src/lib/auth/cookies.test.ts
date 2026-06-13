@@ -9,9 +9,12 @@ import { describe, expect, it } from "vitest";
 import {
   ID_COOKIE,
   ACCESS_COOKIE,
+  REFRESH_COOKIE,
+  REFRESH_MAX_AGE,
   cookieValue,
   decodeJwtPayload,
   looksLikeJwt,
+  looksLikeOpaqueToken,
   serializeAuthCookie,
   clearAuthCookie,
 } from "./cookies";
@@ -41,6 +44,24 @@ describe("auth cookie serialization", () => {
 
   it("floors negative max-age to 0", () => {
     expect(serializeAuthCookie(ID_COOKIE, FAKE_JWT, -50)).toContain("Max-Age=0");
+  });
+
+  it("serializes the refresh cookie with the 14-day TTL (outlives id/access)", () => {
+    const c = serializeAuthCookie(REFRESH_COOKIE, "opaque-refresh-token", REFRESH_MAX_AGE);
+    expect(c).toContain(`${REFRESH_COOKIE}=`);
+    expect(c).toContain("HttpOnly");
+    expect(c).toContain("SameSite=Strict");
+    expect(c).toContain(`Max-Age=${14 * 24 * 3600}`);
+  });
+});
+
+describe("looksLikeOpaqueToken (access + refresh tokens)", () => {
+  it("accepts opaque OAuth tokens (and JWTs) but not whitespace or oversize", () => {
+    expect(looksLikeOpaqueToken("qDcR8Uz1Kisfn5q5PIDS4k0zCugIfIWHUpZdnDuLUDA")).toBe(true);
+    expect(looksLikeOpaqueToken(FAKE_JWT)).toBe(true); // a JWT is a valid superset
+    expect(looksLikeOpaqueToken("has space")).toBe(false);
+    expect(looksLikeOpaqueToken("")).toBe(false);
+    expect(looksLikeOpaqueToken("a".repeat(8193))).toBe(false);
   });
 });
 
