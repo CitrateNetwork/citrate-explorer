@@ -25,6 +25,7 @@ import {
   cookieValue,
   decodeJwtPayload,
   looksLikeJwt,
+  looksLikeOpaqueToken,
   serializeAuthCookie,
   clearAuthCookie,
 } from "@/lib/auth/cookies";
@@ -52,8 +53,10 @@ export async function POST(req: Request): Promise<Response> {
   if (!idToken || !looksLikeJwt(idToken)) {
     return Response.json({ error: "id_token must be a JWT" }, { status: 400 });
   }
-  if (accessToken && !looksLikeJwt(accessToken)) {
-    return Response.json({ error: "access_token must be a JWT" }, { status: 400 });
+  // The access token is OPAQUE by OAuth design (the authority issues opaque
+  // tokens, not JWTs) — accept any well-formed token, just don't accept garbage.
+  if (accessToken && !looksLikeOpaqueToken(accessToken)) {
+    return Response.json({ error: "access_token is malformed" }, { status: 400 });
   }
 
   // Cookie lifetime tracks the token's own exp (capped at 24h, floor 60s);

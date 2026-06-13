@@ -22,6 +22,17 @@ export function looksLikeJwt(token: string): boolean {
   );
 }
 
+/**
+ * Opaque OAuth token shape (RFC 6749/6750 token charset, bounded size). The
+ * authority (panva oidc-provider) issues OPAQUE access tokens by default — they
+ * are NOT JWTs and must not be required to be. JWTs satisfy this too, so it is a
+ * safe superset for the access-token slot. The id_token is the verified session
+ * credential and stays JWT-shaped (see `looksLikeJwt`).
+ */
+export function looksLikeOpaqueToken(token: string): boolean {
+  return token.length > 0 && token.length <= 8192 && /^[A-Za-z0-9._~+/-]+=*$/.test(token);
+}
+
 /** Decode (NOT verify) a JWT payload. Verification stays in verifySession. */
 export function decodeJwtPayload(jwt: string): Record<string, unknown> | null {
   try {

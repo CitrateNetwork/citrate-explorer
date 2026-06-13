@@ -45,6 +45,17 @@ describe("POST /api/auth/session", () => {
     expect(await res.text()).not.toContain(id);
   });
 
+  it("accepts an OPAQUE access token (the authority issues opaque, not JWT)", async () => {
+    // Real-world panva opaque access token: base64url-ish, no dots, ~43 chars.
+    const id = mintToken({ sub: "user-1", exp: NOW + 3600 });
+    const opaqueAccess = "qDcR8Uz1Kisfn5q5PIDS4k0zCugIfIWHUpZdnDuLUDA";
+    const res = await POST(post({ id_token: id, access_token: opaqueAccess }));
+    expect(res.status).toBe(200);
+    const cookies = res.headers.getSetCookie();
+    expect(cookies.some((c) => c.startsWith(`${ID_COOKIE}=`))).toBe(true);
+    expect(cookies.some((c) => c.startsWith(`${ACCESS_COOKIE}=`))).toBe(true);
+  });
+
   it("caps the cookie lifetime at the token exp (and at 24h)", async () => {
     const res = await POST(post({ id_token: mintToken({ sub: "u", exp: NOW + 120 }) }));
     const [cookie] = res.headers.getSetCookie();
@@ -57,11 +68,18 @@ describe("POST /api/auth/session", () => {
     expect(farAge).toBeLessThanOrEqual(24 * 3600);
   });
 
-  it("rejects non-JWT and missing tokens", async () => {
+  it("rejects a non-JWT or missing id_token", async () => {
     expect((await POST(post({ id_token: "not a jwt" }))).status).toBe(400);
     expect((await POST(post({}))).status).toBe(400);
+  });
+
+  it("rejects a malformed access token (whitespace / oversize), not an opaque one", async () => {
+    const id = mintToken({ sub: "u", exp: NOW + 3600 });
+    // Whitespace is outside the opaque-token charset.
+    expect((await POST(post({ id_token: id, access_token: "has space" }))).status).toBe(400);
+    // Oversize (>8192) is rejected.
     expect(
-      (await POST(post({ id_token: mintToken({ sub: "u" }), access_token: "junk" }))).status,
+      (await POST(post({ id_token: id, access_token: "a".repeat(8193) }))).status,
     ).toBe(400);
   });
 
