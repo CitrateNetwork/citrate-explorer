@@ -23,6 +23,16 @@ export interface AuthSession {
   sub?: string;
   /** The user's wallet address. Provisional claim (`wallet_address`). */
   walletAddress?: string;
+  /**
+   * Live KYC status (AUTHSPINE). Snapshot from the id_token at verify time; re-check
+   * /userinfo before a high-value gate. Absent ⇒ "none".
+   */
+  kycStatus?: import("./entitlement").KycStatus;
+  /**
+   * Centralized access entitlement (tier/role) from the `https://citrate.ai/entitlement`
+   * claim. null/undefined ⇒ Public (fail-safe). Gate with requireTier/requireRole.
+   */
+  entitlement?: import("./entitlement").Entitlement | null;
 }
 
 /** Client-side auth state + actions exposed by `useAuth()`. */
