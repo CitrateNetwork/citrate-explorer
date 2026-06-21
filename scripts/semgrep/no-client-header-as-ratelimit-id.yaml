@@ -1,0 +1,49 @@
+# no-client-header-as-ratelimit-id — FWA-C12-04 tripwire.
+#
+# Rate-limit / abuse-control keys must be derived from a TRUSTED hop, never from a
+# raw client-supplied header. An attacker who controls `x-real-ip` or the LEFT of
+# `x-forwarded-for` can mint a fresh limiter bucket per request and bypass the cap.
+#
+# The sanctioned path is clientIp() in src/lib/api/keys.ts, which derives the
+# identity from the trusted-proxy hop (and only honors x-real-ip under an explicit
+# opt-in). This rule flags any OTHER code that reads a client IP header directly
+# and feeds it into a rate-limit / bucket key.
+#
+# To suppress a true exception: route the value through clientIp() instead, or add
+# a `// nosemgrep: no-client-header-as-ratelimit-id` with a justification.
+
+rules:
+  - id: no-client-header-as-ratelimit-id
+    message: |
+      A request header (`x-real-ip` / `x-forwarded-for`) is read directly and used
+      as a rate-limit / bucket identity. These headers are client-forgeable; an
+      attacker rotates them to escape per-IP limits (FWA-C12-04).
+
+      Derive the identity from the trusted clientIp() helper
+      (src/lib/api/keys.ts), which keys on the trusted-proxy hop, instead.
+    languages: [typescript, javascript]
+    severity: ERROR
+    paths:
+      include:
+        - "src/**"
+      exclude:
+        - "**/*.test.ts"
+        - "**/*.test.tsx"
+        - "src/lib/api/keys.ts" # the sanctioned trusted-IP derivation lives here
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $LIMIT(..., $REQ.headers.get("x-real-ip"), ...)
+          - pattern: |
+              $LIMIT(..., $REQ.headers.get("x-forwarded-for"), ...)
+          - pattern: |
+              $LIMIT($REQ.headers.get("x-real-ip"), ...)
+          - pattern: |
+              $LIMIT($REQ.headers.get("x-forwarded-for"), ...)
+          - pattern: |
+              `$PREFIX${$REQ.headers.get("x-real-ip")}$SUFFIX`
+          - pattern: |
+              `$PREFIX${$REQ.headers.get("x-forwarded-for")}$SUFFIX`
+      - metavariable-regex:
+          metavariable: $LIMIT
+          regex: '.*(?i)(rate|limit|bucket|throttle)'

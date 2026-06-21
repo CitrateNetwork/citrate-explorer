@@ -1,0 +1,64 @@
+# no-partial-match-verified — FWA-C12-05 tripwire.
+#
+# A PARTIAL bytecode match (equal only after stripping CBOR metadata) means the
+# metadata hash — which commits to the exact source + compiler settings — does NOT
+# match. It must NEVER be presented as "verified". The trust-badge decision is
+# centralized in verificationBadge() (src/lib/verify/badge.ts), which grants
+# `verified: true` only for a full/exact match.
+#
+# This rule flags code that hardcodes `verified: true` whenever ANY match row /
+# pass result is present (the pre-fix pattern), instead of going through the
+# match-type-aware badge. It also flags equating a "partial" matchType with a
+# verified outcome.
+#
+# To suppress a true exception: derive the badge via verificationBadge(), or add a
+# `// nosemgrep: no-partial-match-verified` with justification.
+
+rules:
+  - id: no-partial-match-verified-from-any-pass
+    message: |
+      `verified: true` is set from the mere PRESENCE of a verification/match row
+      without checking the match type. A PARTIAL match (metadata-stripped) is NOT
+      verified (FWA-C12-05) — route the decision through verificationBadge()
+      (src/lib/verify/badge.ts), which grants the badge only on a full match.
+    languages: [typescript, javascript]
+    severity: ERROR
+    paths:
+      include:
+        - "src/**"
+      exclude:
+        - "**/*.test.ts"
+        - "**/*.test.tsx"
+        - "src/lib/verify/badge.ts" # the sanctioned badge decision lives here
+    patterns:
+      - pattern-either:
+          # `verified ? { verified: true, ... } : ...` — pass-presence, not match-type.
+          - pattern: |
+              $V
+                ? {
+                    verified: true,
+                    ...
+                  }
+                : ...
+          # `if ($ROW) { ... verified: true ... }` over a raw match row.
+          - pattern: |
+              $ROW.matchType === "partial" ? { verified: true, ... } : ...
+
+  - id: no-partial-status-as-verified
+    message: |
+      A "partial" match-type is mapped to a verified/"pass" trust status.
+      FWA-C12-05: partial ≠ verified. Use verificationBadge() so partial yields a
+      distinct, clearly-labeled not-verified status.
+    languages: [typescript, javascript]
+    severity: ERROR
+    paths:
+      include:
+        - "src/**"
+      exclude:
+        - "**/*.test.ts"
+        - "**/*.test.tsx"
+        - "src/lib/verify/badge.ts"
+    patterns:
+      - pattern-either:
+          - pattern: 'verified: $M === "partial"'
+          - pattern: 'status: $M === "partial" ? "verified" : ...'

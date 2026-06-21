@@ -170,17 +170,29 @@ export function ContractScreen({ addr, tweaks }) {
     // when the contract has been verified (WS-2b).
     const tok = live && live.token;
     const ver = live && live.verification && live.verification.verified ? live.verification : null;
+    // FWA-C12-05: a PARTIAL match is NOT verified — never show the green shield.
+    // Surface it as a distinct, clearly-labeled "partial match" state instead.
+    const partial = live && live.verification && live.verification.status === "partial-match"
+      ? live.verification : null;
     return (
       <div className="wrap">
         <Crumb items={[{ label: "Home", route: "" }, { label: "Contract" }, { label: SD.short(addr) }]} />
-        <div className="pagehead"><div><h1 className="row" style={{ gap: 10 }}><Icon name="file" size={24} /> {(ver && ver.contractName) || (live && live.label) || "Contract"}</h1><div className="sub row" style={{ gap: 8 }}><span className="mono" style={{ fontSize: 13 }}>{SD.short(addr)}</span><CopyBtn text={addr} />{ver ? <span className="badge green" style={{ height: 20 }}><Icon name="shieldCheck" size={11} /> verified · {ver.matchType}</span> : <span className="badge" style={{ height: 20 }}>unverified</span>}</div></div></div>
+        <div className="pagehead"><div><h1 className="row" style={{ gap: 10 }}><Icon name="file" size={24} /> {(ver && ver.contractName) || (partial && partial.contractName) || (live && live.label) || "Contract"}</h1><div className="sub row" style={{ gap: 8 }}><span className="mono" style={{ fontSize: 13 }}>{SD.short(addr)}</span><CopyBtn text={addr} />{ver ? <span className="badge green" style={{ height: 20 }}><Icon name="shieldCheck" size={11} /> verified · full</span> : partial ? <span className="badge amber" style={{ height: 20 }}><Icon name="shield" size={11} /> partial match · not verified</span> : <span className="badge" style={{ height: 20 }}>unverified</span>}</div></div></div>
         {ver
-          ? <SummaryCard label="What this is" text={{ full: `Verified contract (${ver.matchType} match) compiled with ${ver.compilerVersion}. The source below was recompiled and its bytecode matched the on-chain code — reads can be decoded against the verified ABI.`, short: `Verified (${ver.matchType}) with ${ver.compilerVersion}.` }} seed="explain" verbosity={tweaks.verbosity} />
+          ? <SummaryCard label="What this is" text={{ full: `Verified contract (full match) compiled with ${ver.compilerVersion}. The source below was recompiled and its bytecode matched the on-chain code exactly — reads can be decoded against the verified ABI.`, short: `Verified (full) with ${ver.compilerVersion}.` }} seed="explain" verbosity={tweaks.verbosity} />
+          : partial
+          ? <SummaryCard label="What this is" text={{ full: `Partial match — NOT verified. The recompiled runtime bytecode (compiler ${partial.compilerVersion}) matches the on-chain code only after stripping CBOR metadata. The metadata hash, which commits to the exact source and compiler settings, does NOT match — so the source below may differ from what was actually deployed. Shown for reference only; it does not earn the verified badge.`, short: `Partial match only (not verified) — metadata hash differs.` }} seed="explain" verbosity={tweaks.verbosity} foot={<button className="ask-cta" onClick={() => scan.nav("verify/" + addr)}><Icon name="shield" size={14} /> Re-verify source</button>} />
           : <SummaryCard label="What this is" text={{ full: "This contract isn't verified yet. We show its on-chain bytecode and any detected token metadata, and let you make raw eth_call reads (labeled \"unverified raw\" — never presented as decoded or trusted). Verify the source to unlock decoded Read and Write.", short: "Unverified — on-chain bytecode shown; raw reads only until source is matched." }} seed="explain" verbosity={tweaks.verbosity} foot={<button className="ask-cta" onClick={() => scan.nav("verify/" + addr)}><Icon name="shield" size={14} /> Verify source</button>} />}
         {ver && ver.source && (
           <div className="card" style={{ marginTop: 16 }}>
             <div className="card-h"><span className="t">Verified source</span><span className="spacer" /><CopyBtn text={ver.source} /></div>
             <div className="codeblock" style={{ border: "none", borderRadius: 0, maxHeight: 460, overflow: "auto" }}><pre>{ver.source}</pre></div>
+          </div>
+        )}
+        {partial && partial.source && (
+          <div className="card" style={{ marginTop: 16 }}>
+            <div className="card-h"><span className="t">Submitted source · partial match (not verified)</span><span className="spacer" /><CopyBtn text={partial.source} /></div>
+            <div className="codeblock" style={{ border: "none", borderRadius: 0, maxHeight: 460, overflow: "auto" }}><pre>{partial.source}</pre></div>
           </div>
         )}
         {tok && (

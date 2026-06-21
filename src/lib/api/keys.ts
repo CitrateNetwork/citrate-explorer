@@ -58,26 +58,51 @@ export function extractApiKey(req: Request): string | null {
 }
 
 /**
- * Trusted client IP for rate-limit bucketing (FUA-EXPLORER-02).
+ * Trusted client IP for rate-limit bucketing (FUA-EXPLORER-02 / FWA-C12-04).
  *
- * The previous implementation took the LEFT-most `X-Forwarded-For` value, which
- * the client fully controls — an attacker rotates it to get a fresh limiter
- * bucket every request, defeating per-IP limits. On Vercel the trusted value is
- * the platform-set `x-real-ip` (the real client IP, not forgeable); equivalently
- * the RIGHT-most `X-Forwarded-For` hop that Vercel appends. We never trust the
- * left-most hop. (Self-hosted deploys behind their own proxy should rate-limit at
- * that proxy / set `x-real-ip` there.)
+ * Client-supplied headers (`x-real-ip`, the LEFT side of `x-forwarded-for`) are
+ * forgeable: an attacker who sets a fresh value per request mints a fresh limiter
+ * bucket every time, defeating per-IP limits. We therefore derive the identity
+ * ONLY from a hop a *trusted* proxy is known to append, never from a raw client
+ * header.
+ *
+ * Trust model (per-deployment, env-configured):
+ *  - `CITRATE_TRUSTED_PROXY_HOPS` (default 1): how many trusted reverse proxies
+ *    sit in front of the app. Each appends exactly ONE hop to the RIGHT of
+ *    `x-forwarded-for`; the real client IP is therefore the Nth-from-the-right
+ *    hop. A client can prepend arbitrary LEFT hops but cannot forge the ones the
+ *    trusted proxies appended, so it cannot move this index.
+ *  - `CITRATE_TRUST_X_REAL_IP=1`: opt-in for deploys where the platform is known
+ *    to SET/overwrite `x-real-ip` itself (so it is not client-forgeable). OFF by
+ *    default — on a directly-reachable function `x-real-ip` is fully spoofable.
+ *
+ * If neither a trusted XFF hop nor a trusted x-real-ip is available, we fall back
+ * to a single shared sentinel rather than to a client-controlled value: a
+ * misconfigured/headerless deploy then rate-limits everyone together (fail
+ * closed for the limiter) instead of handing each request its own bucket.
  */
+/** Trusted-proxy count, re-read per call so tests/ops can override via env. */
+function trustedProxyHops(): number {
+  const n = Number(process.env.CITRATE_TRUSTED_PROXY_HOPS);
+  return Number.isInteger(n) && n >= 1 ? n : 1;
+}
+
 export function clientIp(req: Request): string {
-  const real = req.headers.get("x-real-ip")?.trim();
-  if (real) return real;
-  const xff = req.headers.get("x-forwarded-for");
-  if (xff) {
-    const hops = xff
-      .split(",")
-      .map((h) => h.trim())
-      .filter(Boolean);
-    if (hops.length > 0) return hops[hops.length - 1];
+  // Re-read the opt-in per call so tests/ops can toggle it via env.
+  if (process.env.CITRATE_TRUST_X_REAL_IP === "1") {
+    const real = req.headers.get("x-real-ip")?.trim();
+    if (real) return real;
   }
+  const hops = (req.headers.get("x-forwarded-for") ?? "")
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean);
+  // The trusted client IP is the hop the OUTERMOST trusted proxy saw: count
+  // trustedProxyHops() in from the right. With one trusted proxy that is the
+  // right-most hop; everything to its left is client-supplied and untrusted.
+  const idx = hops.length - trustedProxyHops();
+  if (idx >= 0 && hops[idx]) return hops[idx];
+  // No trustworthy hop present → a single shared sentinel (never a raw client
+  // header), so forged values cannot rotate the limiter bucket.
   return "0.0.0.0";
 }

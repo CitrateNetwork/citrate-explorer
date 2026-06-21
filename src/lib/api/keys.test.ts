@@ -26,10 +26,13 @@ describe("extractApiKey", () => {
   });
 });
 
-describe("clientIp (FUA-EXPLORER-02 — trusted IP)", () => {
-  it("prefers the platform-set x-real-ip", () => {
+describe("clientIp (FUA-EXPLORER-02 / FWA-C12-04 — trusted IP)", () => {
+  it("does NOT trust a raw x-real-ip by default (it is client-forgeable)", () => {
+    // FWA-C12-04: x-real-ip is only honored under CITRATE_TRUST_X_REAL_IP=1.
+    // Default deploy: with XFF present, the trusted right-most hop wins; the
+    // forged x-real-ip is ignored.
     const req = new Request("http://x", {
-      headers: { "x-forwarded-for": "1.2.3.4, 9.9.9.9", "x-real-ip": "9.9.9.9" },
+      headers: { "x-forwarded-for": "1.2.3.4, 9.9.9.9", "x-real-ip": "6.6.6.6" },
     });
     expect(clientIp(req)).toBe("9.9.9.9");
   });

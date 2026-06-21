@@ -36,6 +36,10 @@ export function VerifyScreen({ addr }) {
   };
 
   const ok = result && result.status === "pass";
+  // FWA-C12-05: only a FULL match earns the "verified" green badge + wording.
+  // A partial match (pass + matchType:"partial") is a distinct, not-verified state.
+  const fullMatch = ok && result.matchType === "full";
+  const partialMatch = ok && result.matchType === "partial";
   return (
     <div className="wrap narrow">
       <Crumb items={[{ label: "Home", route: "" }, { label: "Verify contract" }]} />
@@ -67,14 +71,15 @@ export function VerifyScreen({ addr }) {
       {result && (
         <div className="card" style={{ marginTop: 16 }}>
           <div className="card-h"><span className="t">Result</span><span className="spacer" />
-            <span className={"badge " + (ok ? "green" : "red")} style={{ height: 22 }}><span className="d" /> {result.status}{result.matchType ? ` · ${result.matchType}` : ""}</span></div>
+            <span className={"badge " + (fullMatch ? "green" : partialMatch ? "amber" : "red")} style={{ height: 22 }}><span className="d" /> {result.status}{result.matchType ? ` · ${result.matchType}` : ""}</span></div>
           <div className="card-bd">
-            {ok && <div className="note" style={{ marginBottom: 10, color: "var(--accent-text)" }}><Icon name="check" size={15} /> {result.contractName} verified ({result.matchType} match) with {result.compilerVersion}.</div>}
+            {fullMatch && <div className="note" style={{ marginBottom: 10, color: "var(--accent-text)" }}><Icon name="check" size={15} /> {result.contractName} verified (full match) with {result.compilerVersion}.</div>}
+            {partialMatch && <div className="note" style={{ marginBottom: 10, color: "var(--warn-text, #b26b00)" }}><Icon name="shield" size={15} /> Partial match — NOT verified. {result.contractName} matches on-chain bytecode only after stripping CBOR metadata; the metadata hash (exact source + settings) differs. Re-verify with the precise compiler settings to earn the verified badge.</div>}
             <div className="stat-rows">
               {result.guid && <div className="stat-row"><span className="k">guid</span><span className="v mono" style={{ fontSize: 12 }}>{result.guid}</span></div>}
               <div className="stat-row"><span className="k">Message</span><span className="v" style={{ textAlign: "right", maxWidth: 460 }}>{result.message}</span></div>
             </div>
-            {ok && <div style={{ marginTop: 12 }}><button className="btn sm" onClick={() => scan.nav(`contract/${address}`)}>Open verified contract <Icon name="arrowright" size={14} /></button></div>}
+            {ok && <div style={{ marginTop: 12 }}><button className="btn sm" onClick={() => scan.nav(`contract/${address}`)}>Open {fullMatch ? "verified " : ""}contract <Icon name="arrowright" size={14} /></button></div>}
           </div>
         </div>
       )}

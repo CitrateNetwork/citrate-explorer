@@ -2,20 +2,27 @@ import { z } from "zod";
 import { submitVerification } from "@/lib/verify";
 import { clientIp } from "@/lib/api/keys";
 import { checkRateLimit } from "@/lib/api/ratelimit";
+import { compileGateFromEnv } from "@/lib/verify/concurrency";
 import type { Address } from "viem";
 
 // Recompile-and-diff runs inline: loading the exact solc build + compiling can
 // take tens of seconds, so give it room (Vercel Fluid).
 export const maxDuration = 300;
 
-// FUA-EXPLORER-03: /api/verify is unauthenticated and each call fetches an
-// arbitrary solc build and compiles attacker-supplied source inline — an
-// unbounded CPU/memory/outbound-fetch sink. Bound it: per-IP rate limit, a
-// source-size cap, and a global concurrent-compile cap. (Moving the compile into
-// a Vercel Sandbox microVM is the deeper WS-2b hardening, tracked separately.)
+// FUA-EXPLORER-03 / FWA-C12-03/04: /api/verify is unauthenticated and each call
+// fetches an arbitrary solc build and compiles attacker-supplied source inline —
+// an unbounded CPU/memory/outbound-fetch sink. Bound it: per-IP rate limit keyed
+// on a TRUSTED hop (clientIp, FWA-C12-04), a source-size cap, an input-shape cap
+// (engine buildInput, FWA-C12-03), and a GLOBAL concurrent-compile cap enforced
+// in the shared store (compileGate, FWA-C12-04). Moving the compile into a Vercel
+// Sandbox microVM is the deeper WS-2b hardening, tracked separately (FWA-C12-03).
 const MAX_SOURCE_CHARS = Number(process.env.CITRATE_VERIFY_MAX_SOURCE ?? 2 * 1024 * 1024);
 const MAX_CONCURRENT_COMPILES = Number(process.env.CITRATE_VERIFY_MAX_CONCURRENT ?? 3);
-let activeCompiles = 0;
+// FWA-C12-04: the concurrent-compile cap must be GLOBAL, not per-instance. The
+// gate counts in the shared store (Upstash) when configured so the cap holds
+// across the whole serverless fleet, falling back to a per-instance counter only
+// when no store is provisioned (dev / single-instance).
+const compileGate = compileGateFromEnv(MAX_CONCURRENT_COMPILES);
 
 const schema = z.object({
   address: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
@@ -53,15 +60,15 @@ export async function POST(req: Request) {
     );
   }
 
-  // FUA-EXPLORER-03: cap concurrent inline compiles so a burst can't exhaust
-  // CPU/memory across instances of this function.
-  if (activeCompiles >= MAX_CONCURRENT_COMPILES) {
+  // FUA-EXPLORER-03 / FWA-C12-04: cap concurrent inline compiles GLOBALLY (shared
+  // store when configured) so a burst can't exhaust CPU/memory across the fleet.
+  const slot = await compileGate.acquire();
+  if (!slot.ok) {
     return Response.json(
       { error: "verifier busy — too many concurrent compiles; retry shortly" },
       { status: 503, headers: { "retry-after": "5" } },
     );
   }
-  activeCompiles += 1;
   try {
     const result = await submitVerification({
       ...parsed.data,
@@ -71,6 +78,6 @@ export async function POST(req: Request) {
   } catch (err) {
     return Response.json({ error: (err as Error).message }, { status: 500 });
   } finally {
-    activeCompiles = Math.max(0, activeCompiles - 1);
+    await compileGate.release();
   }
 }
