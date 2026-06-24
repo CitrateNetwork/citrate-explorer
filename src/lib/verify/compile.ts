@@ -34,10 +34,22 @@ export interface CompileOutput {
 
 const SOLC_LIST = "https://binaries.soliditylang.org/bin/list.json";
 
+// FWA-C12-03: the resolved build name is interpolated into the solc binaries URL
+// by loadRemoteVersion, so the version string is an outbound-fetch sink. Pin it to
+// the exact semver / semver+commit shapes — no path separators, no host, no
+// traversal — before it can ever reach a fetch.
+const SEMVER = /^\d{1,2}\.\d{1,2}\.\d{1,2}$/;
+const SEMVER_COMMIT = /^\d{1,2}\.\d{1,2}\.\d{1,2}\+commit\.[0-9a-f]{6,40}$/i;
+
 /** Resolve "0.8.26" or "v0.8.26+commit.8a97fa7a" to the full soljson build name. */
 export async function resolveCompilerVersion(version: string): Promise<string> {
   const v = version.trim().replace(/^v/, "");
-  if (/\+commit\.[0-9a-f]+$/i.test(v)) return `v${v}`;
+  // Strict shape check first — reject anything that isn't a clean solc version so
+  // a crafted string can't steer the soljson fetch to an arbitrary path/host.
+  if (!SEMVER.test(v) && !SEMVER_COMMIT.test(v)) {
+    throw new Error(`invalid solc version "${version}" (expected e.g. 0.8.26 or v0.8.26+commit.8a97fa7a)`);
+  }
+  if (SEMVER_COMMIT.test(v)) return `v${v}`;
   const res = await fetch(SOLC_LIST);
   if (!res.ok) throw new Error(`could not fetch the solc version list (${res.status})`);
   const list = (await res.json()) as { releases?: Record<string, string> };

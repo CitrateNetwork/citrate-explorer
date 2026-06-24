@@ -20,6 +20,7 @@ import { contractVerifications } from "@/lib/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 import { compileSolidity, type CompiledContract } from "./compile";
 import { matchBytecode, type MatchKind } from "./bytecode";
+import { boundStandardInput } from "./inputbound";
 
 const MAX_SOURCE_BYTES = 2_000_000; // 2 MB — bound untrusted input
 
@@ -45,16 +46,26 @@ export interface VerifyOutcome {
 
 const OUTPUT_SELECTION = { "*": { "*": ["abi", "evm.deployedBytecode"] } };
 
-/** Build a Solidity standard-JSON input from whatever the user submitted. */
+/**
+ * Build a Solidity standard-JSON input from whatever the user submitted.
+ *
+ * FWA-C12-03: every path runs through boundStandardInput() BEFORE the result is
+ * handed to the in-process solc compiler, so a compile-bomb (too many sources,
+ * megabytes of content, `urls`-based out-of-band fetch, optimizer-runs blowup) is
+ * rejected up-front rather than chewing CPU/memory in solc. boundStandardInput
+ * throws InputTooLarge, which verifyContract turns into a clean failure outcome.
+ */
 function buildInput(req: VerifyInput): object {
   if (req.format === "solidity-standard-json-input") {
     const parsed = JSON.parse(req.source) as { settings?: Record<string, unknown> };
+    // Bound the raw user input (sources/content/optimizer) before we touch solc.
+    boundStandardInput(parsed);
     // Force the output we need regardless of what the user selected.
     parsed.settings = { ...(parsed.settings ?? {}), outputSelection: OUTPUT_SELECTION };
     return parsed;
   }
-  // single-file (flattened) — wrap it.
-  return {
+  // single-file (flattened) — wrap it, then bound it the same way.
+  const wrapped = {
     language: "Solidity",
     sources: { "Contract.sol": { content: req.source } },
     settings: {
@@ -63,6 +74,8 @@ function buildInput(req: VerifyInput): object {
       outputSelection: OUTPUT_SELECTION,
     },
   };
+  boundStandardInput(wrapped);
+  return wrapped;
 }
 
 /** Run verification, persist the result, and return the outcome. */

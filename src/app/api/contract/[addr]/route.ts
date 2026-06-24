@@ -1,6 +1,7 @@
 import type { Address } from "viem";
 import { getAddress, getContractCode, getToken } from "@/lib/harness/ops";
 import { getVerifiedContract } from "@/lib/verify/engine";
+import { verificationBadge } from "@/lib/verify/badge";
 
 /**
  * Contract page data: confirms the address holds bytecode and returns the REAL
@@ -37,8 +38,13 @@ export async function GET(
     } catch {
       /* not a token */
     }
-    // Verified source/ABI, if this contract has been verified (WS-2b).
-    const verified = await getVerifiedContract(info.address).catch(() => null);
+    // Verified source/ABI, if this contract has a recorded match (WS-2b).
+    // FWA-C12-05: a PARTIAL match (metadata-stripped) is NOT "verified" — the
+    // badge decision is centralized in verificationBadge() so the green shield is
+    // granted only on a full/exact match. A partial match still surfaces the
+    // recompiled source/ABI, but clearly labeled as a partial (not-verified) match.
+    const matched = await getVerifiedContract(info.address).catch(() => null);
+    const badge = matched ? verificationBadge(matched.matchType) : null;
     return Response.json({
       address: info.address,
       label: code.label,
@@ -48,18 +54,26 @@ export async function GET(
       bytecode: code.bytecode,
       balanceSalt: info.balanceSalt,
       token,
-      verification: verified
+      verification: matched && badge
         ? {
-            verified: true,
-            matchType: verified.matchType,
-            contractName: verified.contractName,
-            compilerVersion: verified.compilerVersion,
-            source: verified.source,
-            abi: verified.abi ? JSON.parse(verified.abi) : null,
-            verifiedAt: verified.verifiedAt,
+            verified: badge.verified,
+            status: badge.status,
+            matchLabel: badge.label,
+            matchType: matched.matchType,
+            contractName: matched.contractName,
+            compilerVersion: matched.compilerVersion,
+            source: matched.source,
+            abi: matched.abi ? JSON.parse(matched.abi) : null,
+            verifiedAt: matched.verifiedAt,
+            ...(badge.verified
+              ? {}
+              : {
+                  note: "Partial match only: the recompiled runtime bytecode matches after stripping CBOR metadata, but the metadata hash (which commits to the exact source + compiler settings) does NOT match. Source shown for reference; this is NOT a verified match.",
+                }),
           }
         : {
             verified: false,
+            status: "unverified",
             note: "Not verified. Submit source at POST /api/verify (recompile-and-diff). Bytecode + read calls are available now.",
           },
     });

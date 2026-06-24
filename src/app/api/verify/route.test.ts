@@ -16,10 +16,12 @@ const VALID = {
 };
 
 function verifyReq(ip: string, body: unknown): Request {
+  // FWA-C12-04: identity comes from the trusted (right-most) XFF hop, not a raw
+  // client header — so the limiter buckets per real client IP here.
   return new Request("http://x/api/verify", {
     method: "POST",
     body: JSON.stringify(body),
-    headers: { "content-type": "application/json", "x-real-ip": ip },
+    headers: { "content-type": "application/json", "x-forwarded-for": ip },
   });
 }
 
