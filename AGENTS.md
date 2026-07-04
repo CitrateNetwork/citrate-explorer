@@ -28,8 +28,10 @@ when the DB isn't provisioned. See `CLAUDE.md`.
   `CitrateForwarder` relayer (`/api/relay`). Verify the forwarder with
   `eth_getCode` before routing to it.
 - EVM-compatible **LVM**, Solidity ≤0.8.26 (EVM Cancun).
-- RPC: `https://rpc.citrate.ai` (8545), `wss://rpc.citrate.ai` (8546). A direct
-  node fallback is used server-side only.
+- RPC: `https://rpc.citrate.ai` (443 → node 8545), `wss://rpc.citrate.ai`
+  (443 → node 8546). There is no public `rpc.citrate.ai:8545` — the public
+  endpoint is 443 only; 8545/8546 are the loopback node ports Caddy proxies
+  to. A direct node fallback is used server-side only.
 - AI precompiles `0x0100–0x0106`; `citrate_semanticSearch` / `citrate_getTextEmbedding`
   power on-chain semantic search.
 - Inference is **env-driven** (`CITRATE_INFERENCE_MODE`: gateway | local). Build
