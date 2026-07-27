@@ -34,7 +34,16 @@ export interface RawCitrateBlock {
   number: string;
   timestamp: string;
   parentHash: string;
+  /**
+   * The block's reward beneficiary — the registered staker EOA (chain
+   * `header.coinbase`). This is a real, controllable address.
+   */
   miner?: string;
+  /**
+   * The 32-byte ed25519 consensus key that signed the block, and the key
+   * `ValidatorRegistry.validatorInfo(pubkey)` is indexed by. NOT an address.
+   */
+  proposerPubkey?: string;
   proposer?: string;
   gasUsed?: string;
   gasLimit?: string;
@@ -76,7 +85,18 @@ export interface DagBlock {
   baseFeePerGas: string | null;
   gasUsed: number;
   gasLimit: number;
+  /**
+   * The consensus proposer's ed25519 public key (32 bytes).
+   *
+   * CBF-S1 WP-3: this previously fell back to `miner`, which the node populated
+   * with the proposer pubkey TRUNCATED to 20 bytes — so the explorer attributed
+   * every block on 40204 to `0x25b78e08309e0d4e0a4472512786ca7e1dac6e6a`, an
+   * address nobody controls and which never received a reward. The node now
+   * emits the full key as `proposerPubkey` and the real beneficiary as `miner`.
+   */
   proposer: string | null;
+  /** The reward beneficiary EOA (`miner`) — use this for address attribution. */
+  miner: string | null;
   txCount: number;
   raw: RawCitrateBlock;
 }
@@ -102,7 +122,10 @@ export function parseDagBlock(raw: RawCitrateBlock): DagBlock {
     baseFeePerGas: raw.baseFeePerGas ? hexToBig(raw.baseFeePerGas) : null,
     gasUsed: hexToNum(raw.gasUsed),
     gasLimit: hexToNum(raw.gasLimit),
-    proposer: raw.proposer ?? raw.miner ?? null,
+    // Prefer the explicit consensus key. The `raw.miner` fallback is kept only
+    // for blocks indexed from a pre-WP-3 node, and is known-truncated there.
+    proposer: raw.proposerPubkey ?? raw.proposer ?? raw.miner ?? null,
+    miner: raw.miner ?? null,
     txCount: raw.transactions?.length ?? 0,
     raw,
   };
