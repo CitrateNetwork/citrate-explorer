@@ -16,6 +16,7 @@ import { SiteFooter } from "@/components/site-footer";
 import { SD } from "./data";
 import { SH } from "./harness";
 import { Icon, Logo } from "./icons";
+import { LanguagePicker } from "./language-picker";
 import { ChainBadge, Banners } from "./components";
 import { Home } from "./screens/home";
 import { TxScreen } from "./screens/tx";
@@ -99,7 +100,7 @@ function Header({ onSearch, onCmd, agentOpen, onToggleAgent, rpc }) {
   const shortAddr = (a) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "");
   return (
     <header className="hdr">
-      <div className="hdr-logo" onClick={() => scan.nav("")}>
+      <div className="hdr-logo" onClick={() => scan.nav("")} translate="no">
         <Logo height={22} />
         <span className="scan">Scan</span>
       </div>
@@ -112,6 +113,7 @@ function Header({ onSearch, onCmd, agentOpen, onToggleAgent, rpc }) {
       <div className="hdr-right">
         <ChainBadge rpc={rpc} />
         {!agentOpen && <button className="hdr-iconbtn" title="Ask CitrateScan" onClick={onToggleAgent}><Icon name="spark" size={17} /></button>}
+        <LanguagePicker />
         <button className="hdr-iconbtn" title="Settings" onClick={() => scan.nav("account")}><Icon name="settings" size={17} /></button>
         {auth.authenticated ? (
           <button className="btn-login authed" title="Sign out" onClick={() => auth.logout()}>
