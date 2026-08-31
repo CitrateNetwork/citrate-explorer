@@ -301,29 +301,75 @@ export function useLiveTx(hash: string) {
   };
 }
 
+/** Pure map from the `/api/address/[addr]` response to the address view model. Exported so the
+ *  relayer-funded-recipient coverage (token_transfers → activity + holdings) is unit-testable without
+ *  a fetch/render. Returns null when the response is absent/errored. */
+export function deriveAddressView(addr: string, data: any): any | null {
+  if (!data || data.error) return null;
+  const lbl = labelOf(addr);
+  const a = addr.toLowerCase();
+  const activity = data.activity && data.activity.provisioned ? data.activity : null;
+  // A relayer-funded member (nonce 0) is NEVER a tx `from`/`to` — the relayer/contract are — so its real
+  // history lives in token_transfers (the SBT mint, a grant receipt). Surface those so the address
+  // resolves with true activity + holdings instead of reading as an empty/unknown page.
+  const tts: any[] = data.tokenTransfers && data.tokenTransfers.provisioned ? data.tokenTransfers.results : [];
+  const txActivity = activity ? activity.sent + activity.received : 0;
+  const tokenActivity = activity ? (activity.tokenSent ?? 0) + (activity.tokenReceived ?? 0) : tts.length;
+  const txCount = txActivity + tokenActivity || Number(data.nonce ?? 0);
+  const ZERO = "0x0000000000000000000000000000000000000000";
+  const txns = tts.map((t) => {
+    const isIn = (t.to ?? "").toLowerCase() === a;
+    const isMint = (t.from ?? "").toLowerCase() === ZERO;
+    const action = t.standard === "erc721" ? (isMint ? "NFT mint" : "NFT transfer") : "Token transfer";
+    return {
+      dir: isIn ? "in" : "out",
+      kind: "token",
+      action,
+      hash: t.txHash,
+      shortHash: short(t.txHash),
+      counter: isIn ? t.from : t.to,
+      status: 1,
+      age: SD.fmtAge ? SD.fmtAge(toMs(t.timestamp)) : "",
+    };
+  });
+  // Holdings from indexed transfers — ERC-721 only (count of NFTs held). A full ERC-20 balance rollup is
+  // deferred (S-2), so we do NOT infer ERC-20 balances from transfer counts (Rule 1: no fabricated figure).
+  const nft = new Map<string, { token: string; net: number }>();
+  for (const t of tts) {
+    if (t.standard !== "erc721") continue;
+    const isIn = (t.to ?? "").toLowerCase() === a;
+    const h = nft.get(t.token) || { token: t.token, net: 0 };
+    h.net += isIn ? 1 : -1;
+    nft.set(t.token, h);
+  }
+  const tokens = [...nft.values()]
+    .filter((h) => h.net > 0)
+    .map((h) => {
+      const tl = labelOf(h.token);
+      return { token: h.token, sym: tl ? tl.label : "NFT", name: tl ? tl.label : short(h.token), balance: String(h.net) };
+    });
+  const holdingsNote = tokens.length ? ` Holds ${tokens.map((t) => `${t.balance} ${t.sym}`).join(", ")}.` : "";
+  return {
+    addr,
+    label: lbl ? lbl.label : null,
+    isContract: Boolean(data.isContract),
+    balanceSalt: data.balanceSalt ?? "0",
+    txCount,
+    firstSeen: "—",
+    summary:
+      `This address holds ${data.balanceSalt ?? "0"} SALT` +
+      `${data.isContract ? " and is a contract" : ""}.` +
+      holdingsNote +
+      ` ${txCount ? `${txCount} transfers/transactions indexed.` : "Transaction history appears here as the indexer catches up."}`,
+    txns,
+    tokens,
+    _live: true,
+  };
+}
+
 export function useLiveAddress(addr: string) {
   const { data, loading, error } = useFetch<any>(addr ? `/api/address/${addr}` : null);
-  if (!data || data.error) return { data: null, loading, error };
-  const lbl = labelOf(addr);
-  const activity = data.activity && data.activity.provisioned ? data.activity : null;
-  const txCount = activity ? activity.sent + activity.received : Number(data.nonce ?? 0);
-  return {
-    data: {
-      addr,
-      label: lbl ? lbl.label : null,
-      isContract: Boolean(data.isContract),
-      balanceSalt: data.balanceSalt ?? "0",
-      txCount,
-      firstSeen: "—",
-      summary:
-        `This address holds ${data.balanceSalt ?? "0"} SALT` +
-        `${data.isContract ? " and is a contract" : ""}. ` +
-        `${activity ? `${txCount} transactions indexed.` : "Transaction history appears here as the indexer catches up."}`,
-      txns: [],
-      tokens: [],
-      _live: true,
-    },
-    loading,
-    error,
-  };
+  const view = deriveAddressView(addr, data);
+  if (!view) return { data: null, loading, error };
+  return { data: view, loading, error };
 }

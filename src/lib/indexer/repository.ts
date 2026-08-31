@@ -311,10 +311,24 @@ export async function tokenActivity(
 
 export async function addressActivity(
   address: Address,
-): Promise<NotProvisioned | { provisioned: true; address: string; sent: number; received: number }> {
+): Promise<
+  | NotProvisioned
+  | {
+      provisioned: true;
+      address: string;
+      sent: number;
+      received: number;
+      tokenSent: number;
+      tokenReceived: number;
+    }
+> {
   const db = getDb();
   if (!db) return NOT_PROVISIONED;
   const a = address.toLowerCase();
+  // A relayer-funded member (nonce 0) is NEVER a tx-level `from`/`to` — the relayer is `from` and the
+  // SBT/vault contract is `to` — so tx counts alone read 0 and the address looks empty/unknown. But the
+  // member IS the recipient of the SBT mint + grant transfer, captured in token_transfers. Count those
+  // too so such an address resolves with its real activity (Rule 11: source is indexed token_transfers).
   const [sent] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(transactions)
@@ -323,12 +337,53 @@ export async function addressActivity(
     .select({ n: sql<number>`count(*)::int` })
     .from(transactions)
     .where(eq(transactions.to, a));
+  const [tokenSent] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(tokenTransfers)
+    .where(eq(tokenTransfers.from, a));
+  const [tokenReceived] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(tokenTransfers)
+    .where(eq(tokenTransfers.to, a));
   return {
     provisioned: true,
     address: a,
     sent: sent?.n ?? 0,
     received: received?.n ?? 0,
+    tokenSent: tokenSent?.n ?? 0,
+    tokenReceived: tokenReceived?.n ?? 0,
   };
+}
+
+/**
+ * A relayer-funded recipient's token history (SBT mint, grant transfer, …) — the transfers where the
+ * address is `from` or `to`, newest first. This is what makes a nonce-0 member resolve with real
+ * on-chain history instead of an empty page. Data source (Rule 11): indexed `token_transfers`.
+ */
+export async function addressTokenTransfers(
+  address: Address,
+  limit = 25,
+): Promise<NotProvisioned | { provisioned: true; results: unknown[] }> {
+  const db = getDb();
+  if (!db) return NOT_PROVISIONED;
+  const a = address.toLowerCase();
+  const results = await db
+    .select({
+      txHash: tokenTransfers.txHash,
+      blockHeight: tokenTransfers.blockHeight,
+      timestamp: tokenTransfers.timestamp,
+      standard: tokenTransfers.standard,
+      token: tokenTransfers.token,
+      from: tokenTransfers.from,
+      to: tokenTransfers.to,
+      value: tokenTransfers.value,
+      tokenId: tokenTransfers.tokenId,
+    })
+    .from(tokenTransfers)
+    .where(or(eq(tokenTransfers.from, a), eq(tokenTransfers.to, a)))
+    .orderBy(desc(tokenTransfers.timestamp))
+    .limit(limit);
+  return { provisioned: true, results };
 }
 
 export async function topHolders(
