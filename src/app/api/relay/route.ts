@@ -37,11 +37,33 @@ const schema = z.object({
   signature: z.string().regex(/^0x[0-9a-fA-F]+$/),
 });
 
+// CitrateScan's sponsored rail is gasless: the relayer pays execution gas but
+// never sponsors native SALT transfers. Keep this bound at the HTTP boundary
+// as well as in the forwarder so a future caller cannot turn a user-signed
+// request into a relayer-funded payment.
+const MAX_RELAY_GAS = 2_000_000n;
+
 export async function POST(req: Request) {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return Response.json(
       { error: "invalid ForwardRequest", issues: parsed.error.issues },
+      { status: 400 },
+    );
+  }
+
+  const { request, signature } = parsed.data;
+  const requestValue = BigInt(request.value);
+  if (requestValue !== 0n) {
+    return Response.json(
+      { error: "non-zero value ForwardRequests are not supported by the gasless relay" },
+      { status: 400 },
+    );
+  }
+  const requestGas = BigInt(request.gas);
+  if (requestGas > MAX_RELAY_GAS) {
+    return Response.json(
+      { error: `ForwardRequest gas exceeds the ${MAX_RELAY_GAS} limit` },
       { status: 400 },
     );
   }
@@ -71,12 +93,11 @@ export async function POST(req: Request) {
     );
   }
 
-  const { request, signature } = parsed.data;
   const reqTuple = {
     from: request.from as Address,
     to: request.to as Address,
-    value: BigInt(request.value),
-    gas: BigInt(request.gas),
+    value: requestValue,
+    gas: requestGas,
     nonce: BigInt(request.nonce),
     deadline: request.deadline,
     data: request.data as Hex,
@@ -106,7 +127,10 @@ export async function POST(req: Request) {
       abi: forwarderAbi,
       functionName: "execute",
       args: [reqTuple, signature as Hex],
-      value: reqTuple.value,
+      // EX-B-001: the request value was rejected above. Keep the outer
+      // transaction value literal-zero so a future tuple change cannot make
+      // the relayer sponsor attacker-selected native value.
+      value: 0n,
     });
 
     return Response.json({ txHash, sponsored: true, forwarder });

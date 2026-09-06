@@ -39,6 +39,7 @@ contract CitrateForwarder {
     error InvalidSigner(address recovered, address from);
     error ExpiredRequest(uint48 deadline);
     error InvalidNonce(uint256 expected, uint256 provided);
+    error MismatchedValue(uint256 supplied, uint256 expected);
     error InsufficientGas();
     error CallFailed(bytes returndata);
 
@@ -59,6 +60,9 @@ contract CitrateForwarder {
     }
 
     /// @notice True iff `signature` is a valid, current, unexpired request from `req.from`.
+    /// @dev A view call cannot observe the value that a later execute call will
+    /// supply. `execute` enforces the outer-value equality at the payable
+    /// boundary; the relay route separately rejects all nonzero requests.
     function verify(ForwardRequest calldata req, bytes calldata signature) public view returns (bool) {
         if (req.deadline < block.timestamp) return false;
         if (req.nonce != nonces[req.from]) return false;
@@ -73,6 +77,7 @@ contract CitrateForwarder {
         payable
         returns (bool success, bytes memory returndata)
     {
+        if (msg.value != req.value) revert MismatchedValue(msg.value, req.value);
         if (req.deadline < block.timestamp) revert ExpiredRequest(req.deadline);
         uint256 expected = nonces[req.from];
         if (req.nonce != expected) revert InvalidNonce(expected, req.nonce);

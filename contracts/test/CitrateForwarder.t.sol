@@ -128,6 +128,20 @@ contract CitrateForwarderTest is Test {
         assertEq(rec.lastValue(), value, "value forwarded to target");
     }
 
+    /// EX-B-002: the forwarder must never spend its own balance to satisfy a
+    /// signed request when the caller supplied a different native value.
+    function testMismatchedValueRejectedByVerifyAndExecute() public {
+        uint256 value = 7 ether;
+        CitrateForwarder.ForwardRequest memory req =
+            _req(abi.encodeWithSignature("ping()"), 0, uint48(block.timestamp + 1 hours), value);
+        bytes memory sig = _sign(req, userPk);
+        vm.deal(address(fwd), value);
+
+        vm.expectRevert(abi.encodeWithSelector(CitrateForwarder.MismatchedValue.selector, 0, value));
+        fwd.execute{value: 0}(req, sig);
+        assertEq(address(fwd).balance, value, "forwarder balance must remain untouched");
+    }
+
     function testInnerRevertBubbles() public {
         CitrateForwarder.ForwardRequest memory req =
             _req(abi.encodeWithSignature("boom()"), 0, uint48(block.timestamp + 1 hours), 0);
