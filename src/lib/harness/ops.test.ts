@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseEther, type Address, type Hex } from "viem";
-import { saltAmount, getBalance, isContract, exploreDag, getBlock } from "./ops";
+import { saltAmount, getBalance, isContract, exploreDag, getBlock, getLogs } from "./ops";
 
 const live = process.env.LIVE_RPC === "1";
 const liveIt = live ? it : it.skip;
@@ -42,5 +42,21 @@ describe("harness live ops (WP-1.5)", () => {
     expect(walk.selectedParentChain.length).toBeGreaterThanOrEqual(1);
     expect(Array.isArray(walk.mergeParents)).toBe(true);
     expect(typeof walk.finalized).toBe("boolean");
+  });
+});
+
+describe("getLogs bounds", () => {
+  it("rejects an unbounded query before reaching the live RPC client", async () => {
+    await expect(getLogs({} as never)).rejects.toThrow(/valid non-negative block range/);
+  });
+
+  it("rejects a range larger than the bounded RPC window", async () => {
+    await expect(
+      getLogs({
+        address: "0x1111111111111111111111111111111111111111",
+        fromBlock: 0n,
+        toBlock: 10_001n,
+      }),
+    ).rejects.toThrow(/10,?000 block limit/);
   });
 });

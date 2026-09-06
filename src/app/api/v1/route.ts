@@ -91,12 +91,15 @@ export async function GET(req: Request) {
       const address = p.get("address");
       const fromBlock = p.get("fromBlock");
       const toBlock = p.get("toBlock");
-      const logs = await getLogs({
-        address: isAddr(address) ? (address as Address) : undefined,
-        fromBlock: fromBlock && fromBlock !== "latest" ? BigInt(fromBlock) : undefined,
-        toBlock: toBlock && toBlock !== "latest" ? BigInt(toBlock) : undefined,
+      if (!isAddr(address) || !fromBlock || fromBlock === "latest" || !toBlock || toBlock === "latest") {
+        return fail("getLogs requires a contract address and explicit fromBlock/toBlock");
+      }
+      const result = await getLogs({
+        address: address as Address,
+        fromBlock: BigInt(fromBlock),
+        toBlock: BigInt(toBlock),
       });
-      return logs.length ? ok(logs) : noData("No logs found");
+      return result.logs.length ? ok(result) : noData("No logs found");
     }
 
     // ---- stats ----

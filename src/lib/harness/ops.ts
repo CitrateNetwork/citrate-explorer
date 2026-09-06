@@ -202,26 +202,64 @@ export async function isContract(address: Address): Promise<boolean> {
 }
 
 export interface LogQuery {
-  address?: Address;
-  fromBlock?: bigint | "earliest";
-  toBlock?: bigint | "latest";
+  address: Address;
+  fromBlock: bigint;
+  toBlock: bigint;
 }
 
-export async function getLogs(query: LogQuery = {}) {
+export interface LogsResult {
+  logs: Array<{
+    address: string;
+    topics: readonly string[];
+    data: string;
+    blockNumber: string | null;
+    txHash: string | null;
+    logIndex: number | null;
+  }>;
+  truncated: boolean;
+}
+
+const MAX_LOG_BLOCK_RANGE = 10_000n;
+const MAX_LOG_CHUNK = 1_000n;
+const MAX_LOG_RESULTS = 1_000;
+
+export async function getLogs(query: LogQuery): Promise<LogsResult> {
+  if (typeof query.fromBlock !== "bigint" || typeof query.toBlock !== "bigint") {
+    throw new Error("getLogs requires a valid non-negative block range");
+  }
+  if (query.fromBlock < 0n || query.toBlock < query.fromBlock) {
+    throw new Error("getLogs requires a valid non-negative block range");
+  }
+  if (query.toBlock - query.fromBlock > MAX_LOG_BLOCK_RANGE) {
+    throw new Error(`getLogs block range exceeds the ${MAX_LOG_BLOCK_RANGE} block limit`);
+  }
+
   const c = harnessClient();
-  const logs = await c.getLogs({
-    address: query.address,
-    fromBlock: query.fromBlock ?? "earliest",
-    toBlock: query.toBlock ?? "latest",
-  });
-  return logs.map((l) => ({
-    address: l.address,
-    topics: l.topics,
-    data: l.data,
-    blockNumber: l.blockNumber?.toString() ?? null,
-    txHash: l.transactionHash,
-    logIndex: l.logIndex,
-  }));
+  const result: LogsResult["logs"] = [];
+  let chunkFrom = query.fromBlock;
+  let truncated = false;
+  while (chunkFrom <= query.toBlock && result.length < MAX_LOG_RESULTS) {
+    const chunkTo = [chunkFrom + MAX_LOG_CHUNK - 1n, query.toBlock].reduce((a, b) => (a < b ? a : b));
+    const logs = await c.getLogs({ address: query.address, fromBlock: chunkFrom, toBlock: chunkTo });
+    for (const l of logs) {
+      if (result.length >= MAX_LOG_RESULTS) {
+        truncated = true;
+        break;
+      }
+      result.push({
+        address: l.address,
+        topics: l.topics,
+        data: l.data,
+        blockNumber: l.blockNumber?.toString() ?? null,
+        txHash: l.transactionHash,
+        logIndex: l.logIndex,
+      });
+    }
+    if (chunkTo === query.toBlock) break;
+    chunkFrom = chunkTo + 1n;
+  }
+  if (chunkFrom <= query.toBlock && result.length >= MAX_LOG_RESULTS) truncated = true;
+  return { logs: result, truncated };
 }
 
 /**

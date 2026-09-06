@@ -32,6 +32,12 @@ describe("rateLimit — in-memory token bucket", () => {
     expect(rateLimit(id, 1, 3).ok).toBe(true);
     expect(rateLimit(id, 1, 3).ok).toBe(false);
   });
+
+  it("charges a multi-operation request by its operation cost", () => {
+    const id = "test:operation-cost";
+    expect(rateLimit(id, 1, 5, 4).ok).toBe(true);
+    expect(rateLimit(id, 1, 5, 2).ok).toBe(false);
+  });
 });
 
 describe("checkRateLimit — backend selection", () => {
