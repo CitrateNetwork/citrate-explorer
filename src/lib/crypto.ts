@@ -111,9 +111,31 @@ export function generateApiKey(): string {
   return `cscan_${randomBytes(24).toString("base64url")}`;
 }
 
-/** Salted SHA-256 (+ pepper) hash of an issued API key, for at-rest storage. */
+/**
+ * EX-B-010 (RM-Q remediation, 2026-09-07): the server pepper is REQUIRED, not
+ * optional. Previously `process.env.API_KEY_PEPPER ?? ""` silently fell back to
+ * an empty pepper — producing a bare `sha256(":" + rawKey)` that a database read
+ * could attack offline without the server secret, and silently contradicting the
+ * spec ("salted SHA-256 + server pepper", stated unconditionally). It now fails
+ * CLOSED the same way `requireKey("APP_MASTER_KEY")` does: throw at first use
+ * when the pepper is unset/empty, so a mis-provisioned deploy is caught loudly
+ * rather than degrading the hash. The hash construction itself is unchanged, so
+ * hashes stored under a configured pepper keep verifying.
+ */
+function requirePepper(): string {
+  const pepper = process.env.API_KEY_PEPPER;
+  if (!pepper || pepper.length === 0) {
+    throw new Error(
+      "API_KEY_PEPPER is not set — required to hash issued API keys at rest. " +
+        "Generate with: openssl rand -base64 32",
+    );
+  }
+  return pepper;
+}
+
+/** Salted SHA-256 (+ required server pepper) hash of an issued API key. */
 export function hashApiKey(rawKey: string): string {
-  const pepper = process.env.API_KEY_PEPPER ?? "";
+  const pepper = requirePepper();
   return createHash("sha256").update(`${pepper}:${rawKey}`).digest("hex");
 }
 
