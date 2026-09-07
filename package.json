@@ -35,7 +35,7 @@
     "d3-dag": "^1.1.0",
     "drizzle-orm": "^0.45.2",
     "jose": "^6.2.3",
-    "next": "16.2.6",
+    "next": "16.2.12",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "solc": "^0.8.35",
@@ -52,10 +52,27 @@
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
-    "eslint-config-next": "16.2.6",
+    "eslint-config-next": "16.2.12",
     "tailwindcss": "^4",
     "tsx": "^4.22.3",
     "typescript": "^5",
     "vitest": "^4.1.7"
+  },
+  "pnpm": {
+    "comment": "EX-B-005 (RM-Q, 2026-09-06): pin transitive deps out of their HIGH-severity advisory ranges. `next`/`eslint-config-next` are bumped directly above (>=16.2.11 for CVE-2026-64641/64642/64645/64649). These overrides clear the remaining runtime-reachable HIGHs that no direct bump fixes (solc still bundles tmp@0.0.33; next still ships sharp<0.35). Version selectors are scoped per-major where two majors are in the tree so we never force an incompatible major. Keep in lockstep with `pnpm audit --audit-level=high` (CI tripwire).",
+    "overrides": {
+      "tmp": ">=0.2.6",
+      "sharp": ">=0.35.0",
+      "axios@1": ">=1.18.0",
+      "ws@8": ">=8.21.0",
+      "brace-expansion": ">=1.1.18 <2.0.0 || >=5.0.9",
+      "nanoid@3": ">=3.3.18",
+      "js-yaml@4": ">=4.3.1",
+      "postcss@8": ">=8.5.18",
+      "browserslist@4": ">=4.28.7",
+      "form-data@4": ">=4.0.6",
+      "hono@4": ">=4.12.25",
+      "socket.io-parser@4": ">=4.2.7"
+    }
   }
 }

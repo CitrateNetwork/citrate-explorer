@@ -38,6 +38,14 @@ jobs:
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
+      # EX-B-005 (RM-Q, 2026-09-06): fail the build on any HIGH-severity
+      # dependency advisory. The pin previously carried 28 open HIGHs (4 next
+      # CVEs on this public app + runtime-reachable tmp/sharp). This gate blocks
+      # a regression; moderate/low are reported but non-blocking. Keep in
+      # lockstep with the `pnpm.overrides` in package.json.
+      - name: Dependency audit (block HIGH)
+        run: pnpm audit --audit-level=high
+
       - name: Typecheck
         run: pnpm typecheck
 
