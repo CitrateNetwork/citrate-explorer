@@ -13,6 +13,23 @@ import { getDagBlock, dagStats as liveDagStats, isFinal } from "@/lib/citrate/rp
 import { erc20Abi } from "@/lib/citrate/abi";
 import { GENESIS_ALLOCATIONS, knownLabel } from "@/lib/citrate/addresses";
 
+/**
+ * EX-B-016 (RM-Q, 2026-09-07): clamp an attacker-authorable on-chain string
+ * (token `name`/`symbol`, etc.) before it enters the AI agent's context or the
+ * UI. On-chain strings are unbounded, attacker-controlled, and a prompt-injection
+ * / context-bloat vector. This strips control characters (which can hide or
+ * reframe instructions) and truncates to a short bound. Provenance/"this is
+ * untrusted data" framing lives in the system prompt GUARDRAILS; this is the
+ * length + control-char half of the same defence. Returns null unchanged.
+ */
+export const MAX_ONCHAIN_STR = 96;
+export function clampOnChainText(s: string | null, max: number = MAX_ONCHAIN_STR): string | null {
+  if (s === null || s === undefined) return null;
+  // Drop C0/C1 control chars (incl. NUL, newlines, escape) — keep printable text.
+  const cleaned = String(s).replace(/[\u0000-\u001F\u007F-\u009F]/g, " ").replace(/\s+/g, " ").trim();
+  return cleaned.length > max ? `${cleaned.slice(0, max)}…` : cleaned;
+}
+
 /** Dual-unit SALT amount (decision X-4): both human SALT and raw grains (wei). */
 export interface SaltAmount {
   salt: string;
@@ -402,10 +419,15 @@ export async function getToken(address: Address, holder?: Address): Promise<Toke
       return null;
     }
   };
-  const [name, symbol] = await Promise.all([
+  const [rawName, rawSymbol] = await Promise.all([
     tryRead<string>(erc20Abi as Abi, "name"),
     tryRead<string>(erc20Abi as Abi, "symbol"),
   ]);
+  // EX-B-016: token name/symbol are attacker-authored on-chain strings that flow
+  // into the AI agent's context and the UI — clamp length + strip control chars
+  // before they leave the harness (prompt-injection / context-bloat defence).
+  const name = clampOnChainText(rawName);
+  const symbol = clampOnChainText(rawSymbol);
   const decimals = await tryRead<number>(erc20Abi as Abi, "decimals");
   // ERC-20 exposes decimals(); ERC-721 doesn't but is still name/symbol-bearing.
   const standard: TokenInfo["standard"] =
