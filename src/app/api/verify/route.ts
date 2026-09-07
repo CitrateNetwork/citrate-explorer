@@ -22,7 +22,9 @@ const MAX_CONCURRENT_COMPILES = Number(process.env.CITRATE_VERIFY_MAX_CONCURRENT
 // gate counts in the shared store (Upstash) when configured so the cap holds
 // across the whole serverless fleet, falling back to a per-instance counter only
 // when no store is provisioned (dev / single-instance).
-const compileGate = compileGateFromEnv(MAX_CONCURRENT_COMPILES);
+// EX-B-008: /api/verify is the expensive path — a store blip must NOT silently
+// drop the global compile cap to per-instance. Fail closed on store errors.
+const compileGate = compileGateFromEnv(MAX_CONCURRENT_COMPILES, { failClosed: true });
 
 const schema = z.object({
   address: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
@@ -44,7 +46,8 @@ const schema = z.object({
  */
 export async function POST(req: Request) {
   // FUA-EXPLORER-03: rate-limit per trusted IP before any expensive work.
-  const rl = await checkRateLimit(`verify:${clientIp(req)}`, 0.2, 5);
+  // EX-B-008: fail closed on store errors — this is the expensive path.
+  const rl = await checkRateLimit(`verify:${clientIp(req)}`, 0.2, 5, { failClosed: true });
   if (!rl.ok) {
     return Response.json(
       { error: "rate limited — verification is expensive; try again shortly" },

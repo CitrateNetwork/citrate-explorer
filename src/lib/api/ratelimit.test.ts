@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { rateLimit, checkRateLimit, isDistributed } from "./ratelimit";
 
 // The bucket is keyed by id; using a unique id per test keeps them independent
@@ -49,5 +49,42 @@ describe("checkRateLimit — backend selection", () => {
     const blocked = await checkRateLimit(id, 1, 2);
     expect(blocked.ok).toBe(false);
     expect(blocked.retryAfter).toBeGreaterThan(0);
+  });
+});
+
+// EX-B-008: when a distributed store IS configured but errors, the default is
+// fail-open (degrade to memory) but the money/expensive paths must fail CLOSED.
+describe("checkRateLimit — fail-closed on store error (EX-B-008)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  async function loadWithStore() {
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://example.upstash.io");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "test-token");
+    // Every Upstash call rejects → simulate a store blip.
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("network down");
+    }));
+    vi.resetModules();
+    return await import("./ratelimit");
+  }
+
+  it("default (fail-open): a store error degrades to the in-memory bucket", async () => {
+    const mod = await loadWithStore();
+    expect(mod.isDistributed()).toBe(true);
+    const res = await mod.checkRateLimit("test:failopen", 5, 5);
+    expect(res.ok).toBe(true);
+    expect(res.backend).toBe("memory"); // degraded, not denied
+  });
+
+  it("failClosed: a store error DENIES the request (no per-instance downgrade)", async () => {
+    const mod = await loadWithStore();
+    expect(mod.isDistributed()).toBe(true);
+    const res = await mod.checkRateLimit("test:failclosed", 5, 5, { failClosed: true });
+    expect(res.ok).toBe(false);
+    expect(res.backend).toBe("redis");
   });
 });

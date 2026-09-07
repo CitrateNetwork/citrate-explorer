@@ -57,6 +57,37 @@ describe("CompileGate — global concurrent-compile cap (FWA-C12-04)", () => {
     expect((await g.acquire()).ok).toBe(false);
   });
 
+  it("fail-open (default): a store ERROR degrades to the per-instance counter", async () => {
+    const throwing = {
+      async incr(): Promise<number> {
+        throw new Error("upstash 500");
+      },
+      async decr(): Promise<number> {
+        throw new Error("upstash 500");
+      },
+    };
+    const g = new CompileGate(2, throwing); // no failClosed → degrade
+    expect((await g.acquire()).ok).toBe(true);
+    expect((await g.acquire()).ok).toBe(true);
+    expect((await g.acquire()).ok).toBe(false); // local cap still holds
+  });
+
+  it("EX-B-008: fail-closed REFUSES the slot when the store errors", async () => {
+    const throwing = {
+      async incr(): Promise<number> {
+        throw new Error("upstash 500");
+      },
+      async decr(): Promise<number> {
+        throw new Error("upstash 500");
+      },
+    };
+    const g = new CompileGate(3, throwing, { failClosed: true });
+    // A Redis blip must NOT drop the global cap to a fresh per-instance counter;
+    // every acquire is refused while the store is unreachable.
+    expect((await g.acquire()).ok).toBe(false);
+    expect((await g.acquire()).ok).toBe(false);
+  });
+
   it("falls back to a per-instance counter when no shared store is configured", async () => {
     // No store ⇒ in-memory; documented as a per-instance bound (the global cap is
     // cap×instances under this fallback — acceptable for single-instance/dev).
