@@ -12,6 +12,7 @@ import { PROJECT_ADDRESSES } from "@/lib/citrate/addresses";
 import { forwarderAbi } from "@/lib/citrate/abi";
 import { clientIp } from "@/lib/api/keys";
 import { checkRelayRateLimit } from "@/lib/relay/rateLimit";
+import { checkSponsorPolicy } from "@/lib/relay/policy";
 
 /**
  * Gasless write relay (EIP-2771). The user signs an EIP-712 ForwardRequest in the
@@ -57,6 +58,17 @@ export async function POST(req: Request) {
       { error: `relay rate limit exceeded (per-${rl.scope ?? "client"} hourly cap)` },
       { status: 429, headers: { "retry-after": String(rl.retryAfter ?? 60) } },
     );
+  }
+
+  // CIT-EXP-01 (RM-Q, 2026-09-06): fail-closed sponsorship policy, enforced
+  // BEFORE any chain interaction and independently of provisioning. The relay
+  // pays gas but must NEVER fund native value (a self-signed request with
+  // `value = relayer balance` would otherwise drain the relayer in one call),
+  // and may only sponsor calls into allowlisted federation contracts. The
+  // on-chain twin `require(req.value == 0)` is HELD for the contract track.
+  const policy = checkSponsorPolicy(parsed.data.request);
+  if (!policy.ok) {
+    return Response.json({ error: policy.error }, { status: 400 });
   }
 
   const forwarder = PROJECT_ADDRESSES.forwarder;
