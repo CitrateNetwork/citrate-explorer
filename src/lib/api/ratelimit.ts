@@ -11,8 +11,15 @@
  *     start, so best-effort only; it still stops a single instance being trivially
  *     abused.
  *
- * If the store is configured but errors, we DO NOT fail closed — we fall back to
- * the in-memory bucket so a Redis blip can't take the API down.
+ * If the store is configured but errors, we DEFAULT to falling back to the
+ * in-memory bucket so a Redis blip can't take a cheap read endpoint down.
+ *
+ * EX-B-008 (RM-Q, 2026-09-07): that fail-OPEN default is wrong for the expensive
+ * and money paths. An attacker who induces a Redis blip would otherwise drop every
+ * distributed cap at once (the effective ceiling becomes `limit × instanceCount`).
+ * Callers on those paths pass `{ failClosed: true }` so a store error DENIES the
+ * request (429) instead of silently degrading to a per-instance counter. Cheap
+ * read endpoints keep the fail-open default.
  */
 interface Bucket {
   tokens: number;
@@ -85,21 +92,41 @@ async function redisFixedWindow(id: string, limit: number): Promise<RateResult> 
   return { ok: true, backend: "redis" };
 }
 
+export interface RateLimitOptions {
+  /**
+   * EX-B-008: when the distributed store is configured but ERRORS, deny the
+   * request (fail closed) instead of degrading to the per-instance in-memory
+   * bucket. Use on the money path (`/api/relay`) and the expensive path
+   * (`/api/verify`) so a store blip can't drop the global cap to `limit ×
+   * instances`. Defaults to false (fail open) for cheap read endpoints.
+   */
+  failClosed?: boolean;
+}
+
 /**
- * The entry point used by routes. Prefers the distributed store; falls back to
- * the in-memory bucket when unconfigured OR when the store errors (never fails
- * closed). `perSec` is the sustained rate; `burst` is the per-window ceiling.
+ * The entry point used by routes. Prefers the distributed store. When the store
+ * is unconfigured it uses the in-memory bucket. When the store is configured but
+ * errors it degrades to the in-memory bucket by DEFAULT (fail open) — unless
+ * `failClosed` is set, in which case it DENIES the request. `perSec` is the
+ * sustained rate; `burst` is the per-window ceiling.
  */
 export async function checkRateLimit(
   id: string,
   perSec: number,
   burst = defaultBurst(perSec),
+  opts: RateLimitOptions = {},
 ): Promise<RateResult> {
   if (isDistributed()) {
     try {
       return await redisFixedWindow(id, burst);
     } catch {
-      // Store unreachable — degrade to the local bucket rather than 500/lock out.
+      // Store configured but unreachable.
+      if (opts.failClosed) {
+        // Money/expensive path — refuse rather than silently drop the global cap
+        // to per-instance (which an attacker could trigger by griefing Redis).
+        return { ok: false, retryAfter: 1, backend: "redis" };
+      }
+      // Cheap read endpoint — degrade to the local bucket rather than 500/lock out.
     }
   }
   return rateLimit(id, perSec, burst);

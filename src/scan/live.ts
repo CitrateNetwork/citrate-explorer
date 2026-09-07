@@ -14,8 +14,22 @@
 import { useEffect, useRef, useState } from "react";
 import { SD } from "./data";
 
-/** Demo mode keeps the rich sample as the fallback. Set NEXT_PUBLIC_DEMO=0 in prod. */
-export const DEMO = process.env.NEXT_PUBLIC_DEMO !== "0";
+/**
+ * Demo mode keeps the rich (fictional) sample as the fallback when a live `/api/*`
+ * read fails. EX-B-007 (RM-Q, 2026-09-07): this now DEFAULTS OFF and must be
+ * explicitly opted into with `NEXT_PUBLIC_DEMO=1`.
+ *
+ * The old default (`!== "0"`) was fail-OPEN: a Vercel project that never set the
+ * var shipped with demo ON, so any RPC blip silently replaced live chain data
+ * with fabricated blocks/txns/balances presented as real — violating Rule 11
+ * ("no fabricated chain or DAG data") on the federation's most public surface.
+ * Failing closed means an unset/other value yields honest-empty degraded states
+ * instead of invented facts. `.env.example` sets `=1` for local development.
+ */
+export function demoEnabled(v: string | undefined = process.env.NEXT_PUBLIC_DEMO): boolean {
+  return v === "1";
+}
+export const DEMO = demoEnabled();
 
 const toMs = (ts: number) => (ts > 0 && ts < 1e12 ? ts * 1000 : ts);
 const short = (h: string) => (SD.short ? SD.short(h) : `${h?.slice(0, 6)}…${h?.slice(-4)}`);

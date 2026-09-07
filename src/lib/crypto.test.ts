@@ -45,4 +45,19 @@ describe("issued API keys (hash-only)", () => {
     expect(verifyApiKey(key, hash)).toBe(true);
     expect(verifyApiKey("cscan_wrong", hash)).toBe(false);
   });
+
+  // EX-B-010: the pepper must be REQUIRED — an unset/empty pepper must throw
+  // (fail closed), never silently degrade to a bare unsalted SHA-256. Mirrors
+  // the fail-secure posture of APP_MASTER_KEY.
+  it("throws when API_KEY_PEPPER is unset (fail closed, no empty-pepper fallback)", () => {
+    const saved = process.env.API_KEY_PEPPER;
+    try {
+      delete process.env.API_KEY_PEPPER;
+      expect(() => hashApiKey("cscan_whatever")).toThrow(/API_KEY_PEPPER is not set/);
+      process.env.API_KEY_PEPPER = "";
+      expect(() => hashApiKey("cscan_whatever")).toThrow(/API_KEY_PEPPER is not set/);
+    } finally {
+      process.env.API_KEY_PEPPER = saved;
+    }
+  });
 });

@@ -12,9 +12,12 @@
  * carries a short TTL so a crashed instance that never releases can't wedge the
  * gate permanently.
  *
- * Fail-open posture: if the shared store is unreachable mid-flight we degrade to
- * the in-memory counter rather than 500 the request — a transient Redis blip
- * must not take verification down.
+ * Fail posture: if the shared store is unreachable mid-flight the DEFAULT is to
+ * degrade to the in-memory counter rather than 500 the request. EX-B-008 (RM-Q,
+ * 2026-09-07): the verify path is expensive, so it constructs the gate with
+ * `failClosed: true` — a store error then REFUSES the slot (the caller returns
+ * 503) instead of silently dropping the GLOBAL compile cap to `cap × instances`,
+ * which an attacker could trigger by griefing Redis to lift the cap fleet-wide.
  */
 
 const ACTIVE_KEY = "verify:active";
@@ -60,22 +63,36 @@ function redisStore(url: string, token: string): CounterStore {
   };
 }
 
+export interface CompileGateOptions {
+  /**
+   * EX-B-008: when the shared store is configured but ERRORS, refuse the slot
+   * (fail closed) rather than degrading to the per-instance counter — so a Redis
+   * blip can't lift the GLOBAL compile cap to `cap × instances` fleet-wide.
+   * Defaults to false to preserve the fail-open behaviour for any non-expensive
+   * caller. The verify route sets this.
+   */
+  failClosed?: boolean;
+}
+
 /** Build the gate from env: a Redis store when configured, else per-instance. */
-export function compileGateFromEnv(cap: number): CompileGate {
+export function compileGateFromEnv(cap: number, opts: CompileGateOptions = {}): CompileGate {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  return new CompileGate(cap, url && token ? redisStore(url, token) : null);
+  return new CompileGate(cap, url && token ? redisStore(url, token) : null, opts);
 }
 
 export class CompileGate {
   private local = 0;
   readonly distributed: boolean;
+  private readonly failClosed: boolean;
 
   constructor(
     private readonly cap: number,
     private readonly store: CounterStore | null,
+    opts: CompileGateOptions = {},
   ) {
     this.distributed = Boolean(store);
+    this.failClosed = Boolean(opts.failClosed);
   }
 
   /** Try to take a compile slot. Returns { ok:false } when the GLOBAL cap is hit. */
@@ -90,7 +107,12 @@ export class CompileGate {
         }
         return { ok: true };
       } catch {
-        // Store unreachable — degrade to the per-instance counter (never 500).
+        // Store configured but unreachable.
+        if (this.failClosed) {
+          // Expensive path — refuse rather than drop the global cap to per-instance.
+          return { ok: false };
+        }
+        // Degrade to the per-instance counter (never 500).
       }
     }
     if (this.local >= this.cap) return { ok: false };
