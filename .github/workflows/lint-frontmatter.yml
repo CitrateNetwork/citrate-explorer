@@ -45,29 +45,38 @@ jobs:
 
       - name: Determine changed .md files under .agentile/
         id: changed
+        env:
+          # EX-B-006: refs via env, never interpolated into the script body.
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+          PUSH_HEAD: ${{ github.sha }}
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            base="${{ github.event.pull_request.base.sha }}"
-            head="${{ github.event.pull_request.head.sha }}"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="$PR_BASE"; head="$PR_HEAD"
           else
-            base="${{ github.event.before }}"
-            head="${{ github.sha }}"
+            base="$PUSH_BASE"; head="$PUSH_HEAD"
           fi
-          # Filter to .md files under .agentile/, excluding INDEX/. Emit as a
-          # SINGLE space-separated line (xargs) so the consumer step expands the
-          # list as args on one line — a multiline value makes the shell run
-          # filenames 2..N as commands (exit 126).
-          files=$(git diff --name-only --diff-filter=AM "$base" "$head" -- '.agentile/**/*.md' \
-            | grep -v '^\.agentile/INDEX/' | xargs || true)
-          echo "files=$files" >> "$GITHUB_OUTPUT"
+          # EX-B-006: emit a NUL-delimited FILE, not a shell value. Attacker-
+          # controlled PR filenames must never reach a `run:` interpolation — the
+          # old `--files ${{ steps.changed.outputs.files }}` executed a filename
+          # like `pwned$(...).md` on the runner. The consumer reads --files0.
+          list="${RUNNER_TEMP:-/tmp}/changed_frontmatter_files"
+          git diff --name-only -z --diff-filter=AM "$base" "$head" -- '.agentile/**/*.md' \
+            | { grep -zv '^\.agentile/INDEX/' || true; } > "$list"
+          if [[ -s "$list" ]]; then has_files=1; else has_files=0; fi
+          echo "has_files=$has_files" >> "$GITHUB_OUTPUT"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
 
       - name: Check frontmatter on changed files
-        if: ${{ steps.changed.outputs.files != '' }}
+        if: ${{ steps.changed.outputs.has_files == '1' }}
+        env:
+          LIST: ${{ steps.changed.outputs.list }}
         run: |
-          # shellcheck disable=SC2086
-          ./scripts/ci/check_frontmatter.py --files ${{ steps.changed.outputs.files }}
+          ./scripts/ci/check_frontmatter.py --files0 "$LIST"
 
       - name: No relevant changes
-        if: ${{ steps.changed.outputs.files == '' }}
+        if: ${{ steps.changed.outputs.has_files == '0' }}
         run: |
           echo "No .md changes under .agentile/ in this PR; nothing to check."
