@@ -1,0 +1,30 @@
+{
+  "$schema_comment": "Machine-readable baseline used by scripts/ci/check_*_ratchet.py. Seeded at bootstrap (2026-06-02). day_zero_commit is set at the first commit; counts are re-measured at every sprint close. Human-readable companion: BASELINE.md. See GATES.md for the four-ratchet model.",
+  "project": "citrate-explorer",
+  "day_zero_commit": "36f22fa90bea9f6b0aeb8a768e85e858dbc8abea",
+  "day_zero_date": "2026-06-02",
+  "tests": {
+    "count": 96,
+    "command": "npx vitest run --reporter=json 2>/dev/null | jq '.numTotalTests'",
+    "_examples": {
+      "vitest": "npx vitest run --reporter=json 2>/dev/null | jq '.numTotalTests'",
+      "forge": "forge test --summary 2>&1 | grep 'Suite result' | awk '{s+=$4}END{print s}'"
+    }
+  },
+  "specs": {
+    "count": 1,
+    "directories": [
+      ".agentile/formal/specs",
+      "specs/tla"
+    ],
+    "command": "find specs/tla -name '*.tla' | wc -l"
+  },
+  "tripwires": {
+    "count": 8,
+    "command": "ls scripts/semgrep/*.yaml | wc -l"
+  },
+  "frontmatter": {
+    "covered": 0,
+    "total": 0
+  }
+}
