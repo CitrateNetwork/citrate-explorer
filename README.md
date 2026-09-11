@@ -1,5 +1,7 @@
 # citrate-explorer
 
+*Part of the **[Citrate Network](https://citrate.ai)** — own the means of computation. · [Docs](https://docs.citrate.ai) · [Run a node](https://citrate.ai/download) · [Contribute → free membership](https://github.com/CitrateNetwork/.github/blob/main/CONTRIBUTING.md)*
+
 > CitrateScan — an AI-native BlockDAG explorer for the Citrate Network (chain 40204): browse the GhostDAG, chat with an on-chain agent, and verify contracts.
 
 ## What it is
