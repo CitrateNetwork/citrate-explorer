@@ -56,7 +56,7 @@
     "tailwindcss": "^4",
     "tsx": "^4.22.3",
     "typescript": "^5",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.11"
   },
   "pnpm": {
     "comment": "EX-B-005 (RM-Q, 2026-09-06): pin transitive deps out of their HIGH-severity advisory ranges. `next`/`eslint-config-next` are bumped directly above (>=16.2.11 for CVE-2026-64641/64642/64645/64649). These overrides clear the remaining runtime-reachable HIGHs that no direct bump fixes (solc still bundles tmp@0.0.33; next still ships sharp<0.35). Version selectors are scoped per-major where two majors are in the tree so we never force an incompatible major. Keep in lockstep with `pnpm audit --audit-level=high` (CI tripwire).",
