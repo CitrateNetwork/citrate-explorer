@@ -60,7 +60,7 @@ jobs:
           fi
           # EX-B-006: emit a NUL-delimited FILE, not a shell value. Attacker-
           # controlled PR filenames must never reach a `run:` interpolation — the
-          # old `--files ${{ steps.changed.outputs.files }}` executed a filename
+          # old `--files <steps.changed.outputs.files>` executed a filename
           # like `pwned$(...).md` on the runner. The consumer reads --files0.
           list="${RUNNER_TEMP:-/tmp}/changed_frontmatter_files"
           git diff --name-only -z --diff-filter=AM "$base" "$head" -- '.agentile/**/*.md' \

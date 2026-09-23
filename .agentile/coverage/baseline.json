@@ -24,7 +24,8 @@
     "command": "ls scripts/semgrep/*.yaml | wc -l"
   },
   "frontmatter": {
-    "covered": 0,
-    "total": 0
+    "_comment": "Scoped to WORKING docs under .agentile/ (sprints, journals, design, planset/ADR/evaluation). Conventional root/tooling READMEs and legal/community boilerplate are excluded by check_frontmatter.py's EXCLUDED_BASENAMES. 100% floor: any scoped working doc missing frontmatter blocks.",
+    "covered": 65,
+    "total": 65
   }
 }

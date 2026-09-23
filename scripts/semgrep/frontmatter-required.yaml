@@ -36,5 +36,13 @@ rules:
         - ".agentile/**/*.md"
       exclude:
         - ".agentile/INDEX/**"
+        # Rule 12 applies to WORKING docs. Conventional tooling READMEs and
+        # release-manifest boilerplate are standard docs that must NOT carry
+        # sprint frontmatter — kept in lockstep with the EXCLUDED_BASENAMES
+        # list in scripts/ci/check_frontmatter.py.
+        - ".agentile/README.md"
+        - ".agentile/**/README.md"
+        - ".agentile/README.agentile-skeleton.md"
+        - ".agentile/WITHHELD.md"
     patterns:
       - pattern-regex: '\A(?!---\n)'
