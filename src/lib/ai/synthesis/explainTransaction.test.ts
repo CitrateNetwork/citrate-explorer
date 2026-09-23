@@ -41,7 +41,7 @@ import { decodeLog } from "./explainTransaction";
 const TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const APPROVAL = "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925";
 const topicAddr = (a: string) => `0x000000000000000000000000${a.replace(/^0x/, "")}` as const;
-const MODEL_REGISTRY = "0xf64636d56ec9e0c406149b34ea9c5c5d80b342c0"; // current canonical ModelRegistry (re-rolled)
+const MODEL_REGISTRY = "0xba36fa0da9327030bd14351db968c8c43c5a67e4"; // current canonical ModelRegistry (src/generated/addresses.json)
 const ALICE = "0x1111111111111111111111111111111111111111";
 const BOB = "0x2222222222222222222222222222222222222222";
 
