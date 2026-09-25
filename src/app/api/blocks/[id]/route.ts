@@ -1,5 +1,6 @@
 import type { Hex } from "viem";
 import { getDagBlock, dagStats, isFinal } from "@/lib/citrate/rpc";
+import { publicMessage } from "@/lib/api/errors";
 
 /**
  * Block detail by height (number) or 0x block hash — DAG-rich: exposes
@@ -56,6 +57,6 @@ export async function GET(
       })),
     });
   } catch (err) {
-    return Response.json({ error: (err as Error).message }, { status: 502 });
+    return Response.json({ error: publicMessage(err, "api.block") }, { status: 502 });
   }
 }

@@ -2,6 +2,7 @@ import type { Address } from "viem";
 import { getAddress, getContractCode, getToken } from "@/lib/harness/ops";
 import { getVerifiedContract } from "@/lib/verify/engine";
 import { verificationBadge } from "@/lib/verify/badge";
+import { publicMessage } from "@/lib/api/errors";
 
 /**
  * Contract page data: confirms the address holds bytecode and returns the REAL
@@ -78,6 +79,6 @@ export async function GET(
           },
     });
   } catch (err) {
-    return Response.json({ error: (err as Error).message }, { status: 502 });
+    return Response.json({ error: publicMessage(err, "api.contract") }, { status: 502 });
   }
 }

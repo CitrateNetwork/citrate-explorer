@@ -1,6 +1,7 @@
 import type { Hex } from "viem";
 import { getTransaction } from "@/lib/harness/ops";
 import { getDagBlock, dagStats, isFinal } from "@/lib/citrate/rpc";
+import { publicMessage } from "@/lib/api/errors";
 
 /**
  * Transaction detail (tx + receipt) by hash, enriched with its block's timestamp
@@ -46,6 +47,6 @@ export async function GET(
       isCreate: !tx.to,
     });
   } catch (err) {
-    return Response.json({ error: (err as Error).message }, { status: 404 });
+    return Response.json({ error: publicMessage(err, "api.tx", "transaction not found or RPC unavailable") }, { status: 404 });
   }
 }

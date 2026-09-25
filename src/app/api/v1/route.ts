@@ -7,6 +7,7 @@ import { erc20Abi } from "@/lib/citrate/abi";
 import { searchTransactions } from "@/lib/indexer/repository";
 import { validateApiKey, extractApiKey, clientIp } from "@/lib/api/keys";
 import { checkRateLimit } from "@/lib/api/ratelimit";
+import { publicMessage } from "@/lib/api/errors";
 
 /**
  * Etherscan-compatible REST surface: `/api/v1?module=&action=&...&apikey=`.
@@ -134,7 +135,7 @@ export async function GET(req: Request) {
 
     return fail(`Unsupported or not-yet-implemented module/action: ${mod}/${action}`);
   } catch (err) {
-    return fail((err as Error).message);
+    return fail(publicMessage(err, "api.v1"));
   }
 }
 

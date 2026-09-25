@@ -2,6 +2,7 @@ import { getDagBlock, dagStats } from "@/lib/citrate/rpc";
 import { harnessClient } from "@/lib/harness/client";
 import { clientIp } from "@/lib/api/keys";
 import { checkRateLimit } from "@/lib/api/ratelimit";
+import { publicMessage } from "@/lib/api/errors";
 
 /**
  * Live DAG stream (P-5 WP-5.1) as Server-Sent Events.
@@ -129,7 +130,7 @@ export async function GET(req: Request) {
           .map(toVertex);
         send("snapshot", { blocks, stats: await safeStats() });
       } catch (err) {
-        send("error", { message: (err as Error).message });
+        send("error", { message: publicMessage(err, "api.dag_stream") });
         close();
         return;
       }

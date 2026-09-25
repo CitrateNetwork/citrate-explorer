@@ -20,6 +20,7 @@ import { citrateTools } from "@/lib/ai/tools";
 import { RESOURCES, PROMPTS, getResource, getPrompt } from "@/lib/ai/mcpResources";
 import { extractApiKey, validateApiKey, clientIp } from "@/lib/api/keys";
 import { checkRateLimit } from "@/lib/api/ratelimit";
+import { publicMessage } from "@/lib/api/errors";
 
 const PROTOCOL_VERSION = "2025-06-18";
 const SERVER_INFO = { name: "citratescan", version: "1.1.0" };
@@ -160,7 +161,8 @@ async function handleOne(msg: RpcReq, tools: Record<string, McpTool>): Promise<o
       } catch (err) {
         // Tool execution failure → an MCP tool result with isError (the agent can read it),
         // not a protocol error.
-        const message = (err as Error)?.message ?? "tool execution failed";
+        // PBA-L3c-016: only caller-facing (PublicError) text is returned.
+        const message = publicMessage(err, "mcp.tool_error", "tool execution failed (upstream error)");
         return rpcOk(id, { content: [{ type: "text", text: `Error: ${message}` }], isError: true });
       }
     }
