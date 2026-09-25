@@ -125,3 +125,33 @@ describe("key-check budget fails closed; missing pepper is a clean 503", () => {
     }
   });
 });
+
+describe("missing-pepper log is rate-limited", () => {
+  it("logs at most once per interval per instance, reporting suppressed repeats", async () => {
+    vi.resetModules();
+    const saved = process.env.API_KEY_PEPPER;
+    delete process.env.API_KEY_PEPPER;
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-25T00:00:00Z"));
+    try {
+      const { validateApiKey: fresh, PEPPER_MISSING_LOG_INTERVAL_MS } = await import("./keys");
+      for (let i = 0; i < 50; i++) await fresh(K("m"), `7.7.8.${i}`);
+      expect(err).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String(err.mock.calls[0][0]))).toMatchObject({ event: "api_keys.pepper_missing", suppressed: 0 });
+      vi.setSystemTime(Date.now() + PEPPER_MISSING_LOG_INTERVAL_MS - 1);
+      await fresh(K("m"), "7.7.8.200");
+      expect(err).toHaveBeenCalledTimes(1);
+      vi.setSystemTime(Date.now() + 1);
+      await fresh(K("m"), "7.7.8.201");
+      expect(err).toHaveBeenCalledTimes(2);
+      expect(JSON.parse(String(err.mock.calls[1][0]))).toMatchObject({ suppressed: 50 });
+      expect(PEPPER_MISSING_LOG_INTERVAL_MS).toBe(60_000);
+    } finally {
+      process.env.API_KEY_PEPPER = saved;
+      err.mockRestore();
+      vi.useRealTimers();
+      vi.resetModules();
+    }
+  });
+});

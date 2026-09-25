@@ -64,6 +64,28 @@ export interface KeyCheck {
   retryAfter?: number;
 }
 
+/** Minimum interval between "pepper missing" log lines (per instance). */
+export const PEPPER_MISSING_LOG_INTERVAL_MS = 60_000;
+let lastPepperMissingLog = 0;
+let suppressedPepperMissing = 0;
+
+/**
+ * A misconfigured deployment answers every keyed request with 503; log that at most once a
+ * minute per instance (with the number of suppressed repeats) so it can't flood the log drain.
+ */
+function logPepperMissing(now: number = Date.now()): void {
+  if (now - lastPepperMissingLog < PEPPER_MISSING_LOG_INTERVAL_MS) {
+    suppressedPepperMissing += 1;
+    return;
+  }
+  log.error("api_keys.pepper_missing", {
+    note: "API_KEY_PEPPER unset: keyed requests answer 503",
+    suppressed: suppressedPepperMissing,
+  });
+  lastPepperMissingLog = now;
+  suppressedPepperMissing = 0;
+}
+
 export async function validateApiKey(rawKey: string | null, ip: string): Promise<KeyCheck> {
   if (!rawKey) return { valid: false, anonymous: true, id: `anon:${ip}`, perSec: 2 };
 
@@ -77,7 +99,7 @@ export async function validateApiKey(rawKey: string | null, ip: string): Promise
   // Cheap checks first; the KDF runs only on a well-formed key within the IP's budget.
   if (!API_KEY_RE.test(rawKey)) return { valid: false, anonymous: false, id: `bad:${ip}`, perSec: 0 };
   if (!apiKeyPepperConfigured()) {
-    log.error("api_keys.pepper_missing", { note: "API_KEY_PEPPER unset: keyed requests answer 503" });
+    logPepperMissing();
     return { valid: false, anonymous: false, id: `unavailable:${ip}`, perSec: 0, unavailable: true };
   }
   const budget = await checkRateLimit(`keycheck:${ip}`, KEY_CHECK_PER_SEC, KEY_CHECK_BURST, { failClosed: true });
