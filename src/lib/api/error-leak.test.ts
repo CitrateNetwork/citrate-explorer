@@ -44,15 +44,15 @@ const params = <T extends Record<string, string>>(p: T) => ({ params: Promise.re
 const cases: Array<[string, () => Promise<Response>]> = [
   ["GET /api/v1 gasoracle", async () => (await import("@/app/api/v1/route")).GET(new Request("http://x/api/v1?module=gastracker&action=gasoracle", { headers: ip }))],
   ["GET /api/v1 proxy eth_blockNumber", async () => (await import("@/app/api/v1/route")).GET(new Request("http://x/api/v1?module=proxy&action=eth_blockNumber", { headers: ip }))],
-  ["GET /api/blocks", async () => (await import("@/app/api/blocks/route")).GET()],
+  ["GET /api/blocks", async () => (await import("@/app/api/blocks/route")).GET(new Request("http://x/api/blocks", { headers: ip }))],
   ["GET /api/blocks/[id]", async () => (await import("@/app/api/blocks/[id]/route")).GET(new Request("http://x"), params({ id: "5" }))],
   ["GET /api/latest", async () => (await import("@/app/api/latest/route")).GET(new Request("http://x/api/latest"))],
-  ["GET /api/dag", async () => (await import("@/app/api/dag/route")).GET()],
+  ["GET /api/dag", async () => (await import("@/app/api/dag/route")).GET(new Request("http://x/api/dag", { headers: ip }))],
   ["GET /api/address/[addr]", async () => (await import("@/app/api/address/[addr]/route")).GET(new Request("http://x"), params({ addr: ADDR }))],
   ["GET /api/contract/[addr]", async () => (await import("@/app/api/contract/[addr]/route")).GET(new Request("http://x"), params({ addr: ADDR }))],
   ["GET /api/tx/[hash]", async () => (await import("@/app/api/tx/[hash]/route")).GET(new Request("http://x"), params({ hash: HASH }))],
   ["GET /api/search", async () => (await import("@/app/api/search/route")).GET(new Request(`http://x/api/search?q=${ADDR}`))],
-  ["GET /api/health", async () => (await import("@/app/api/health/route")).GET()],
+  ["GET /api/health", async () => (await import("@/app/api/health/route")).GET(new Request("http://x/api/health", { headers: ip }))],
   [
     "POST /api/mcp tools/call getChainStatus",
     async () =>

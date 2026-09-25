@@ -3,6 +3,7 @@ import { getDagBlock } from "@/lib/citrate/rpc";
 import { cachedRead } from "@/lib/api/cache";
 import { formatEther } from "viem";
 import { publicMessage } from "@/lib/api/errors";
+import { limitPublicRead } from "@/lib/api/publicRead";
 
 /**
  * Recent activity for the home screen: the last N blocks (newest first) and the
@@ -13,6 +14,9 @@ import { publicMessage } from "@/lib/api/errors";
  * Data source (Rule 11): live `eth_getBlockByNumber` (with transactions).
  */
 export async function GET(req: Request) {
+  // PBA-L3c-019: shared per-IP budget for public reads.
+  const limited = await limitPublicRead(req);
+  if (limited) return limited;
   const n = Math.min(Math.max(Number(new URL(req.url).searchParams.get("n") ?? 8), 1), 20);
   try {
     // Cache briefly with stale-on-error so a flapping RPC doesn't blank the home.
