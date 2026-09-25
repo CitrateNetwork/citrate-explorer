@@ -222,7 +222,7 @@ says how. Implemented in **S-6** (a subset lands earlier to back our own pages).
 | `transaction` | `gettxreceiptstatus` | Receipt status (0/1) | adds `finalized` boolean (by depth) |
 | `block` | `getblockreward` | Block reward + fees | by block hash **or** blue_score; reports blue/red class |
 | `block` | `getblockcountdown` | Countdown to a target | reinterpreted as **blue_score distance + finality depth**, not "blocks until height N" |
-| `logs` | `getLogs` | Event logs by address/topics/range | range may be by block number **or** `blueScore`; returns `blueScore` per log |
+| `logs` | `getLogs` | Event logs by address/topics/range | `address` + explicit numeric `fromBlock`/`toBlock` required; span at most 10,000 blocks; at most 1,000 logs (EX-B-004). `module=proxy&action=eth_getLogs` takes one filter with one `address`, hex `fromBlock`/`toBlock` spanning at most 1,000 blocks (or a `blockHash`), and at most 4 topic positions of at most 4 alternatives each (PBA-L3c-039) |
 | `proxy` | `eth_*` | JSON-RPC passthrough (`eth_blockNumber`, `eth_getBlockByNumber`, `eth_call`, `eth_getTransactionByHash`, …) | passthrough to live RPC; **also** exposes `citrate_getDagStats` |
 | `stats` | `tokensupply` | ERC-20 total supply | none |
 | `stats` | `ethsupply` → **`saltsupply`** | Native SALT supply | renamed to `saltsupply`; `ethsupply` aliased for client compat |

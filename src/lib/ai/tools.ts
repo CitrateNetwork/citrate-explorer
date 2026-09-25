@@ -128,11 +128,11 @@ export function citrateTools(opts: ToolOptions = {}) {
     }),
     getLogs: tool({
       description:
-        "Fetch event logs, optionally filtered by contract address and block range.",
+        "Fetch up to 1,000 event logs for one contract over an explicit range of at most 10,000 blocks.",
       inputSchema: z.object({
-        address: addressSchema.optional(),
-        fromBlock: z.number().int().optional(),
-        toBlock: z.number().int().optional(),
+        address: addressSchema,
+        fromBlock: z.number().int().nonnegative(),
+        toBlock: z.number().int().nonnegative(),
       }),
       execute: audited(
         "getLogs",
@@ -141,14 +141,14 @@ export function citrateTools(opts: ToolOptions = {}) {
           fromBlock,
           toBlock,
         }: {
-          address?: string;
-          fromBlock?: number;
-          toBlock?: number;
+          address: string;
+          fromBlock: number;
+          toBlock: number;
         }) =>
           getLogs({
-            address: address as Address | undefined,
-            fromBlock: fromBlock !== undefined ? BigInt(fromBlock) : undefined,
-            toBlock: toBlock !== undefined ? BigInt(toBlock) : undefined,
+            address: address as Address,
+            fromBlock: BigInt(fromBlock),
+            toBlock: BigInt(toBlock),
           }),
       ),
     }),

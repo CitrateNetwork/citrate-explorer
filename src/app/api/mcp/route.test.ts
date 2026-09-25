@@ -106,6 +106,14 @@ describe("MCP POST — JSON-RPC transport", () => {
     expect(json.map((m: { id: string }) => m.id).sort()).toEqual(["a", "b"]);
   });
 
+  it("rejects an oversized batch before dispatching any tool call (EX-B-003)", async () => {
+    const res = await rpc(Array.from({ length: 21 }, (_, id) => ({ jsonrpc: "2.0", id, method: "ping" })));
+    const json = await res.json();
+    expect(res.status).toBe(400);
+    expect(json.error.code).toBe(-32600);
+    expect(json.error.message).toMatch(/20-message limit/);
+  });
+
   it("returns -32700 for unparseable JSON", async () => {
     ipSeq += 1;
     const res = await POST(

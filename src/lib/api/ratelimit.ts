@@ -39,7 +39,7 @@ export interface RateResult {
 const defaultBurst = (perSec: number) => Math.max(perSec * 2, 5);
 
 /** In-memory token bucket. `id` buckets per key or IP. Synchronous + local. */
-export function rateLimit(id: string, perSec: number, burst = defaultBurst(perSec)): RateResult {
+export function rateLimit(id: string, perSec: number, burst = defaultBurst(perSec), cost = 1): RateResult {
   const now = Date.now();
   let b = buckets.get(id);
   if (!b) {
@@ -48,10 +48,10 @@ export function rateLimit(id: string, perSec: number, burst = defaultBurst(perSe
   }
   b.tokens = Math.min(burst, b.tokens + ((now - b.last) / 1000) * perSec);
   b.last = now;
-  if (b.tokens < 1) {
-    return { ok: false, retryAfter: Math.ceil((1 - b.tokens) / Math.max(perSec, 0.1)), backend: "memory" };
+  if (b.tokens < cost) {
+    return { ok: false, retryAfter: Math.ceil((cost - b.tokens) / Math.max(perSec, 0.1)), backend: "memory" };
   }
-  b.tokens -= 1;
+  b.tokens -= cost;
   return { ok: true, backend: "memory" };
 }
 
@@ -68,7 +68,7 @@ export function isDistributed(): boolean {
  * `INCR key` + `EXPIRE key 1 NX`. `limit` is the max requests per window.
  * Throws on any transport/store error so the caller can fall back.
  */
-async function redisFixedWindow(id: string, limit: number): Promise<RateResult> {
+async function redisFixedWindow(id: string, limit: number, cost: number): Promise<RateResult> {
   const windowSec = 1;
   const windowStart = Math.floor(Date.now() / 1000);
   const key = `rl:${id}:${windowStart}`;
@@ -76,7 +76,7 @@ async function redisFixedWindow(id: string, limit: number): Promise<RateResult> 
     method: "POST",
     headers: { authorization: `Bearer ${REDIS_TOKEN}`, "content-type": "application/json" },
     body: JSON.stringify([
-      ["INCR", key],
+      ["INCRBY", key, cost],
       ["EXPIRE", key, windowSec, "NX"],
     ]),
     // Don't let a slow store stall a request; the caller falls back on throw.
@@ -101,6 +101,11 @@ export interface RateLimitOptions {
    * instances`. Defaults to false (fail open) for cheap read endpoints.
    */
   failClosed?: boolean;
+  /**
+   * EX-B-003: tokens this request consumes. A request that fans out into N
+   * operations (an MCP JSON-RPC batch) is charged N, not 1. Defaults to 1.
+   */
+  cost?: number;
 }
 
 /**
@@ -116,9 +121,10 @@ export async function checkRateLimit(
   burst = defaultBurst(perSec),
   opts: RateLimitOptions = {},
 ): Promise<RateResult> {
+  const cost = Math.max(1, Math.ceil(opts.cost ?? 1));
   if (isDistributed()) {
     try {
-      return await redisFixedWindow(id, burst);
+      return await redisFixedWindow(id, burst, cost);
     } catch {
       // Store configured but unreachable.
       if (opts.failClosed) {
@@ -129,5 +135,5 @@ export async function checkRateLimit(
       // Cheap read endpoint — degrade to the local bucket rather than 500/lock out.
     }
   }
-  return rateLimit(id, perSec, burst);
+  return rateLimit(id, perSec, burst, cost);
 }
