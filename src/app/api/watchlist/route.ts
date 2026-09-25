@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireOwner } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { watchlist } from "@/lib/db/schema";
+import { checkSameOrigin } from "@/lib/security/sameOrigin";
 
 /**
  * Per-user watchlist CRUD (P-6 WP-6.3). Auth-gated; graceful-null without a DB.
@@ -43,6 +44,9 @@ const plaintextSchema = z.object({
 });
 
 export async function POST(req: Request) {
+  // PBA-L3c-018: cookie-authenticated mutation → same-origin only.
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   const owner = await requireOwner(req);
   if (!owner) return Response.json({ error: "unauthorized" }, { status: 401 });
   const db = getDb();
@@ -81,6 +85,9 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  // PBA-L3c-018: cookie-authenticated mutation → same-origin only.
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   const owner = await requireOwner(req);
   if (!owner) return Response.json({ error: "unauthorized" }, { status: 401 });
   const db = getDb();
