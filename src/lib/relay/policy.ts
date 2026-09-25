@@ -76,6 +76,28 @@ export function isSponsorableTarget(to: string): boolean {
   return sponsorableTargets().has(to.toLowerCase());
 }
 
+/**
+ * PBA-L3c-011: the most gas the relayer will sponsor for one forwarded call.
+ * `value == 0` and the target allowlist bound WHAT is called, not how much gas
+ * the relayer burns doing it (the audit PoC forwarded gas=1e12 to EntryPoint).
+ * The explorer's own client signs 300,000. Override with `RELAY_MAX_GAS`; a
+ * missing/malformed/non-positive value falls back to the default (never "no cap").
+ */
+export const DEFAULT_RELAY_MAX_GAS = 500_000n;
+
+export function relayMaxGas(): bigint {
+  const raw = process.env.RELAY_MAX_GAS?.trim();
+  if (!raw || !/^[1-9]\d{0,17}$/.test(raw)) return DEFAULT_RELAY_MAX_GAS;
+  return BigInt(raw);
+}
+
+/** True only for a well-formed decimal gas value in (0, relayMaxGas()]. Fail-closed. */
+export function isSponsorableGas(gas: string): boolean {
+  if (typeof gas !== "string" || !/^\d{1,30}$/.test(gas)) return false;
+  const g = BigInt(gas);
+  return g > 0n && g <= relayMaxGas();
+}
+
 export type SponsorPolicyResult = { ok: true } | { ok: false; error: string };
 
 /**
@@ -85,6 +107,7 @@ export type SponsorPolicyResult = { ok: true } | { ok: false; error: string };
 export function checkSponsorPolicy(req: {
   value: string;
   to: Address | string;
+  gas?: string;
 }): SponsorPolicyResult {
   if (!isZeroValue(req.value)) {
     return {
@@ -97,6 +120,14 @@ export function checkSponsorPolicy(req: {
     return {
       ok: false,
       error: "relay target is not an allowlisted federation contract",
+    };
+  }
+  // PBA-L3c-011: `gas` is required by the route schema; a caller of this helper
+  // that omits it is treated as out of policy (fail closed).
+  if (req.gas === undefined || !isSponsorableGas(req.gas)) {
+    return {
+      ok: false,
+      error: `relay sponsors at most ${relayMaxGas().toString()} gas per call`,
     };
   }
   return { ok: true };

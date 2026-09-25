@@ -11,7 +11,8 @@ import { citrate } from "@/lib/citrate/chain";
 import { PROJECT_ADDRESSES } from "@/lib/citrate/addresses";
 import { forwarderAbi } from "@/lib/citrate/abi";
 import { clientIp } from "@/lib/api/keys";
-import { checkRelayRateLimit } from "@/lib/relay/rateLimit";
+import { checkRelayQuota } from "@/lib/relay/rateLimit";
+import { requireOwner } from "@/lib/auth/session";
 import { checkSponsorPolicy } from "@/lib/relay/policy";
 
 /**
@@ -47,17 +48,12 @@ export async function POST(req: Request) {
     );
   }
 
-  // SECREM-01 WEB-2 (pre-audit 2026-06-09): on-chain `verify` only blocks
-  // cross-user forgery — a valid account holder could still spam self-signed
-  // requests and drain the relayer's gas. Cap per `from` address AND per
-  // client IP per hour, BEFORE any chain interaction (limits + multi-instance
-  // caveat in src/lib/relay/rateLimit.ts).
-  const rl = checkRelayRateLimit(parsed.data.request.from, clientIp(req));
-  if (!rl.ok) {
-    return Response.json(
-      { error: `relay rate limit exceeded (per-${rl.scope ?? "client"} hourly cap)` },
-      { status: 429, headers: { "retry-after": String(rl.retryAfter ?? 60) } },
-    );
+  // PBA-L3c-011: the relayer spends real SALT, so sponsorship requires a
+  // verified session. The subject (not the self-chosen `request.from`) is the
+  // quota key below.
+  const subject = await requireOwner(req);
+  if (!subject) {
+    return Response.json({ error: "sign in to use the gasless relay" }, { status: 401 });
   }
 
   // CIT-EXP-01 (RM-Q, 2026-09-06): fail-closed sponsorship policy, enforced
@@ -66,9 +62,21 @@ export async function POST(req: Request) {
   // `value = relayer balance` would otherwise drain the relayer in one call),
   // and may only sponsor calls into allowlisted federation contracts. The
   // on-chain twin `require(req.value == 0)` is HELD for the contract track.
+  // PBA-L3c-011: the policy also caps `gas`.
   const policy = checkSponsorPolicy(parsed.data.request);
   if (!policy.ok) {
     return Response.json({ error: policy.error }, { status: 400 });
+  }
+
+  // SECREM-01 WEB-2 + PBA-L3c-011: hourly caps per verified subject, per `from`
+  // and per client IP, BEFORE any chain interaction; shared across instances
+  // (fail closed) when the store is configured. See src/lib/relay/rateLimit.ts.
+  const rl = await checkRelayQuota(subject, parsed.data.request.from, clientIp(req));
+  if (!rl.ok) {
+    return Response.json(
+      { error: `relay rate limit exceeded (per-${rl.scope ?? "client"} hourly cap)` },
+      { status: 429, headers: { "retry-after": String(rl.retryAfter ?? 60) } },
+    );
   }
 
   const forwarder = PROJECT_ADDRESSES.forwarder;
