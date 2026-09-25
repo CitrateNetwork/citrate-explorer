@@ -177,7 +177,15 @@ export async function POST(req: Request) {
   const ip = clientIp(req);
   const raw = extractApiKey(req);
   const keyInfo = raw ? await validateApiKey(raw, ip) : null;
-  const limitId = keyInfo?.valid ? `mcp:key:${keyInfo.keyId}` : `mcp:ip:${ip}`;
+  if (keyInfo?.quotaExceeded) {
+    return Response.json(rpcErr(null, -32000, "Daily API key quota exceeded"), {
+      status: 429,
+      headers: { "retry-after": "3600" },
+    });
+  }
+  // PBA-L3c-013: keyed callers share ONE bucket per owner (keyInfo.id), however
+  // many keys they hold.
+  const limitId = keyInfo?.valid ? `mcp:${keyInfo.id}` : `mcp:ip:${ip}`;
   const perSec = keyInfo?.valid ? keyInfo.perSec : 2;
 
   let body: unknown;

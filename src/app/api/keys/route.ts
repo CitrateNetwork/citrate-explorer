@@ -1,5 +1,8 @@
 import { and, eq } from "drizzle-orm";
+import { z } from "zod";
 import { requireOwner } from "@/lib/auth/session";
+import { checkRateLimit } from "@/lib/api/ratelimit";
+import { countActiveKeys, MAX_ACTIVE_KEYS_PER_SUBJECT } from "@/lib/api/keys";
 import { getDb } from "@/lib/db/client";
 import { apiKeys } from "@/lib/db/schema";
 import { generateApiKey, hashApiKey } from "@/lib/crypto";
@@ -32,6 +35,16 @@ export async function GET(req: Request) {
   return Response.json({ provisioned: true, keys: rows });
 }
 
+/** PBA-L3c-013: a short printable label (no control characters), default "default". */
+const mintSchema = z.object({
+  label: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[^\p{Cc}]+$/u)
+    .optional(),
+});
+
 /** Issue a new API key. The raw key is returned ONCE; only its hash is stored. */
 export async function POST(req: Request) {
   const owner = await requireOwner(req);
@@ -43,13 +56,33 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
-  const body = (await req.json().catch(() => ({}))) as { label?: string };
+  const parsed = mintSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) {
+    return Response.json({ error: "label must be 1-64 printable characters" }, { status: 400 });
+  }
+
+  // PBA-L3c-013: throttle minting per owner (3 now, then one a minute), and cap
+  // the number of live keys so they cannot be stacked to multiply rate budgets.
+  const minted = await checkRateLimit(`keys:mint:${owner}`, 1 / 60, 3, { failClosed: true });
+  if (!minted.ok) {
+    return Response.json(
+      { error: "too many keys created recently" },
+      { status: 429, headers: { "retry-after": String(minted.retryAfter ?? 60) } },
+    );
+  }
+  if ((await countActiveKeys(owner)) >= MAX_ACTIVE_KEYS_PER_SUBJECT) {
+    return Response.json(
+      { error: `at most ${MAX_ACTIVE_KEYS_PER_SUBJECT} active API keys; revoke one first` },
+      { status: 409 },
+    );
+  }
+
   const rawKey = generateApiKey();
   await db.insert(apiKeys).values({
     userAddress: owner,
     subject: owner,
     keyHash: hashApiKey(rawKey),
-    label: body.label ?? "default",
+    label: parsed.data.label ?? "default",
   });
   return Response.json(
     {

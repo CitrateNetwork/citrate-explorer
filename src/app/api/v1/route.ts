@@ -25,6 +25,12 @@ export async function GET(req: Request) {
   // Key + rate limit.
   const check = await validateApiKey(extractApiKey(req), clientIp(req));
   if (check.id.startsWith("bad:")) return fail("Invalid API Key");
+  if (check.quotaExceeded) {
+    return Response.json(
+      { status: "0", message: "Daily API key quota exceeded", result: null },
+      { status: 429, headers: { "retry-after": "3600" } },
+    );
+  }
   const rl = await checkRateLimit(check.id, check.perSec || 2);
   if (!rl.ok) {
     return Response.json(
