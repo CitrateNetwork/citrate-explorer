@@ -133,6 +133,11 @@ export function generateApiKey(): string {
  */
 export const API_KEY_RE = /^cscan_[A-Za-z0-9_-]{32}$/;
 
+/** True when API_KEY_PEPPER is set, i.e. API keys can be hashed. Callers answer 503 otherwise. */
+export function apiKeyPepperConfigured(): boolean {
+  return Boolean(process.env.API_KEY_PEPPER);
+}
+
 /**
  * EX-B-010 (RM-Q remediation, 2026-09-07): the server pepper is REQUIRED, not
  * optional. Previously `process.env.API_KEY_PEPPER ?? ""` silently fell back to
@@ -141,14 +146,9 @@ export const API_KEY_RE = /^cscan_[A-Za-z0-9_-]{32}$/;
  * spec ("salted SHA-256 + server pepper", stated unconditionally). It now fails
  * CLOSED the same way `requireKey("APP_MASTER_KEY")` does: throw at first use
  * when the pepper is unset/empty, so a mis-provisioned deploy is caught loudly
- * rather than degrading the hash. The hash construction itself is unchanged, so
- * hashes stored under a configured pepper keep verifying.
+ * rather than degrading the hash. Request paths check apiKeyPepperConfigured()
+ * first and answer 503, so this throw is the last line of defence.
  */
-/** True when API_KEY_PEPPER is set, i.e. API keys can be hashed. Callers answer 503 otherwise. */
-export function apiKeyPepperConfigured(): boolean {
-  return Boolean(process.env.API_KEY_PEPPER);
-}
-
 function requirePepper(): string {
   const pepper = process.env.API_KEY_PEPPER;
   if (!pepper || pepper.length === 0) {
