@@ -4,6 +4,7 @@ import { clientIp } from "@/lib/api/keys";
 import { checkRateLimit } from "@/lib/api/ratelimit";
 import { compileGateFromEnv } from "@/lib/verify/concurrency";
 import type { Address } from "viem";
+import { publicMessage } from "@/lib/api/errors";
 
 // Recompile-and-diff runs inline: loading the exact solc build + compiling can
 // take tens of seconds, so give it room (Vercel Fluid).
@@ -79,7 +80,7 @@ export async function POST(req: Request) {
     });
     return Response.json(result, { status: result.status === "pass" ? 200 : 422 });
   } catch (err) {
-    return Response.json({ error: (err as Error).message }, { status: 500 });
+    return Response.json({ error: publicMessage(err, "api.verify", "verification failed; please retry") }, { status: 500 });
   } finally {
     await compileGate.release();
   }

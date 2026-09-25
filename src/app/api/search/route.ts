@@ -1,5 +1,6 @@
 import type { Address, Hex } from "viem";
 import { getAddress, getTransaction, getBlock } from "@/lib/harness/ops";
+import { publicMessage } from "@/lib/api/errors";
 
 /**
  * Omni-search resolver. Classifies the query by shape and resolves it to a
@@ -43,7 +44,7 @@ export async function GET(req: Request) {
     });
   } catch (err) {
     return Response.json(
-      { type: "unknown", query: q, error: (err as Error).message },
+      { type: "unknown", query: q, error: publicMessage(err, "api.search", "not found or RPC unavailable") },
       { status: 404 },
     );
   }

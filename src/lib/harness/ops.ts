@@ -8,6 +8,7 @@
  */
 import { formatEther, formatGwei, keccak256, parseAbiItem, type Abi, type Address, type Hex } from "viem";
 import { harnessClient } from "./client";
+import { PublicError } from "@/lib/api/errors";
 import { assertLogRange, MAX_LOG_BLOCK_RANGE, MAX_LOG_CHUNK, MAX_LOG_RESULTS } from "./logBounds";
 import { getDagStats, isFinalized, type DagStats } from "@/lib/citrate/dag";
 import { getDagBlock, dagStats as liveDagStats, isFinal } from "@/lib/citrate/rpc";
@@ -246,7 +247,7 @@ export interface LogsResult {
 export async function getLogs(query: LogQuery): Promise<LogsResult> {
   assertLogRange(query?.fromBlock, query?.toBlock, MAX_LOG_BLOCK_RANGE);
   if (typeof query.address !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(query.address)) {
-    throw new Error("getLogs requires a contract address");
+    throw new PublicError("getLogs requires a contract address");
   }
 
   const c = harnessClient();
@@ -313,7 +314,7 @@ export async function callView(
   // parseAbiItem's type only accepts literal strings; cast to accept our runtime sig.
   const item = (parseAbiItem as unknown as (s: string) => { name?: string })(sig);
   const fn = item.name;
-  if (!fn) throw new Error(`could not parse a function name from "${signature}"`);
+  if (!fn) throw new PublicError(`could not parse a function name from "${signature}"`);
   const result = await harnessClient().readContract({
     address,
     abi: [item] as unknown as Abi,
@@ -361,7 +362,7 @@ export interface DagWalk {
  */
 export async function exploreDag(blockHash: Hex, depth = 10): Promise<DagWalk> {
   const head = await getDagBlock(blockHash);
-  if (!head) throw new Error(`block ${blockHash} not found`);
+  if (!head) throw new PublicError(`block ${blockHash} not found`);
   const stats = await liveDagStats();
 
   const chain: string[] = [];

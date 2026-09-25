@@ -10,6 +10,8 @@
  *   - the raw `/api/v1?module=proxy&action=eth_getLogs` passthrough: ONE RPC call,
  *     so it gets the chunk size as its whole budget, one contract, and capped topics.
  */
+import { PublicError } from "@/lib/api/errors";
+
 export const MAX_LOG_BLOCK_RANGE = 10_000n;
 export const MAX_LOG_CHUNK = 1_000n;
 export const MAX_LOG_RESULTS = 1_000;
@@ -20,6 +22,7 @@ export const MAX_LOG_TOPIC_POSITIONS = 4;
 /** OR-alternatives allowed per topic position. */
 export const MAX_LOG_TOPIC_ALTERNATIVES = 4;
 
+
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const WORD_RE = /^0x[0-9a-fA-F]{64}$/;
 /** Canonical hex quantity only — no block tags (latest/earliest/pending/safe/finalized). */
@@ -28,10 +31,10 @@ const QUANTITY_RE = /^0x(0|[1-9a-fA-F][0-9a-fA-F]{0,15})$/;
 /** Throws unless `[fromBlock, toBlock]` is a valid range within `maxBlocks` (inclusive). */
 export function assertLogRange(fromBlock: unknown, toBlock: unknown, maxBlocks: bigint = MAX_LOG_BLOCK_RANGE): void {
   if (typeof fromBlock !== "bigint" || typeof toBlock !== "bigint" || fromBlock < 0n || toBlock < fromBlock) {
-    throw new Error("getLogs requires a valid non-negative block range");
+    throw new PublicError("getLogs requires a valid non-negative block range");
   }
   if (toBlock - fromBlock + 1n > maxBlocks) {
-    throw new Error(`getLogs block range exceeds the ${maxBlocks.toLocaleString("en-US")} block limit`);
+    throw new PublicError(`getLogs block range exceeds the ${maxBlocks.toLocaleString("en-US")} block limit`);
   }
 }
 

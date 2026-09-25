@@ -36,8 +36,9 @@ export async function GET() {
       blockNumber: s.blockNumber,
     };
   } catch (err) {
+    // PBA-L3c-016: the detail (it names the RPC node) stays in the server log.
     log.error("health.chain_unreachable", { error: (err as Error).message });
-    chain = { status: "down", error: (err as Error).message };
+    chain = { status: "down", error: "chain RPC unreachable" };
   }
 
   // --- indexer (optional) ---
@@ -60,7 +61,8 @@ export async function GET() {
       };
     }
   } catch (err) {
-    indexer = { status: "error", error: (err as Error).message };
+    log.error("health.indexer_error", { error: (err as Error).message });
+    indexer = { status: "error", error: "indexer query failed" };
   }
 
   const limiter = { backend: isDistributed() ? "redis" : "memory" };

@@ -14,6 +14,7 @@ import { clientIp } from "@/lib/api/keys";
 import { checkRelayQuota } from "@/lib/relay/rateLimit";
 import { requireOwner } from "@/lib/auth/session";
 import { checkSponsorPolicy } from "@/lib/relay/policy";
+import { publicMessage } from "@/lib/api/errors";
 
 /**
  * Gasless write relay (EIP-2771). The user signs an EIP-712 ForwardRequest in the
@@ -131,6 +132,6 @@ export async function POST(req: Request) {
 
     return Response.json({ txHash, sponsored: true, forwarder });
   } catch (err) {
-    return Response.json({ error: (err as Error).message }, { status: 502 });
+    return Response.json({ error: publicMessage(err, "api.relay", "relay submission failed; please retry") }, { status: 502 });
   }
 }

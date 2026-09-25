@@ -2,6 +2,7 @@ import { harnessClient } from "@/lib/harness/client";
 import { getDagBlock } from "@/lib/citrate/rpc";
 import { cachedRead } from "@/lib/api/cache";
 import { formatEther } from "viem";
+import { publicMessage } from "@/lib/api/errors";
 
 /**
  * Recent activity for the home screen: the last N blocks (newest first) and the
@@ -18,7 +19,7 @@ export async function GET(req: Request) {
     const { data, stale, ageMs } = await cachedRead(`latest:${n}`, 3000, () => build(n));
     return Response.json(stale ? { ...data, _stale: true, _ageMs: ageMs } : data);
   } catch (err) {
-    return Response.json({ error: (err as Error).message }, { status: 502 });
+    return Response.json({ error: publicMessage(err, "api.latest") }, { status: 502 });
   }
 }
 

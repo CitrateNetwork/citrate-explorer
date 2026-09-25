@@ -1,5 +1,6 @@
 import { dagOverview } from "@/lib/harness/ops";
 import { cachedRead } from "@/lib/api/cache";
+import { publicMessage } from "@/lib/api/errors";
 
 /**
  * DAG topology snapshot (tips, blue/red counts, finality params). Cached briefly
@@ -12,6 +13,6 @@ export async function GET() {
     const { data, stale, ageMs } = await cachedRead("dag", 4000, () => dagOverview());
     return Response.json(stale ? { ...data, _stale: true, _ageMs: ageMs } : data);
   } catch (err) {
-    return Response.json({ error: (err as Error).message }, { status: 502 });
+    return Response.json({ error: publicMessage(err, "api.dag") }, { status: 502 });
   }
 }

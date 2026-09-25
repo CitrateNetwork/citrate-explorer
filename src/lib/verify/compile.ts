@@ -26,6 +26,7 @@
  */
 import { createRequire } from "module";
 import { keccak256 } from "viem";
+import { PublicError } from "@/lib/api/errors";
 
 const require = createRequire(import.meta.url);
 // solc ships a `wrapper` that adapts a raw soljson (Emscripten) module into the
@@ -96,13 +97,13 @@ export async function resolveVerifiedBuild(
   // Strict shape check FIRST — reject anything that isn't a clean solc version so
   // a crafted string can't steer the soljson fetch to an arbitrary path/host.
   if (!SEMVER.test(v) && !SEMVER_COMMIT.test(v)) {
-    throw new Error(`invalid solc version "${version}" (expected e.g. 0.8.26 or v0.8.26+commit.8a97fa7a)`);
+    throw new PublicError(`invalid solc version "${version}" (expected e.g. 0.8.26 or v0.8.26+commit.8a97fa7a)`);
   }
 
   const allow = allowedCompilers();
   const baseSemver = v.split("+")[0];
   if (allow && !allow.has(baseSemver)) {
-    throw new Error(`solc version "${baseSemver}" is not in CITRATE_VERIFY_ALLOWED_COMPILERS`);
+    throw new PublicError(`solc version "${baseSemver}" is not in CITRATE_VERIFY_ALLOWED_COMPILERS`);
   }
 
   // MEMBERSHIP: always consult the release list — including for the +commit form,
@@ -124,7 +125,7 @@ export async function resolveVerifiedBuild(
     if (file) entry = builds.find((b) => b.path === file);
   }
   if (!entry) {
-    throw new Error(`unknown/unlisted solc build "${version}" — not present in the release list`);
+    throw new PublicError(`unknown/unlisted solc build "${version}" — not present in the release list`);
   }
   if (!/^0x[0-9a-f]{64}$/i.test(entry.keccak256)) {
     throw new Error(`release list has no valid keccak256 for "${version}"`);

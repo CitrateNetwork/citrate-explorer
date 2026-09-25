@@ -5,6 +5,7 @@ import {
   searchTransactions,
   addressTokenTransfers,
 } from "@/lib/indexer/repository";
+import { publicMessage } from "@/lib/api/errors";
 
 /** Address page: live balance/nonce/code (RPC) + indexed activity, recent txs, and token transfers.
  *  Token transfers are included so a relayer-funded, nonce-0 recipient (an SBT mint / grant transfer,
@@ -31,6 +32,6 @@ export async function GET(
       tokenTransfers,
     });
   } catch (err) {
-    return Response.json({ error: (err as Error).message }, { status: 502 });
+    return Response.json({ error: publicMessage(err, "api.address") }, { status: 502 });
   }
 }
