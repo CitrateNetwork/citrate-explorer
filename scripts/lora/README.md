@@ -1,10 +1,3 @@
----
-created: 2026-06-09T12:05:00Z
-branch: feat/RA-8-citrate-lora
-author: Larry Klosowski (saul) + Claude Opus 4.8 (1M context)
-status: active
----
-
 # RA-8 — Citrate-expert LoRA pipeline
 
 Make the fast small model (`gemma-4-E4B`) a Citrate expert by fine-tuning a LoRA on
