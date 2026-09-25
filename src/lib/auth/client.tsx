@@ -28,6 +28,7 @@ import { AUTH_MODE, OIDC_PUBLIC, MOCK_DEV_ADDRESS } from "./config";
 import { oidcEndpoints, sessionEventsUrl } from "./discovery";
 import { E2EE_KEY_MESSAGE } from "@/lib/crypto-client";
 import type { AuthContextValue } from "./types";
+import { newNonce, OIDC_NONCE_KEY } from "./oidcNonce";
 
 /** Hex-encode bytes (no 0x). */
 function toHex(bytes: Uint8Array): string {
@@ -169,6 +170,9 @@ function useOidcAuth(): AuthContextValue {
     const state = crypto.randomUUID();
     sessionStorage.setItem(OIDC_VERIFIER_KEY, verifier);
     sessionStorage.setItem(OIDC_STATE_KEY, state);
+    // PBA-L3c-033: bind the id_token to this login (checked in /auth/callback).
+    const nonce = newNonce();
+    sessionStorage.setItem(OIDC_NONCE_KEY, nonce);
     const challenge = await pkceChallenge(verifier);
     // Endpoints come from discovery (panva's is /auth, not /authorize).
     const ep = await oidcEndpoints();
@@ -188,6 +192,7 @@ function useOidcAuth(): AuthContextValue {
     url.searchParams.set("code_challenge", challenge);
     url.searchParams.set("code_challenge_method", "S256");
     url.searchParams.set("state", state);
+    url.searchParams.set("nonce", nonce);
     location.href = url.toString();
   }, []);
 

@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import { OIDC_PUBLIC } from "@/lib/auth/config";
 import { oidcEndpoints } from "@/lib/auth/discovery";
+import { idTokenFromTokenResponse, OIDC_NONCE_KEY } from "@/lib/auth/oidcNonce";
 
 export default function AuthCallback() {
   const [error, setError] = useState<string | null>(null);
@@ -50,8 +51,8 @@ export default function AuthCallback() {
         });
         if (!res.ok) throw new Error("token exchange failed");
         const tok = await res.json();
-        const idToken = tok.id_token || tok.access_token;
-        if (!idToken) throw new Error("no id_token in response");
+        // PBA-L3c-033: only an id_token bound to OUR nonce; no access_token fallback.
+        const idToken = idTokenFromTokenResponse(tok, sessionStorage.getItem(OIDC_NONCE_KEY));
         // FUA-EXPLORER-04: the server sets httpOnly cookies — no web storage.
         const set = await fetch("/api/auth/session", {
           method: "POST",
@@ -67,6 +68,7 @@ export default function AuthCallback() {
         if (!set.ok) throw new Error("session cookie could not be set");
         sessionStorage.removeItem("citrate.auth.oidc.verifier");
         sessionStorage.removeItem("citrate.auth.oidc.state");
+        sessionStorage.removeItem(OIDC_NONCE_KEY);
         location.replace("/");
       } catch (e) {
         setError((e as Error).message);
