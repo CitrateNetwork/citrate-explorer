@@ -3,7 +3,6 @@ created: 2026-04-30T03:45:00Z
 branch: main
 author: Claude Opus 4.7 (1M context) — synthesizing 1,283 .agentile/ docs
 status: active
-ported_from: github.com/CitrateNetwork/agentile (2026-04-30; pre-split origin now CitrateNetwork/citrate-monorepo-archive)
 ---
 
 > **Skeleton port note.** The synthesis below was extracted from the
