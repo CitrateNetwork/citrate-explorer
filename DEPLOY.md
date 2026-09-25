@@ -31,7 +31,7 @@ committed. Full list + how-to-generate in `.env.example`.
 
 | Var | Scope | Prod value / note |
 |---|---|---|
-| `NEXT_PUBLIC_SITE_URL` | public | `https://explorer.citrate.ai` |
+| `NEXT_PUBLIC_SITE_URL` | public | `https://explorer.citrate.ai`. Also an allowed `Origin` for cookie-auth mutations (PBA-L3c-017/018 same-origin guard): if the app is served under an alias host (e.g. `citratescan.ai`), either 308-redirect the alias to this canonical host or set this var to the host users actually browse, or sign-in and settings writes from the alias will 403. |
 | `NEXT_PUBLIC_DEMO` | public | **`0`** — drop the sample fallback; live data only |
 | `NEXT_PUBLIC_CITRATE_CHAIN_ID` | public | `40204` |
 | `NEXT_PUBLIC_CITRATE_RPC_URL` | public | `https://rpc.citrate.ai` |
@@ -69,6 +69,22 @@ Migrations are idempotent. Without `DATABASE_URL` every read degrades to live RP
 (single-entity reads still work; history/aggregate return honest "not provisioned").
 
 ---
+
+### 2a. API-key storage upgrade (migration 0004, 2026-09)
+
+Issued API keys are now stored with scrypt salted by `API_KEY_PEPPER`, and each row records its
+`key_scheme`. Migration `0004_api_key_scheme` adds the column (existing rows become `legacy`) and
+retires every legacy key.
+
+- **Order.** Run `pnpm db:migrate` **before** promoting the new build. If the migration runs first,
+  keys minted by the old build in between are stored as `legacy`: they never match and do not count
+  toward the 5-key cap. If the new build is promoted first, keyed requests and key minting fail
+  until the migration runs.
+- **Users must re-mint.** Every key issued before this release stops working. `/api/v1` answers
+  "Invalid API Key. Keys issued before the 2026-09 key-storage upgrade were retired: mint a new one in
+  Settings -> API keys." Settings lists the old keys as revoked. Announce the re-mint before deploy
+  (changelog / email to key holders).
+- `API_KEY_PEPPER` must stay stable; rotating it retires every key the same way.
 
 ## 3. Deploy the web app (Vercel)
 

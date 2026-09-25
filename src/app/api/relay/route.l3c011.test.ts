@@ -122,3 +122,129 @@ describe("/api/relay hardening (PBA-L3c-011)", () => {
     expect(res.status).toBe(429);
   });
 });
+
+describe("/api/relay edges (mutation kills)", () => {
+  it("400 on an unparseable body, before the session check", async () => {
+    const { POST } = await import("./route");
+    const res = await POST(new Request("http://x/api/relay", { method: "POST", headers: { "x-test-sub": "s" }, body: "{" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("invalid ForwardRequest");
+  });
+
+  it("the 401 says to sign in", async () => {
+    const { POST } = await import("./route");
+    expect(await (await POST(relayReq({ sub: null }))).json()).toEqual({ error: "sign in to use the gasless relay" });
+  });
+
+  it("a subject-cap 429 carries the sliding-window retry (minutes, not a 60 s default)", async () => {
+    const { POST } = await import("./route");
+    const { DEFAULT_MAX_PER_FROM_PER_HOUR } = await import("@/lib/relay/rateLimit");
+    const sub = `retry-${Math.random()}`;
+    for (let i = 0; i < DEFAULT_MAX_PER_FROM_PER_HOUR; i++) await POST(relayReq({ sub }));
+    const res = await POST(relayReq({ sub }));
+    expect(Number(res.headers.get("retry-after"))).toBeGreaterThan(3000);
+  });
+
+  it("rotating subjects on one `from` still hits the per-from cap", async () => {
+    const { POST } = await import("./route");
+    const { DEFAULT_MAX_PER_FROM_PER_HOUR } = await import("@/lib/relay/rateLimit");
+    const from = "0x" + Math.floor(Math.random() * 1e12).toString(16).padStart(40, "b");
+    for (let i = 0; i < DEFAULT_MAX_PER_FROM_PER_HOUR; i++) expect((await POST(relayReq({ from }))).status).toBe(503);
+    const res = await POST(relayReq({ from }));
+    expect(res.status).toBe(429);
+    expect((await res.json()).error).toMatch(/per-from/);
+  });
+});
+
+describe("checkRelayQuota shared store (mutation kills)", () => {
+  function fakeStore(preset: (key: string) => number | undefined = () => undefined) {
+    const calls: unknown[][][] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_u: string, init: RequestInit) => {
+      const cmds = JSON.parse(String(init.body)) as unknown[][];
+      calls.push(cmds);
+      const k = String(cmds[0][1]);
+      return new Response(JSON.stringify([{ result: preset(k) ?? 1 }, { result: 1 }]), { status: 200 });
+    }));
+    return calls;
+  }
+
+  it("uses hour-long windows with the configured caps, fail-closed", async () => {
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://upstash.invalid");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "t");
+    const calls = fakeStore();
+    vi.resetModules();
+    const { checkRelayQuota } = await import("@/lib/relay/rateLimit");
+    expect(await checkRelayQuota(`w-${Math.random()}`, "0x" + "c".repeat(40), "9.9.9.1")).toEqual({ ok: true });
+    const expires = calls.map((c) => c[1]);
+    expect(expires).toHaveLength(2);
+    for (const e of expires) expect(e[2]).toBe(3600);
+  });
+
+  it("an IP over its shared cap → 429 scoped to ip", async () => {
+    // Pin the clock to the start of an hour-aligned window so the retry is deterministic.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-25T10:00:05Z"));
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://upstash.invalid");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "t");
+    fakeStore((k) => (k.startsWith("rl:relay:ip:") ? 61 : 1));
+    vi.resetModules();
+    const { checkRelayQuota } = await import("@/lib/relay/rateLimit");
+    const r = await checkRelayQuota(`ip-${Math.random()}`, "0x" + "d".repeat(40), "9.9.9.2");
+    expect(r.ok).toBe(false);
+    expect(r.scope).toBe("ip");
+    expect(r.retryAfter).toBe(3595);
+    vi.useRealTimers();
+  });
+
+  it("a subject over its shared cap → 429 scoped to subject with the window's retry", async () => {
+    // Pin the clock to the start of an hour-aligned window so the retry is deterministic.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-25T10:00:05Z"));
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://upstash.invalid");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "t");
+    fakeStore((k) => (k.startsWith("rl:relay:sub:") ? 31 : 1));
+    vi.resetModules();
+    const { checkRelayQuota } = await import("@/lib/relay/rateLimit");
+    const r = await checkRelayQuota(`s-${Math.random()}`, "0x" + "e".repeat(40), "9.9.9.3");
+    expect(r).toMatchObject({ ok: false, scope: "subject", retryAfter: 3595 });
+    vi.useRealTimers();
+  });
+
+  it("with no store configured the shared path is skipped (no fetch)", async () => {
+    const f = vi.fn();
+    vi.stubGlobal("fetch", f);
+    vi.resetModules();
+    const { checkRelayQuota } = await import("@/lib/relay/rateLimit");
+    expect(await checkRelayQuota(`n-${Math.random()}`, "0x" + "f".repeat(40), "9.9.9.4")).toEqual({ ok: true });
+    expect(f).not.toHaveBeenCalled();
+  });
+});
+
+describe("checkRelayQuota fails closed on a store error (mutation kill)", () => {
+  it("a store error denies (subject scope first)", async () => {
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://upstash.invalid");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "t");
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("store down");
+    }));
+    vi.resetModules();
+    const { checkRelayQuota } = await import("@/lib/relay/rateLimit");
+    const r = await checkRelayQuota(`fc-${Math.random()}`, "0x" + "9".repeat(40), "9.9.9.9");
+    expect(r).toMatchObject({ ok: false, scope: "subject" });
+  });
+
+  it("a store error on the IP check denies too", async () => {
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://upstash.invalid");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "t");
+    let n = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      n += 1;
+      if (n === 1) return new Response(JSON.stringify([{ result: 1 }, { result: 1 }]), { status: 200 });
+      throw new Error("store down");
+    }));
+    vi.resetModules();
+    const { checkRelayQuota } = await import("@/lib/relay/rateLimit");
+    const r = await checkRelayQuota(`fc2-${Math.random()}`, "0x" + "8".repeat(40), "9.9.9.8");
+    expect(r).toMatchObject({ ok: false, scope: "ip" });
+  });
+});

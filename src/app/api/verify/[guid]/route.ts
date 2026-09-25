@@ -1,10 +1,14 @@
 import { getVerificationByGuid } from "@/lib/verify/engine";
+import { limitPublicRead } from "@/lib/api/publicRead";
 
 /** Poll a verification by guid — the persisted recompile-and-diff result. */
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ guid: string }> },
 ) {
+  // PBA-L3c-019: shared per-IP budget for public reads.
+  const limited = await limitPublicRead(req);
+  if (limited) return limited;
   const { guid } = await ctx.params;
   const row = await getVerificationByGuid(guid);
   if (!row) {

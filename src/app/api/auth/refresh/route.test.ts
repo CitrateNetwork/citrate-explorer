@@ -9,7 +9,8 @@ import { POST } from "./route";
 import { ID_COOKIE, REFRESH_COOKIE } from "@/lib/auth/cookies";
 
 function req(headers: Record<string, string> = {}): Request {
-  return new Request("http://localhost/api/auth/refresh", { method: "POST", headers });
+  // A browser's same-origin fetch POST always carries Origin (PBA-L3c-017).
+  return new Request("http://localhost/api/auth/refresh", { method: "POST", headers: { origin: "http://localhost", ...headers } });
 }
 
 describe("POST /api/auth/refresh", () => {

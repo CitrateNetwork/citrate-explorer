@@ -12,6 +12,7 @@ import {
   providerKeys,
   auditLog,
 } from "@/lib/db/schema";
+import { checkSameOrigin } from "@/lib/security/sameOrigin";
 
 /**
  * GDPR right-to-erasure. Deletes ALL account-scoped data we store for the
@@ -24,6 +25,9 @@ import {
  * {sub, wallet}` across every owner table.
  */
 export async function DELETE(req: Request) {
+  // PBA-L3c-018: cookie-authenticated mutation → same-origin only.
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   const auth = await verifySession(req);
   if (auth.required && !auth.authenticated) {
     return Response.json({ error: "unauthorized" }, { status: 401 });

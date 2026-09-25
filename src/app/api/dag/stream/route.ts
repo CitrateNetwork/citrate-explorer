@@ -2,6 +2,7 @@ import { getDagBlock, dagStats } from "@/lib/citrate/rpc";
 import { harnessClient } from "@/lib/harness/client";
 import { clientIp } from "@/lib/api/keys";
 import { checkRateLimit } from "@/lib/api/ratelimit";
+import { publicMessage } from "@/lib/api/errors";
 
 /**
  * Live DAG stream (P-5 WP-5.1) as Server-Sent Events.
@@ -30,6 +31,9 @@ const MAX_STREAM_MS = 250_000; // close before the 300s cap → client reconnect
 // FUA-EXPLORER-06: this is an UNAUTHENTICATED, long-lived (250s) RPC-polling
 // connection. Cap total concurrent streams so it can't be used for connection /
 // RPC-amplification DoS. Generous default; env-tunable.
+// PBA-L3c-034 (d): this cap is PER INSTANCE by design: it bounds the pollers and
+// memory one instance holds. The cross-instance bound is the per-IP open rate
+// below, which uses the shared (Upstash) limiter when configured.
 const MAX_CONCURRENT_STREAMS = Number(process.env.CITRATE_DAG_MAX_STREAMS ?? 50);
 let activeStreams = 0;
 
@@ -129,7 +133,7 @@ export async function GET(req: Request) {
           .map(toVertex);
         send("snapshot", { blocks, stats: await safeStats() });
       } catch (err) {
-        send("error", { message: (err as Error).message });
+        send("error", { message: publicMessage(err, "api.dag_stream") });
         close();
         return;
       }

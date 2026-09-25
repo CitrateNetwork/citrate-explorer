@@ -16,8 +16,8 @@
  *    verified) from the caller's own cookie. Display-only; every API route
  *    still verifies cryptographically via `verifySession`.
  *
- * CSRF: cookies are SameSite=Strict (never sent cross-site), and the mutating
- * verbs additionally reject cross-site callers via Sec-Fetch-Site.
+ * CSRF: cookies are SameSite=Strict, and the mutating verbs go through
+ * checkSameOrigin (Origin + Sec-Fetch-Site; login also needs a JSON body).
  */
 import {
   ID_COOKIE,
@@ -32,19 +32,16 @@ import {
   clearAuthCookie,
 } from "@/lib/auth/cookies";
 import { serverOidcEndpoints, serverClientId } from "@/lib/auth/discovery.server";
+import { checkSameOrigin } from "@/lib/security/sameOrigin";
 
 export const runtime = "nodejs";
 
-/** Reject plainly cross-site requests on mutating verbs (defense in depth). */
-function crossSite(req: Request): boolean {
-  const site = req.headers.get("sec-fetch-site");
-  return site !== null && site !== "same-origin" && site !== "none";
-}
 
 export async function POST(req: Request): Promise<Response> {
-  if (crossSite(req)) {
-    return Response.json({ error: "cross-site request rejected" }, { status: 403 });
-  }
+  // PBA-L3c-017/-018: Origin + Sec-Fetch-Site (and, for login, a JSON body
+  // and a mandatory browser signal) — closes login CSRF and same-site forgery.
+  const csrf = checkSameOrigin(req, { requireJson: true, requireBrowserSignal: true });
+  if (csrf) return csrf;
   let body: { id_token?: unknown; access_token?: unknown; refresh_token?: unknown };
   try {
     body = await req.json();
@@ -110,9 +107,10 @@ export async function GET(req: Request): Promise<Response> {
 }
 
 export async function DELETE(req: Request): Promise<Response> {
-  if (crossSite(req)) {
-    return Response.json({ error: "cross-site request rejected" }, { status: 403 });
-  }
+  // PBA-L3c-017/-018: Origin + Sec-Fetch-Site (and, for login, a JSON body
+  // and a mandatory browser signal) — closes login CSRF and same-site forgery.
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   // Best-effort authority logout (TD-5b cascade): the access token lives only
   // in the httpOnly cookie now, so the server makes the /logout call the
   // client used to make. Never blocks the local logout.

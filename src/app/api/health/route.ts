@@ -3,6 +3,7 @@ import { indexerHead } from "@/lib/indexer/repository";
 import { isDbEnabled } from "@/lib/db/client";
 import { isDistributed } from "@/lib/api/ratelimit";
 import { log } from "@/lib/api/log";
+import { limitPublicRead } from "@/lib/api/publicRead";
 
 /**
  * Health + readiness probe (P-8 WP-8.3) for uptime monitors and the indexer
@@ -21,7 +22,10 @@ export const dynamic = "force-dynamic";
 const CHAIN_ID = 40204;
 const MAX_LAG = Number(process.env.CITRATE_INDEXER_MAX_LAG ?? 50);
 
-export async function GET() {
+export async function GET(req: Request) {
+  // PBA-L3c-019: shared per-IP budget for public reads.
+  const limited = await limitPublicRead(req);
+  if (limited) return limited;
   const startedAt = Date.now();
 
   // --- chain (required) ---
@@ -36,8 +40,9 @@ export async function GET() {
       blockNumber: s.blockNumber,
     };
   } catch (err) {
+    // PBA-L3c-016: the detail (it names the RPC node) stays in the server log.
     log.error("health.chain_unreachable", { error: (err as Error).message });
-    chain = { status: "down", error: (err as Error).message };
+    chain = { status: "down", error: "chain RPC unreachable" };
   }
 
   // --- indexer (optional) ---
@@ -60,7 +65,8 @@ export async function GET() {
       };
     }
   } catch (err) {
-    indexer = { status: "error", error: (err as Error).message };
+    log.error("health.indexer_error", { error: (err as Error).message });
+    indexer = { status: "error", error: "indexer query failed" };
   }
 
   const limiter = { backend: isDistributed() ? "redis" : "memory" };

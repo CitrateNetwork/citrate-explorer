@@ -14,6 +14,8 @@ import { clientIp } from "@/lib/api/keys";
 import { checkRelayQuota } from "@/lib/relay/rateLimit";
 import { requireOwner } from "@/lib/auth/session";
 import { checkSponsorPolicy } from "@/lib/relay/policy";
+import { publicMessage } from "@/lib/api/errors";
+import { checkSameOrigin } from "@/lib/security/sameOrigin";
 
 /**
  * Gasless write relay (EIP-2771). The user signs an EIP-712 ForwardRequest in the
@@ -40,6 +42,9 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
+  // PBA-L3c-018: cookie-authenticated mutation → same-origin only.
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return Response.json(
@@ -131,6 +136,6 @@ export async function POST(req: Request) {
 
     return Response.json({ txHash, sponsored: true, forwarder });
   } catch (err) {
-    return Response.json({ error: (err as Error).message }, { status: 502 });
+    return Response.json({ error: publicMessage(err, "api.relay", "relay submission failed; please retry") }, { status: 502 });
   }
 }

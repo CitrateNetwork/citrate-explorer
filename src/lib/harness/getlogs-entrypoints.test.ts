@@ -106,6 +106,23 @@ describe("/api/v1 module=proxy action=eth_getLogs (PBA-L3c-039 new bypass)", () 
     });
   });
 
+  it("forwards EXACTLY the rebuilt filter, never the caller's object (verifier N1)", async () => {
+    // A caller topics array that is not the same reference, plus a filter the guard rebuilds.
+    // Mixed-case input: the guard emits the canonical (lower-case) filter, so forwarding the
+    // caller's raw params instead of guarded.params is observable.
+    const up = (x: string) => "0x" + x.slice(2).toUpperCase();
+    const topics = [up(TOPIC), [up(TOPIC)]];
+    await proxyGetLogs([{ address: up(ADDR), fromBlock: "0xA", toBlock: "0x1F", topics }]);
+    expect(rpc.request).toHaveBeenCalledTimes(1);
+    const sent = (rpc.request.mock.calls[0] as unknown as [{ method: string; params: unknown[] }])[0];
+    expect(sent).toStrictEqual({ method: "eth_getLogs", params: [{ address: ADDR, fromBlock: "0xa", toBlock: "0x1f", topics: [TOPIC, [TOPIC]] }] });
+    // The forwarded params come from guardProxyCall (rebuilt), not the raw JSON.parse output.
+    const { guardProxyCall } = await import("./allowlist");
+    const raw = [{ address: ADDR, fromBlock: "0x10", toBlock: "0x20", topics }];
+    const g = guardProxyCall("eth_getLogs", raw);
+    expect(g.ok && g.params[0]).not.toBe(raw[0]);
+  });
+
   it("forwards a single-block blockHash filter", async () => {
     const json = await proxyGetLogs([{ address: ADDR, blockHash: TOPIC }]);
     expect(json.error).toBeUndefined();
@@ -282,6 +299,15 @@ describe("/api/v1 proxy — other methods through the same chokepoint", () => {
     const json = await (await v1(new Request(`http://x/api/v1?${q}`, { headers: { "x-forwarded-for": nextIp() } }))).json();
     expect(json.error).toBeUndefined();
     expect(rpc.request).toHaveBeenCalledWith({ method: "eth_blockNumber", params: [] });
+  });
+
+  it("default params: tag falls back to latest, explicit tag is kept", async () => {
+    const call = async (q: Record<string, string>) =>
+      v1(new Request(`http://x/api/v1?${new URLSearchParams({ module: "proxy", ...q })}`, { headers: { "x-forwarded-for": nextIp() } }));
+    await call({ action: "eth_getBalance", address: ADDR });
+    expect(rpc.request).toHaveBeenLastCalledWith({ method: "eth_getBalance", params: [ADDR, "latest"] });
+    await call({ action: "eth_getBalance", address: ADDR, tag: "0x5" });
+    expect(rpc.request).toHaveBeenLastCalledWith({ method: "eth_getBalance", params: [ADDR, "0x5"] });
   });
 
   it("explicit JSON params are used verbatim for a non-getLogs method", async () => {

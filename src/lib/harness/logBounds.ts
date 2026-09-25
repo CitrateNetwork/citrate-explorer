@@ -10,6 +10,8 @@
  *   - the raw `/api/v1?module=proxy&action=eth_getLogs` passthrough: ONE RPC call,
  *     so it gets the chunk size as its whole budget, one contract, and capped topics.
  */
+import { PublicError } from "@/lib/api/errors";
+
 export const MAX_LOG_BLOCK_RANGE = 10_000n;
 export const MAX_LOG_CHUNK = 1_000n;
 export const MAX_LOG_RESULTS = 1_000;
@@ -20,6 +22,7 @@ export const MAX_LOG_TOPIC_POSITIONS = 4;
 /** OR-alternatives allowed per topic position. */
 export const MAX_LOG_TOPIC_ALTERNATIVES = 4;
 
+
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const WORD_RE = /^0x[0-9a-fA-F]{64}$/;
 /** Canonical hex quantity only — no block tags (latest/earliest/pending/safe/finalized). */
@@ -28,10 +31,10 @@ const QUANTITY_RE = /^0x(0|[1-9a-fA-F][0-9a-fA-F]{0,15})$/;
 /** Throws unless `[fromBlock, toBlock]` is a valid range within `maxBlocks` (inclusive). */
 export function assertLogRange(fromBlock: unknown, toBlock: unknown, maxBlocks: bigint = MAX_LOG_BLOCK_RANGE): void {
   if (typeof fromBlock !== "bigint" || typeof toBlock !== "bigint" || fromBlock < 0n || toBlock < fromBlock) {
-    throw new Error("getLogs requires a valid non-negative block range");
+    throw new PublicError("getLogs requires a valid non-negative block range");
   }
   if (toBlock - fromBlock + 1n > maxBlocks) {
-    throw new Error(`getLogs block range exceeds the ${maxBlocks.toLocaleString("en-US")} block limit`);
+    throw new PublicError(`getLogs block range exceeds the ${maxBlocks.toLocaleString("en-US")} block limit`);
   }
 }
 
@@ -54,7 +57,7 @@ function checkTopics(topics: unknown): { ok: true; topics: Array<string | null |
       out.push(null);
     } else if (typeof t === "string") {
       if (!WORD_RE.test(t)) return { ok: false, error: "each topic must be a 32-byte hex word" };
-      out.push(t);
+      out.push(t.toLowerCase());
     } else if (Array.isArray(t)) {
       if (t.length === 0 || t.length > MAX_LOG_TOPIC_ALTERNATIVES) {
         return { ok: false, error: `1 to ${MAX_LOG_TOPIC_ALTERNATIVES} alternatives per topic position` };
@@ -62,7 +65,7 @@ function checkTopics(topics: unknown): { ok: true; topics: Array<string | null |
       if (!t.every((w) => typeof w === "string" && WORD_RE.test(w))) {
         return { ok: false, error: "each topic must be a 32-byte hex word" };
       }
-      out.push([...(t as string[])]);
+      out.push((t as string[]).map((w) => w.toLowerCase()));
     } else {
       return { ok: false, error: "each topic must be null, a 32-byte hex word, or an array of them" };
     }
@@ -72,7 +75,8 @@ function checkTopics(topics: unknown): { ok: true; topics: Array<string | null |
 
 /**
  * Validate and rebuild the params of a raw `eth_getLogs` passthrough. Returns a
- * fresh filter containing ONLY the validated keys (never the caller's object).
+ * fresh filter containing ONLY the validated keys (never the caller's object), in
+ * canonical form: lower-case address/hashes/topics and minimal lower-case hex blocks.
  */
 export function checkProxyGetLogs(params: unknown): ProxyLogsCheck {
   if (!Array.isArray(params) || params.length !== 1) {
@@ -104,7 +108,7 @@ export function checkProxyGetLogs(params: unknown): ProxyLogsCheck {
     if (typeof filter.blockHash !== "string" || !WORD_RE.test(filter.blockHash)) {
       return { ok: false, error: "blockHash must be a 32-byte hex hash" };
     }
-    return { ok: true, params: [withTopics({ address: filter.address, blockHash: filter.blockHash })] };
+    return { ok: true, params: [withTopics({ address: filter.address.toLowerCase(), blockHash: filter.blockHash.toLowerCase() })] };
   }
 
   const { fromBlock, toBlock } = filter;
@@ -116,5 +120,7 @@ export function checkProxyGetLogs(params: unknown): ProxyLogsCheck {
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
-  return { ok: true, params: [withTopics({ address: filter.address, fromBlock, toBlock })] };
+  // Canonical form (lower-case, minimal hex): the node sees only values this guard produced.
+  const canon = (q: string) => `0x${BigInt(q).toString(16)}`;
+  return { ok: true, params: [withTopics({ address: filter.address.toLowerCase(), fromBlock: canon(fromBlock), toBlock: canon(toBlock) })] };
 }

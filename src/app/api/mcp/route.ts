@@ -20,6 +20,7 @@ import { citrateTools } from "@/lib/ai/tools";
 import { RESOURCES, PROMPTS, getResource, getPrompt } from "@/lib/ai/mcpResources";
 import { extractApiKey, validateApiKey, clientIp } from "@/lib/api/keys";
 import { checkRateLimit } from "@/lib/api/ratelimit";
+import { publicMessage } from "@/lib/api/errors";
 
 const PROTOCOL_VERSION = "2025-06-18";
 const SERVER_INFO = { name: "citratescan", version: "1.1.0" };
@@ -160,7 +161,8 @@ async function handleOne(msg: RpcReq, tools: Record<string, McpTool>): Promise<o
       } catch (err) {
         // Tool execution failure → an MCP tool result with isError (the agent can read it),
         // not a protocol error.
-        const message = (err as Error)?.message ?? "tool execution failed";
+        // PBA-L3c-016: only caller-facing (PublicError) text is returned.
+        const message = publicMessage(err, "mcp.tool_error", "tool execution failed (upstream error)");
         return rpcOk(id, { content: [{ type: "text", text: `Error: ${message}` }], isError: true });
       }
     }
@@ -175,8 +177,14 @@ export async function POST(req: Request) {
   // shared with /api/v1. MCP tools/call hits live RPC, so it must be bounded —
   // and a batch is charged one token PER MESSAGE (EX-B-003), not one per request.
   const ip = clientIp(req);
-  const raw = extractApiKey(req);
+  const raw = extractApiKey(req, { allowQuery: false }); // PBA-L3c-034: header only
   const keyInfo = raw ? await validateApiKey(raw, ip) : null;
+  if (keyInfo?.throttled) {
+    return Response.json(rpcErr(null, -32000, "Rate limit exceeded"), {
+      status: 429,
+      headers: { "retry-after": String(keyInfo.retryAfter ?? 1) },
+    });
+  }
   if (keyInfo?.quotaExceeded) {
     return Response.json(rpcErr(null, -32000, "Daily API key quota exceeded"), {
       status: 429,
@@ -210,9 +218,10 @@ export async function POST(req: Request) {
     });
   }
 
-  // Audit MCP tool calls under the caller's key identity (anon per-IP otherwise).
-  const subject = keyInfo?.valid ? `mcp:key:${keyInfo.keyId}` : undefined;
-  const tools = buildTools(subject);
+  // PBA-L3c-034: audit MCP tool calls under the key OWNER's subject (they show
+  // in the owner's transparency panel), never a synthetic `mcp:key:N` string in
+  // the OIDC-subject namespace. Anonymous calls are unattributed.
+  const tools = buildTools(keyInfo?.valid ? keyInfo.subject : undefined);
 
   if (Array.isArray(body)) {
     const out = (await Promise.all(body.map((m) => handleOne(m as RpcReq, tools)))).filter(Boolean);

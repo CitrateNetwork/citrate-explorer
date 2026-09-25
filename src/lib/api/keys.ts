@@ -7,7 +7,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { apiKeys } from "@/lib/db/schema";
-import { hashApiKey } from "@/lib/crypto";
+import { API_KEY_RE, hashApiKey } from "@/lib/crypto";
 import { checkRateLimit } from "@/lib/api/ratelimit";
 
 /**
@@ -17,14 +17,31 @@ import { checkRateLimit } from "@/lib/api/ratelimit";
  */
 export const MAX_ACTIVE_KEYS_PER_SUBJECT = 5;
 
-/** Count a subject's non-revoked keys. */
+/** key_scheme written and accepted by this release (see migration 0004). */
+export const API_KEY_SCHEME_CURRENT = "scrypt-v1";
+
+/**
+ * Per-IP budget for presented keys that pass the format check, charged BEFORE the key is hashed
+ * (the KDF is deliberately expensive) and failing closed when the shared store errors. It sits
+ * above the default keyed rate (5/s, burst 10) so legitimate keyed traffic is not squeezed by it.
+ */
+export const KEY_CHECK_PER_SEC = 10;
+export const KEY_CHECK_BURST = 20;
+
+/** Message for a key that is not valid under the current release. */
+export const INVALID_KEY_MESSAGE =
+  "Invalid API Key. Keys issued before the 2026-09 key-storage upgrade were retired: mint a new one in Settings -> API keys.";
+
+/** Count a subject's usable keys (non-revoked, current scheme). */
 export async function countActiveKeys(subject: string): Promise<number> {
   const db = getDb();
   if (!db) return 0;
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(apiKeys)
-    .where(and(eq(apiKeys.subject, subject), eq(apiKeys.revoked, false)));
+    .where(
+      and(eq(apiKeys.subject, subject), eq(apiKeys.revoked, false), eq(apiKeys.keyScheme, API_KEY_SCHEME_CURRENT)),
+    );
   return Number(row?.n ?? 0);
 }
 
@@ -35,8 +52,13 @@ export interface KeyCheck {
   id: string;
   perSec: number;
   keyId?: number;
+  /** PBA-L3c-034: the owning OIDC subject (audit attribution), verbatim. */
+  subject?: string;
   /** PBA-L3c-013: the key is real but its `quotaPerDay` is spent for today. */
   quotaExceeded?: boolean;
+  /** The caller's per-IP key-check budget is spent; the key was not hashed. */
+  throttled?: boolean;
+  retryAfter?: number;
 }
 
 export async function validateApiKey(rawKey: string | null, ip: string): Promise<KeyCheck> {
@@ -49,10 +71,23 @@ export async function validateApiKey(rawKey: string | null, ip: string): Promise
     return { valid: false, anonymous: true, id: `anon:${ip}`, perSec: 2 };
   }
 
+  // Cheap checks first; the KDF runs only on a well-formed key within the IP's budget.
+  if (!API_KEY_RE.test(rawKey)) return { valid: false, anonymous: false, id: `bad:${ip}`, perSec: 0 };
+  const budget = await checkRateLimit(`keycheck:${ip}`, KEY_CHECK_PER_SEC, KEY_CHECK_BURST, { failClosed: true });
+  if (!budget.ok) {
+    return { valid: false, anonymous: false, id: `throttle:${ip}`, perSec: 0, throttled: true, retryAfter: budget.retryAfter ?? 1 };
+  }
+
   const [row] = await db
     .select()
     .from(apiKeys)
-    .where(and(eq(apiKeys.keyHash, hashApiKey(rawKey)), eq(apiKeys.revoked, false)))
+    .where(
+      and(
+        eq(apiKeys.keyHash, await hashApiKey(rawKey)),
+        eq(apiKeys.revoked, false),
+        eq(apiKeys.keyScheme, API_KEY_SCHEME_CURRENT),
+      ),
+    )
     .limit(1);
 
   if (!row) return { valid: false, anonymous: false, id: `bad:${ip}`, perSec: 0 };
@@ -76,14 +111,22 @@ export async function validateApiKey(rawKey: string | null, ip: string): Promise
     id: `owner:${row.subject ?? row.userAddress}`,
     perSec: row.rateLimitPerSec ?? 5,
     keyId: row.id,
+    subject: row.subject ?? row.userAddress,
   };
 }
 
-/** Extract the apikey from query (?apikey=) or Bearer header. */
-export function extractApiKey(req: Request): string | null {
-  const url = new URL(req.url);
-  const q = url.searchParams.get("apikey");
-  if (q) return q;
+/**
+ * Extract the apikey from query (?apikey=) or Bearer header.
+ *
+ * PBA-L3c-034: a key in a URL lands in access logs, proxies and Referer headers.
+ * `?apikey=` is kept only where Etherscan-compatible tooling needs it (/api/v1);
+ * other surfaces pass `{ allowQuery: false }` and take the header only.
+ */
+export function extractApiKey(req: Request, opts: { allowQuery?: boolean } = {}): string | null {
+  if (opts.allowQuery !== false) {
+    const q = new URL(req.url).searchParams.get("apikey");
+    if (q) return q;
+  }
   const auth = req.headers.get("authorization");
   if (auth) return auth.replace(/^Bearer\s+/i, "");
   return null;

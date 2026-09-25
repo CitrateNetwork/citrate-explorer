@@ -5,7 +5,7 @@
  * Three data classes, three postures:
  *  1. User settings / logins → E2EE (handled client-side; see crypto-client.ts).
  *     The server only ever stores opaque ciphertext it cannot read.
- *  2. OUR issued API keys → hashed (salted SHA-256 + pepper), shown once, never
+ *  2. OUR issued API keys → hashed (scrypt, salted with a server pepper), shown once, never
  *     recoverable. `hashApiKey` here; we compare hashes on every API request.
  *  3. Third-party provider keys the agent must USE server-side → AES-256-GCM at
  *     rest with a per-user key derived from `APP_MASTER_KEY` + wallet. `sealForUser`
@@ -17,10 +17,9 @@
 import {
   createCipheriv,
   createDecipheriv,
-  createHash,
   hkdfSync,
   randomBytes,
-  timingSafeEqual,
+  scrypt,
 } from "node:crypto";
 
 const IV_LENGTH = 12; // AES-GCM nonce (96 bits)
@@ -50,14 +49,22 @@ function requireKey(envName: "APP_MASTER_KEY"): Buffer {
   return key;
 }
 
-/** Per-user 256-bit data key via HKDF-SHA-256, bound to the lower-cased wallet. */
-function deriveUserKey(userAddress: string): Buffer {
-  const normalized = userAddress.toLowerCase();
+/**
+ * Per-user 256-bit data key via HKDF-SHA-256, bound to the owner.
+ *
+ * PBA-L3c-034: v2 binds the owner VERBATIM. The owner is the OIDC `sub`, which
+ * SR-0 defines as opaque and case-sensitive; v1 lower-cased it, so "Alice" and
+ * "alice" derived the same key. New seals use v2; {@link openForUser} still
+ * opens v1 payloads (the GCM tag tells them apart), so no data migration is
+ * needed.
+ */
+function deriveUserKey(owner: string, version: 1 | 2 = 2): Buffer {
+  const bound = version === 1 ? owner.toLowerCase() : owner;
   const derived = hkdfSync(
     "sha256",
     requireKey("APP_MASTER_KEY"),
-    Buffer.from(`citrate-explorer:${normalized}`), // salt
-    Buffer.from("citrate-explorer-secret-v1"), // info / domain separation
+    Buffer.from(`citrate-explorer:${bound}`), // salt
+    Buffer.from(version === 1 ? "citrate-explorer-secret-v1" : "citrate-explorer-secret-v2"), // info / domain separation
     KEY_LENGTH,
   );
   return Buffer.from(derived);
@@ -84,12 +91,7 @@ export function sealForUser(
   };
 }
 
-/** Open a payload sealed by {@link sealForUser}; throws on tamper/wrong user. */
-export function openForUser(
-  payload: SealedPayload,
-  userAddress: string,
-): string {
-  const key = deriveUserKey(userAddress);
+function openWithKey(payload: SealedPayload, key: Buffer): string {
   const decipher = createDecipheriv(
     "aes-256-gcm",
     key,
@@ -103,13 +105,33 @@ export function openForUser(
   ]).toString("utf8");
 }
 
+/**
+ * Open a payload sealed by {@link sealForUser}; throws on tamper/wrong user.
+ * Tries the v2 (verbatim-owner) key, then the legacy v1 (lower-cased) key.
+ */
+export function openForUser(
+  payload: SealedPayload,
+  userAddress: string,
+): string {
+  try {
+    return openWithKey(payload, deriveUserKey(userAddress, 2));
+  } catch {
+    return openWithKey(payload, deriveUserKey(userAddress, 1));
+  }
+}
+
 // --- Our issued API keys: hash-only, never recoverable ----------------------
 
-/** Generates a fresh API key (shown to the user exactly once). */
+/** Generates a fresh API key (shown to the user exactly once): `cscan_` + 24 random bytes, base64url. */
 export function generateApiKey(): string {
-  // 32 random bytes → url-safe base64, prefixed so it's recognizable.
   return `cscan_${randomBytes(24).toString("base64url")}`;
 }
+
+/**
+ * The exact shape generateApiKey emits. Callers MUST check a presented key against this before
+ * hashing it: the key hash is a deliberately expensive KDF, and it must never run on arbitrary input.
+ */
+export const API_KEY_RE = /^cscan_[A-Za-z0-9_-]{32}$/;
 
 /**
  * EX-B-010 (RM-Q remediation, 2026-09-07): the server pepper is REQUIRED, not
@@ -133,15 +155,21 @@ function requirePepper(): string {
   return pepper;
 }
 
-/** Salted SHA-256 (+ required server pepper) hash of an issued API key. */
-export function hashApiKey(rawKey: string): string {
-  const pepper = requirePepper();
-  return createHash("sha256").update(`${pepper}:${rawKey}`).digest("hex");
-}
+/**
+ * Stored form of an issued API key: scrypt(key, salt = server pepper), 32 bytes, hex.
+ *
+ * A memory-hard KDF keyed by the required server pepper: a database read is not attackable offline
+ * without the pepper and is costly even with it. Keys are 192-bit random tokens, so a modest cost
+ * (N=2^12, 4 MiB) is ample; the KDF is defence in depth, not the source of key strength. It runs asynchronously (libuv threadpool, not the event loop), and only on keys
+ * that match API_KEY_RE after the caller's per-IP key-check budget (lib/api/keys.ts). Hashes stored
+ * by earlier releases cannot be converted (raw keys are never stored); migration 0004 retires them.
+ */
+export const API_KEY_SCRYPT = { N: 4096, r: 8, p: 1, keylen: 32 } as const;
 
-/** Constant-time comparison of a presented key against a stored hash. */
-export function verifyApiKey(rawKey: string, storedHash: string): boolean {
-  const a = Buffer.from(hashApiKey(rawKey), "hex");
-  const b = Buffer.from(storedHash, "hex");
-  return a.length === b.length && timingSafeEqual(a, b);
+export function hashApiKey(rawKey: string): Promise<string> {
+  const pepper = requirePepper();
+  const { N, r, p, keylen } = API_KEY_SCRYPT;
+  return new Promise((resolve, reject) => {
+    scrypt(rawKey, pepper, keylen, { N, r, p }, (err, dk) => (err ? reject(err) : resolve(dk.toString("hex"))));
+  });
 }

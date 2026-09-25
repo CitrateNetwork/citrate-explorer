@@ -1,5 +1,6 @@
 import pkg from "../../../../package.json";
 import { getInferenceProvider } from "@/lib/ai/provider";
+import { publicMessage } from "@/lib/api/errors";
 
 /**
  * Build + runtime provenance (SR-1) for the Transparency settings panel. Every
@@ -30,7 +31,7 @@ export function GET() {
     model = { mode: p.mode, id: p.modelId, attestation: "pending" };
   } catch (err) {
     // e.g. CITRATE_INFERENCE_MODE=onchain (not wired) — report honestly.
-    model = { error: (err as Error).message };
+    model = { error: publicMessage(err, "api.version.model", "inference provider not configured") };
   }
 
   const repo = repoSlug();
