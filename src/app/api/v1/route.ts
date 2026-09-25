@@ -5,7 +5,7 @@ import { citrateRequest } from "@/lib/citrate/rpc";
 import { guardProxyCall } from "@/lib/harness/allowlist";
 import { erc20Abi } from "@/lib/citrate/abi";
 import { searchTransactions } from "@/lib/indexer/repository";
-import { validateApiKey, extractApiKey, clientIp } from "@/lib/api/keys";
+import { validateApiKey, extractApiKey, clientIp, INVALID_KEY_MESSAGE } from "@/lib/api/keys";
 import { checkRateLimit } from "@/lib/api/ratelimit";
 import { publicMessage } from "@/lib/api/errors";
 
@@ -25,7 +25,13 @@ const rpcErr = (message: string, code = -32600) => Response.json({ jsonrpc: "2.0
 export async function GET(req: Request) {
   // Key + rate limit.
   const check = await validateApiKey(extractApiKey(req), clientIp(req));
-  if (check.id.startsWith("bad:")) return fail("Invalid API Key");
+  if (check.throttled) {
+    return Response.json(
+      { status: "0", message: "Max rate limit reached", result: null },
+      { status: 429, headers: { "retry-after": String(check.retryAfter ?? 1) } },
+    );
+  }
+  if (check.id.startsWith("bad:")) return fail(INVALID_KEY_MESSAGE);
   if (check.quotaExceeded) {
     return Response.json(
       { status: "0", message: "Daily API key quota exceeded", result: null },

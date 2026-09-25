@@ -4,8 +4,8 @@ import {
   openForUser,
   generateApiKey,
   hashApiKey,
-  verifyApiKey,
   API_KEY_SCRYPT,
+  API_KEY_RE,
 } from "./crypto";
 
 const ALICE = "0x1111111111111111111111111111111111111111";
@@ -38,44 +38,52 @@ describe("at-rest envelope encryption (third-party keys)", () => {
 });
 
 describe("issued API keys (hash-only)", () => {
-  it("hashes are not the raw key and verify in constant time", () => {
+  it("minted keys match API_KEY_RE; hashes are hex and never contain the key", async () => {
+    for (let i = 0; i < 50; i++) expect(generateApiKey()).toMatch(API_KEY_RE);
     const key = generateApiKey();
-    expect(key.startsWith("cscan_")).toBe(true);
-    const hash = hashApiKey(key);
+    const hash = await hashApiKey(key);
+    expect(hash).toMatch(/^[0-9a-f]{64}$/);
     expect(hash).not.toContain(key);
-    expect(verifyApiKey(key, hash)).toBe(true);
-    expect(verifyApiKey("cscan_wrong", hash)).toBe(false);
   });
 
-  it("is scrypt salted with the pepper (PBA R2): deterministic per pepper, changes with it", () => {
+  it("API_KEY_RE is exact: prefix, 32 base64url chars, anchored", () => {
+    const body = "A".repeat(32);
+    expect(API_KEY_RE.test(`cscan_${body}`)).toBe(true);
+    for (const bad of [`cscan_${body}A`, `cscan_${"A".repeat(31)}`, `xcscan_${body}`, `cscan_${body}\n`, `CSCAN_${body}`, `cscan_${"A".repeat(31)}=`, "cscan_" + "A".repeat(1_000_000)]) {
+      expect(API_KEY_RE.test(bad)).toBe(false);
+    }
+  });
+
+  it("is scrypt salted with the pepper: deterministic per pepper, changes with it", async () => {
     const key = generateApiKey();
-    const h = hashApiKey(key);
-    expect(h).toMatch(/^[0-9a-f]{64}$/);
-    expect(hashApiKey(key)).toBe(h);
-    expect(hashApiKey(`${key}x`)).not.toBe(h);
+    const h = await hashApiKey(key);
+    expect(await hashApiKey(key)).toBe(h);
+    expect(await hashApiKey(`${key}x`)).not.toBe(h);
     const saved = process.env.API_KEY_PEPPER;
     try {
       process.env.API_KEY_PEPPER = `${saved}x`;
-      expect(hashApiKey(key)).not.toBe(h);
+      expect(await hashApiKey(key)).not.toBe(h);
     } finally {
       process.env.API_KEY_PEPPER = saved;
     }
   });
 
   it("uses the documented scrypt cost", () => {
-    expect(API_KEY_SCRYPT).toEqual({ N: 16384, r: 8, p: 1, keylen: 32 });
+    expect(API_KEY_SCRYPT).toEqual({ N: 4096, r: 8, p: 1, keylen: 32 });
   });
 
-  it("migration 0004 revokes every pre-R2 key", async () => {
-    const { readFileSync } = await import("node:fs");
+  it("migration 0004 adds key_scheme (default legacy) and retires only legacy rows", async () => {
+    const { readFileSync, existsSync } = await import("node:fs");
     const { join } = await import("node:path");
-    const sql = readFileSync(join(__dirname, "db", "migrations", "0004_pba_r2_hmac_api_keys.sql"), "utf8");
-    expect(sql).toMatch(/UPDATE "api_keys" SET "revoked" = true WHERE "revoked" = false;/);
+    const dir = join(__dirname, "db", "migrations");
+    expect(existsSync(join(dir, "0004_pba_r2_hmac_api_keys.sql"))).toBe(false);
+    const sql = readFileSync(join(dir, "0004_api_key_scheme.sql"), "utf8");
+    expect(sql).toMatch(/ALTER TABLE "api_keys" ADD COLUMN "key_scheme" text DEFAULT 'legacy' NOT NULL;/);
+    expect(sql).toMatch(/UPDATE "api_keys" SET "revoked" = true WHERE "key_scheme" = 'legacy' AND "revoked" = false;/);
   });
 
   // EX-B-010: the pepper must be REQUIRED — an unset/empty pepper must throw
-  // (fail closed), never silently degrade to a bare unsalted SHA-256. Mirrors
-  // the fail-secure posture of APP_MASTER_KEY.
+  // (fail closed), never silently degrade to a bare unsalted hash.
   it("throws when API_KEY_PEPPER is unset (fail closed, no empty-pepper fallback)", () => {
     const saved = process.env.API_KEY_PEPPER;
     try {

@@ -255,6 +255,11 @@ export const apiKeys = pgTable(
     userAddress: text("user_address").notNull(),
     subject: text("subject"),
     keyHash: text("key_hash").notNull(),
+    /**
+     * How key_hash was derived. Rows from earlier releases default to "legacy" and never match or
+     * count toward the per-owner cap; the current code writes and reads only API_KEY_SCHEME_CURRENT.
+     */
+    keyScheme: text("key_scheme").notNull().default("legacy"),
     label: text("label"),
     quotaPerDay: integer("quota_per_day").notNull().default(100_000),
     rateLimitPerSec: integer("rate_limit_per_sec").notNull().default(5),

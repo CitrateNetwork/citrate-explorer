@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { requireOwner } from "@/lib/auth/session";
 import { checkRateLimit } from "@/lib/api/ratelimit";
-import { countActiveKeys, MAX_ACTIVE_KEYS_PER_SUBJECT } from "@/lib/api/keys";
+import { API_KEY_SCHEME_CURRENT, countActiveKeys, MAX_ACTIVE_KEYS_PER_SUBJECT } from "@/lib/api/keys";
 import { getDb } from "@/lib/db/client";
 import { apiKeys } from "@/lib/db/schema";
 import { generateApiKey, hashApiKey } from "@/lib/crypto";
@@ -85,7 +85,8 @@ export async function POST(req: Request) {
   await db.insert(apiKeys).values({
     userAddress: owner,
     subject: owner,
-    keyHash: hashApiKey(rawKey),
+    keyHash: await hashApiKey(rawKey),
+    keyScheme: API_KEY_SCHEME_CURRENT,
     label: parsed.data.label ?? "default",
   });
   return Response.json(

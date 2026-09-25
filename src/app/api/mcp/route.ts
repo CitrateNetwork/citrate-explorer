@@ -179,6 +179,12 @@ export async function POST(req: Request) {
   const ip = clientIp(req);
   const raw = extractApiKey(req, { allowQuery: false }); // PBA-L3c-034: header only
   const keyInfo = raw ? await validateApiKey(raw, ip) : null;
+  if (keyInfo?.throttled) {
+    return Response.json(rpcErr(null, -32000, "Rate limit exceeded"), {
+      status: 429,
+      headers: { "retry-after": String(keyInfo.retryAfter ?? 1) },
+    });
+  }
   if (keyInfo?.quotaExceeded) {
     return Response.json(rpcErr(null, -32000, "Daily API key quota exceeded"), {
       status: 429,

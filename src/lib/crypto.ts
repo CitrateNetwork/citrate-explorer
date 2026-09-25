@@ -19,8 +19,7 @@ import {
   createDecipheriv,
   hkdfSync,
   randomBytes,
-  scryptSync,
-  timingSafeEqual,
+  scrypt,
 } from "node:crypto";
 
 const IV_LENGTH = 12; // AES-GCM nonce (96 bits)
@@ -123,11 +122,16 @@ export function openForUser(
 
 // --- Our issued API keys: hash-only, never recoverable ----------------------
 
-/** Generates a fresh API key (shown to the user exactly once). */
+/** Generates a fresh API key (shown to the user exactly once): `cscan_` + 24 random bytes, base64url. */
 export function generateApiKey(): string {
-  // 32 random bytes → url-safe base64, prefixed so it's recognizable.
   return `cscan_${randomBytes(24).toString("base64url")}`;
 }
+
+/**
+ * The exact shape generateApiKey emits. Callers MUST check a presented key against this before
+ * hashing it: the key hash is a deliberately expensive KDF, and it must never run on arbitrary input.
+ */
+export const API_KEY_RE = /^cscan_[A-Za-z0-9_-]{32}$/;
 
 /**
  * EX-B-010 (RM-Q remediation, 2026-09-07): the server pepper is REQUIRED, not
@@ -154,23 +158,18 @@ function requirePepper(): string {
 /**
  * Stored form of an issued API key: scrypt(key, salt = server pepper), 32 bytes, hex.
  *
- * PBA R2 (CodeQL js/insufficient-password-hash): this was a single SHA-256 of pepper + key.
- * scrypt is a memory-hard KDF keyed by the required server pepper, so a database read is not
- * attackable offline without the pepper and is costly even with it. Keys are 192-bit random
- * tokens (generateApiKey), so the default cost (N=2^14) is ample. Stored pre-R2 hashes cannot
- * be converted (raw keys are never stored); migration 0004 revokes them and users re-mint.
+ * A memory-hard KDF keyed by the required server pepper: a database read is not attackable offline
+ * without the pepper and is costly even with it. Keys are 192-bit random tokens, so a modest cost
+ * (N=2^12, 4 MiB) is ample; the KDF is defence in depth, not the source of key strength. It runs asynchronously (libuv threadpool, not the event loop), and only on keys
+ * that match API_KEY_RE after the caller's per-IP key-check budget (lib/api/keys.ts). Hashes stored
+ * by earlier releases cannot be converted (raw keys are never stored); migration 0004 retires them.
  */
-export const API_KEY_SCRYPT = { N: 16384, r: 8, p: 1, keylen: 32 } as const;
+export const API_KEY_SCRYPT = { N: 4096, r: 8, p: 1, keylen: 32 } as const;
 
-export function hashApiKey(rawKey: string): string {
+export function hashApiKey(rawKey: string): Promise<string> {
   const pepper = requirePepper();
   const { N, r, p, keylen } = API_KEY_SCRYPT;
-  return scryptSync(rawKey, pepper, keylen, { N, r, p }).toString("hex");
-}
-
-/** Constant-time comparison of a presented key against a stored hash. */
-export function verifyApiKey(rawKey: string, storedHash: string): boolean {
-  const a = Buffer.from(hashApiKey(rawKey), "hex");
-  const b = Buffer.from(storedHash, "hex");
-  return a.length === b.length && timingSafeEqual(a, b);
+  return new Promise((resolve, reject) => {
+    scrypt(rawKey, pepper, keylen, { N, r, p }, (err, dk) => (err ? reject(err) : resolve(dk.toString("hex"))));
+  });
 }

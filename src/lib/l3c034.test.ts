@@ -85,7 +85,7 @@ describe("(b)+(c) MCP key identity", () => {
     });
     process.env.API_KEY_PEPPER ??= "unit-test-pepper-not-a-secret-0000000000";
     const { validateApiKey } = await import("@/lib/api/keys");
-    const k = await validateApiKey("raw", "1.1.1.1");
+    const k = await validateApiKey(`cscan_${"r".repeat(32)}`, "1.1.1.1");
     expect(k.subject).toBe("Owner-Case");
     vi.doUnmock("@/lib/db/client");
   });

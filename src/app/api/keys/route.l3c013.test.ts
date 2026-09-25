@@ -11,11 +11,16 @@ const db = vi.hoisted(() => {
   process.env.API_KEY_PEPPER ??= "unit-test-pepper-not-a-secret-0000000000";
   const state = {
     selectResults: [] as unknown[][],
+    wheres: [] as unknown[],
     inserts: [] as Array<Record<string, unknown>>,
   };
   const chain = (result: () => unknown) => {
     const c: Record<string, unknown> = {};
-    for (const m of ["from", "where", "limit", "set", "orderBy"]) c[m] = () => c;
+    for (const m of ["from", "limit", "set", "orderBy"]) c[m] = () => c;
+    c.where = (cond: unknown) => {
+      state.wheres.push(cond);
+      return c;
+    };
     c.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(result()).then(res, rej);
     c.catch = (rej: (e: unknown) => unknown) => Promise.resolve(result()).catch(rej);
     return c;
@@ -40,8 +45,11 @@ vi.mock("@/lib/auth/session", () => ({
 }));
 
 import { POST } from "./route";
+
+/** Well-formed (minted-shape) test keys; not real credentials. */
+const K = (c: string) => `cscan_${c.repeat(32).slice(0, 32)}`;
 import { validateApiKey } from "@/lib/api/keys";
-import { MAX_ACTIVE_KEYS_PER_SUBJECT } from "@/lib/api/keys";
+import { MAX_ACTIVE_KEYS_PER_SUBJECT, INVALID_KEY_MESSAGE, API_KEY_SCHEME_CURRENT } from "@/lib/api/keys";
 
 function mint(sub: string, body: unknown = { label: "ci" }) {
   return POST(
@@ -56,6 +64,7 @@ function mint(sub: string, body: unknown = { label: "ci" }) {
 beforeEach(() => {
   db.state.selectResults = [];
   db.state.inserts = [];
+  db.state.wheres = [];
 });
 
 describe("API-key minting limits (PBA-L3c-013)", () => {
@@ -115,8 +124,8 @@ describe("validateApiKey enforcement (PBA-L3c-013)", () => {
 
   it("rate-limits by OWNER, not by key: two keys of one owner share a bucket id", async () => {
     db.state.selectResults.push([row({ id: 1, quotaPerDay: 100 })], [row({ id: 2, quotaPerDay: 100 })]);
-    const a = await validateApiKey("k1", "1.1.1.1");
-    const b = await validateApiKey("k2", "1.1.1.1");
+    const a = await validateApiKey(K("a"), "1.1.1.1");
+    const b = await validateApiKey(K("b"), "1.1.1.1");
     expect(a.valid && b.valid).toBe(true);
     expect(a.id).toBe(b.id);
     expect(a.id).toBe("owner:owner-A");
@@ -126,10 +135,10 @@ describe("validateApiKey enforcement (PBA-L3c-013)", () => {
     const r = row({ id: 900 + Math.floor(Math.random() * 1e6), subject: `q-${Math.random()}` });
     for (let i = 0; i < 3; i++) {
       db.state.selectResults.push([r]);
-      expect((await validateApiKey("k", "1.1.1.1")).quotaExceeded).toBeFalsy();
+      expect((await validateApiKey(K("k"), "1.1.1.1")).quotaExceeded).toBeFalsy();
     }
     db.state.selectResults.push([r]);
-    const over = await validateApiKey("k", "1.1.1.1");
+    const over = await validateApiKey(K("k"), "1.1.1.1");
     expect(over.quotaExceeded).toBe(true);
     expect(over.valid).toBe(false);
   });
@@ -199,19 +208,19 @@ describe("validateApiKey edges (mutation kills)", () => {
 
   it("an unknown key → bad:<ip>", async () => {
     db.state.selectResults.push([]);
-    expect(await validateApiKey("nope", "3.3.3.3")).toEqual({ valid: false, anonymous: false, id: "bad:3.3.3.3", perSec: 0 });
+    expect(await validateApiKey(K("n"), "3.3.3.3")).toEqual({ valid: false, anonymous: false, id: "bad:3.3.3.3", perSec: 0 });
   });
 
   it("a valid key → owner identity, its rate, its subject", async () => {
     db.state.selectResults.push([row({ id: 900_001 })]);
-    expect(await validateApiKey("k", "4.4.4.4")).toEqual({
+    expect(await validateApiKey(K("k"), "4.4.4.4")).toEqual({
       valid: true, anonymous: false, id: "owner:owner-B", perSec: 7, keyId: 900_001, subject: "owner-B",
     });
   });
 
   it("legacy rows fall back to userAddress and the default 5/s", async () => {
     db.state.selectResults.push([row({ id: 900_002, subject: null, userAddress: "0xlegacy", rateLimitPerSec: null })]);
-    const k = await validateApiKey("k", "4.4.4.4");
+    const k = await validateApiKey(K("k"), "4.4.4.4");
     expect(k.id).toBe("owner:0xlegacy");
     expect(k.subject).toBe("0xlegacy");
     expect(k.perSec).toBe(5);
@@ -220,8 +229,8 @@ describe("validateApiKey edges (mutation kills)", () => {
   it("an exhausted daily quota reports quotaExceeded with the key id", async () => {
     const r = row({ id: 900_003, quotaPerDay: 1 });
     db.state.selectResults.push([r], [r]);
-    await validateApiKey("k", "5.5.5.5");
-    expect(await validateApiKey("k", "5.5.5.5")).toEqual({
+    await validateApiKey(K("k"), "5.5.5.5");
+    expect(await validateApiKey(K("k"), "5.5.5.5")).toEqual({
       valid: false, anonymous: false, id: "quota:900003", perSec: 0, keyId: 900_003, quotaExceeded: true,
     });
   });
@@ -233,11 +242,11 @@ describe("validateApiKey edges (mutation kills)", () => {
       const r = row({ id: 900_004, quotaPerDay: 2 });
       for (let i = 0; i < 2; i++) {
         db.state.selectResults.push([r]);
-        expect((await validateApiKey("k", "6.6.6.6")).valid).toBe(true);
+        expect((await validateApiKey(K("k"), "6.6.6.6")).valid).toBe(true);
       }
       vi.setSystemTime(Date.now() + 3_600_000); // an hour later: 2/day refills 1/12 of a call
       db.state.selectResults.push([r]);
-      expect((await validateApiKey("k", "6.6.6.6")).quotaExceeded).toBe(true);
+      expect((await validateApiKey(K("k"), "6.6.6.6")).quotaExceeded).toBe(true);
     } finally {
       vi.useRealTimers();
     }
@@ -250,10 +259,10 @@ describe("quota and bad keys at the API surfaces (mutation kills)", () => {
   it("/api/v1: invalid key → 'Invalid API Key'; exhausted quota → 429", async () => {
     const { GET } = await import("@/app/api/v1/route");
     db.state.selectResults.push([]);
-    const bad = await GET(new Request("http://x/api/v1?module=foo&action=bar&apikey=bogus", { headers: { "x-forwarded-for": "8.8.1.1" } }));
-    expect(await bad.json()).toEqual({ status: "0", message: "Invalid API Key", result: null });
+    const bad = await GET(new Request(`http://x/api/v1?module=foo&action=bar&apikey=${K("z")}`, { headers: { "x-forwarded-for": "8.8.1.1" } }));
+    expect(await bad.json()).toEqual({ status: "0", message: INVALID_KEY_MESSAGE, result: null });
     db.state.selectResults.push([spent(900_010)]);
-    const q = await GET(new Request("http://x/api/v1?module=foo&action=bar&apikey=k", { headers: { "x-forwarded-for": "8.8.1.2" } }));
+    const q = await GET(new Request(`http://x/api/v1?module=foo&action=bar&apikey=${K("k")}`, { headers: { "x-forwarded-for": "8.8.1.2" } }));
     expect(q.status).toBe(429);
     expect(await q.json()).toEqual({ status: "0", message: "Daily API key quota exceeded", result: null });
     expect(q.headers.get("retry-after")).toBe("3600");
@@ -268,7 +277,7 @@ describe("quota and bad keys at the API surfaces (mutation kills)", () => {
     let ok = 0;
     for (let i = 0; i < 11; i++) {
       db.state.selectResults.push([r]);
-      const res = await GET(new Request("http://x/api/v1?module=foo&action=bar&apikey=k", { headers: { "x-forwarded-for": "8.8.2.1" } }));
+      const res = await GET(new Request(`http://x/api/v1?module=foo&action=bar&apikey=${K("k")}`, { headers: { "x-forwarded-for": "8.8.2.1" } }));
       if (res.status !== 429) ok++;
     }
     expect(ok).toBe(10); // perSec 5 → burst 10
@@ -296,12 +305,12 @@ describe("quota and bad keys at the API surfaces (mutation kills)", () => {
     const { POST: MCP } = await import("@/app/api/mcp/route");
     const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" });
     db.state.selectResults.push([spent(900_030)]);
-    const viaHeader = await MCP(new Request("http://x/api/mcp", { method: "POST", headers: { authorization: "Bearer k", "x-forwarded-for": "8.8.5.1" }, body }));
+    const viaHeader = await MCP(new Request("http://x/api/mcp", { method: "POST", headers: { authorization: `Bearer ${K("k")}`, "x-forwarded-for": "8.8.5.1" }, body }));
     expect(viaHeader.status).toBe(429);
     expect((await viaHeader.json()).error).toEqual({ code: -32000, message: "Daily API key quota exceeded" });
     expect(viaHeader.headers.get("retry-after")).toBe("3600");
     db.state.selectResults.push([spent(900_031)]);
-    const viaQuery = await MCP(new Request("http://x/api/mcp?apikey=k", { method: "POST", headers: { "x-forwarded-for": "8.8.5.2" }, body }));
+    const viaQuery = await MCP(new Request(`http://x/api/mcp?apikey=${K("k")}`, { method: "POST", headers: { "x-forwarded-for": "8.8.5.2" }, body }));
     expect(viaQuery.status).toBe(200);
     expect(db.state.selectResults).toHaveLength(1); // the query key was never looked up
   });
@@ -325,6 +334,60 @@ describe("mint throttle fails closed on a store error (mutation kill)", () => {
       vi.unstubAllEnvs();
       vi.unstubAllGlobals();
       vi.resetModules();
+    }
+  });
+});
+
+describe("key lookup predicate and KDF gating (verify2)", () => {
+  const sqlOf = async (cond: unknown) => {
+    const { PgDialect } = await import("drizzle-orm/pg-core");
+    return new PgDialect().sqlToQuery(cond as never);
+  };
+
+  it("E3: the lookup filters on key_hash, revoked = false and the current scheme", async () => {
+    db.state.selectResults.push([]);
+    await validateApiKey(K("w"), "7.7.1.1");
+    expect(db.state.wheres).toHaveLength(1);
+    const q = await sqlOf(db.state.wheres[0]);
+    expect(q.sql).toBe('("api_keys"."key_hash" = $1 and "api_keys"."revoked" = $2 and "api_keys"."key_scheme" = $3)');
+    expect(q.params.slice(1)).toEqual([false, API_KEY_SCHEME_CURRENT]);
+  });
+
+  it("the active-key count uses the same revoked/scheme filter", async () => {
+    const { countActiveKeys } = await import("@/lib/api/keys");
+    db.state.selectResults.push([{ n: 2 }]);
+    expect(await countActiveKeys("owner-C")).toBe(2);
+    const q = await sqlOf(db.state.wheres[0]);
+    expect(q.sql).toBe('("api_keys"."subject" = $1 and "api_keys"."revoked" = $2 and "api_keys"."key_scheme" = $3)');
+    expect(q.params).toEqual(["owner-C", false, API_KEY_SCHEME_CURRENT]);
+  });
+
+  it("minted keys are stored with the current scheme", async () => {
+    db.state.selectResults.push([{ n: 0 }]);
+    expect((await mint(`scheme-${Math.random()}`)).status).toBe(201);
+    expect(db.state.inserts[0].keyScheme).toBe(API_KEY_SCHEME_CURRENT);
+    expect(String(db.state.inserts[0].keyHash)).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("/api/v1 and /api/mcp answer 429 once the key-check budget is spent", async () => {
+    const { KEY_CHECK_BURST } = await import("@/lib/api/keys");
+    const { GET } = await import("@/app/api/v1/route");
+    const { POST: MCP } = await import("@/app/api/mcp/route");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-25T00:00:00Z"));
+    try {
+      const ip = "7.7.4.1";
+      for (let i = 0; i < KEY_CHECK_BURST; i++) {
+        db.state.selectResults.push([]);
+        await GET(new Request(`http://x/api/v1?module=foo&action=bar&apikey=${K("r")}`, { headers: { "x-forwarded-for": ip } }));
+      }
+      const v1 = await GET(new Request(`http://x/api/v1?module=foo&action=bar&apikey=${K("r")}`, { headers: { "x-forwarded-for": ip } }));
+      expect(v1.status).toBe(429);
+      const mcp = await MCP(new Request("http://x/api/mcp", { method: "POST", headers: { authorization: `Bearer ${K("r")}`, "x-forwarded-for": ip }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) }));
+      expect(mcp.status).toBe(429);
+      expect((await mcp.json()).error).toEqual({ code: -32000, message: "Rate limit exceeded" });
+    } finally {
+      vi.useRealTimers();
     }
   });
 });
