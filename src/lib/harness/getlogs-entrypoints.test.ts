@@ -284,6 +284,15 @@ describe("/api/v1 proxy — other methods through the same chokepoint", () => {
     expect(rpc.request).toHaveBeenCalledWith({ method: "eth_blockNumber", params: [] });
   });
 
+  it("default params: tag falls back to latest, explicit tag is kept", async () => {
+    const call = async (q: Record<string, string>) =>
+      v1(new Request(`http://x/api/v1?${new URLSearchParams({ module: "proxy", ...q })}`, { headers: { "x-forwarded-for": nextIp() } }));
+    await call({ action: "eth_getBalance", address: ADDR });
+    expect(rpc.request).toHaveBeenLastCalledWith({ method: "eth_getBalance", params: [ADDR, "latest"] });
+    await call({ action: "eth_getBalance", address: ADDR, tag: "0x5" });
+    expect(rpc.request).toHaveBeenLastCalledWith({ method: "eth_getBalance", params: [ADDR, "0x5"] });
+  });
+
   it("explicit JSON params are used verbatim for a non-getLogs method", async () => {
     const q = new URLSearchParams({ module: "proxy", action: "eth_getBlockByNumber", params: "[\"0x5\",true]" });
     await v1(new Request(`http://x/api/v1?${q}`, { headers: { "x-forwarded-for": nextIp() } }));
