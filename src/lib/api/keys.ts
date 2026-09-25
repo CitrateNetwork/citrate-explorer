@@ -7,7 +7,8 @@
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { apiKeys } from "@/lib/db/schema";
-import { API_KEY_RE, hashApiKey } from "@/lib/crypto";
+import { API_KEY_RE, apiKeyPepperConfigured, hashApiKey } from "@/lib/crypto";
+import { log } from "@/lib/api/log";
 import { checkRateLimit } from "@/lib/api/ratelimit";
 
 /**
@@ -58,6 +59,8 @@ export interface KeyCheck {
   quotaExceeded?: boolean;
   /** The caller's per-IP key-check budget is spent; the key was not hashed. */
   throttled?: boolean;
+  /** API keys cannot be checked on this deployment (API_KEY_PEPPER unset): answer 503. */
+  unavailable?: boolean;
   retryAfter?: number;
 }
 
@@ -73,6 +76,10 @@ export async function validateApiKey(rawKey: string | null, ip: string): Promise
 
   // Cheap checks first; the KDF runs only on a well-formed key within the IP's budget.
   if (!API_KEY_RE.test(rawKey)) return { valid: false, anonymous: false, id: `bad:${ip}`, perSec: 0 };
+  if (!apiKeyPepperConfigured()) {
+    log.error("api_keys.pepper_missing", { note: "API_KEY_PEPPER unset: keyed requests answer 503" });
+    return { valid: false, anonymous: false, id: `unavailable:${ip}`, perSec: 0, unavailable: true };
+  }
   const budget = await checkRateLimit(`keycheck:${ip}`, KEY_CHECK_PER_SEC, KEY_CHECK_BURST, { failClosed: true });
   if (!budget.ok) {
     return { valid: false, anonymous: false, id: `throttle:${ip}`, perSec: 0, throttled: true, retryAfter: budget.retryAfter ?? 1 };

@@ -391,3 +391,18 @@ describe("key lookup predicate and KDF gating (verify2)", () => {
     }
   });
 });
+
+describe("mint with no API_KEY_PEPPER", () => {
+  it("answers 503 and inserts nothing", async () => {
+    const saved = process.env.API_KEY_PEPPER;
+    delete process.env.API_KEY_PEPPER;
+    try {
+      const res = await mint(`nopepper-${Math.random()}`);
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ error: "API key service unavailable" });
+      expect(db.state.inserts).toHaveLength(0);
+    } finally {
+      process.env.API_KEY_PEPPER = saved;
+    }
+  });
+});

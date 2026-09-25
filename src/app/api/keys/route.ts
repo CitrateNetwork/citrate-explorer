@@ -5,7 +5,7 @@ import { checkRateLimit } from "@/lib/api/ratelimit";
 import { API_KEY_SCHEME_CURRENT, countActiveKeys, MAX_ACTIVE_KEYS_PER_SUBJECT } from "@/lib/api/keys";
 import { getDb } from "@/lib/db/client";
 import { apiKeys } from "@/lib/db/schema";
-import { generateApiKey, hashApiKey } from "@/lib/crypto";
+import { apiKeyPepperConfigured, generateApiKey, hashApiKey } from "@/lib/crypto";
 import { checkSameOrigin } from "@/lib/security/sameOrigin";
 
 /**
@@ -59,6 +59,9 @@ export async function POST(req: Request) {
       { error: "database not provisioned (DATABASE_URL unset)" },
       { status: 503 },
     );
+  }
+  if (!apiKeyPepperConfigured()) {
+    return Response.json({ error: "API key service unavailable" }, { status: 503, headers: { "retry-after": "60" } });
   }
   const parsed = mintSchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {
