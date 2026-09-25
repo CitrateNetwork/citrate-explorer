@@ -50,14 +50,22 @@ function requireKey(envName: "APP_MASTER_KEY"): Buffer {
   return key;
 }
 
-/** Per-user 256-bit data key via HKDF-SHA-256, bound to the lower-cased wallet. */
-function deriveUserKey(userAddress: string): Buffer {
-  const normalized = userAddress.toLowerCase();
+/**
+ * Per-user 256-bit data key via HKDF-SHA-256, bound to the owner.
+ *
+ * PBA-L3c-034: v2 binds the owner VERBATIM. The owner is the OIDC `sub`, which
+ * SR-0 defines as opaque and case-sensitive; v1 lower-cased it, so "Alice" and
+ * "alice" derived the same key. New seals use v2; {@link openForUser} still
+ * opens v1 payloads (the GCM tag tells them apart), so no data migration is
+ * needed.
+ */
+function deriveUserKey(owner: string, version: 1 | 2 = 2): Buffer {
+  const bound = version === 1 ? owner.toLowerCase() : owner;
   const derived = hkdfSync(
     "sha256",
     requireKey("APP_MASTER_KEY"),
-    Buffer.from(`citrate-explorer:${normalized}`), // salt
-    Buffer.from("citrate-explorer-secret-v1"), // info / domain separation
+    Buffer.from(`citrate-explorer:${bound}`), // salt
+    Buffer.from(version === 1 ? "citrate-explorer-secret-v1" : "citrate-explorer-secret-v2"), // info / domain separation
     KEY_LENGTH,
   );
   return Buffer.from(derived);
@@ -84,12 +92,7 @@ export function sealForUser(
   };
 }
 
-/** Open a payload sealed by {@link sealForUser}; throws on tamper/wrong user. */
-export function openForUser(
-  payload: SealedPayload,
-  userAddress: string,
-): string {
-  const key = deriveUserKey(userAddress);
+function openWithKey(payload: SealedPayload, key: Buffer): string {
   const decipher = createDecipheriv(
     "aes-256-gcm",
     key,
@@ -101,6 +104,21 @@ export function openForUser(
     decipher.update(Buffer.from(payload.ciphertext, "base64")),
     decipher.final(),
   ]).toString("utf8");
+}
+
+/**
+ * Open a payload sealed by {@link sealForUser}; throws on tamper/wrong user.
+ * Tries the v2 (verbatim-owner) key, then the legacy v1 (lower-cased) key.
+ */
+export function openForUser(
+  payload: SealedPayload,
+  userAddress: string,
+): string {
+  try {
+    return openWithKey(payload, deriveUserKey(userAddress, 2));
+  } catch {
+    return openWithKey(payload, deriveUserKey(userAddress, 1));
+  }
 }
 
 // --- Our issued API keys: hash-only, never recoverable ----------------------

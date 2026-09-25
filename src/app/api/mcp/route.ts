@@ -177,7 +177,7 @@ export async function POST(req: Request) {
   // shared with /api/v1. MCP tools/call hits live RPC, so it must be bounded —
   // and a batch is charged one token PER MESSAGE (EX-B-003), not one per request.
   const ip = clientIp(req);
-  const raw = extractApiKey(req);
+  const raw = extractApiKey(req, { allowQuery: false }); // PBA-L3c-034: header only
   const keyInfo = raw ? await validateApiKey(raw, ip) : null;
   if (keyInfo?.quotaExceeded) {
     return Response.json(rpcErr(null, -32000, "Daily API key quota exceeded"), {
@@ -212,9 +212,10 @@ export async function POST(req: Request) {
     });
   }
 
-  // Audit MCP tool calls under the caller's key identity (anon per-IP otherwise).
-  const subject = keyInfo?.valid ? `mcp:key:${keyInfo.keyId}` : undefined;
-  const tools = buildTools(subject);
+  // PBA-L3c-034: audit MCP tool calls under the key OWNER's subject (they show
+  // in the owner's transparency panel), never a synthetic `mcp:key:N` string in
+  // the OIDC-subject namespace. Anonymous calls are unattributed.
+  const tools = buildTools(keyInfo?.valid ? keyInfo.subject : undefined);
 
   if (Array.isArray(body)) {
     const out = (await Promise.all(body.map((m) => handleOne(m as RpcReq, tools)))).filter(Boolean);
