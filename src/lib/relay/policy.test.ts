@@ -1,6 +1,9 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import {
   checkSponsorPolicy,
+  isSponsorableGas,
+  relayMaxGas,
+  DEFAULT_RELAY_MAX_GAS,
   isZeroValue,
   isSponsorableTarget,
   sponsorableTargets,
@@ -67,7 +70,7 @@ describe("isSponsorableTarget — fail-closed target allowlist", () => {
 
 describe("checkSponsorPolicy — combined gate", () => {
   it("allows value=0 to an allowlisted federation contract", () => {
-    expect(checkSponsorPolicy({ value: "0", to: KNOWN_CONTRACT })).toEqual({ ok: true });
+    expect(checkSponsorPolicy({ value: "0", to: KNOWN_CONTRACT, gas: "300000" })).toEqual({ ok: true });
   });
 
   it("DENIES the drain: non-zero value to attacker EOA", () => {
@@ -86,5 +89,39 @@ describe("checkSponsorPolicy — combined gate", () => {
     const r = checkSponsorPolicy({ value: "0", to: ATTACKER_EOA });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toMatch(/allowlisted federation contract/);
+  });
+});
+
+describe("gas cap (PBA-L3c-011)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("refuses a request with no gas field (fail closed)", () => {
+    const r = checkSponsorPolicy({ value: "0", to: KNOWN_CONTRACT });
+    expect(r.ok).toBe(false);
+  });
+
+  it("accepts gas in (0, cap] and refuses 0, cap+1 and junk", () => {
+    const cap = relayMaxGas();
+    expect(cap).toBe(DEFAULT_RELAY_MAX_GAS);
+    expect(isSponsorableGas("1")).toBe(true);
+    expect(isSponsorableGas(cap.toString())).toBe(true);
+    expect(isSponsorableGas((cap + 1n).toString())).toBe(false);
+    expect(isSponsorableGas("0")).toBe(false);
+    expect(isSponsorableGas("1e6")).toBe(false);
+    expect(isSponsorableGas("-1")).toBe(false);
+    expect(isSponsorableGas("9".repeat(31))).toBe(false);
+    expect(checkSponsorPolicy({ value: "0", to: KNOWN_CONTRACT, gas: (cap + 1n).toString() })).toEqual({
+      ok: false,
+      error: `relay sponsors at most ${cap} gas per call`,
+    });
+  });
+
+  it("RELAY_MAX_GAS overrides only with a positive integer", () => {
+    vi.stubEnv("RELAY_MAX_GAS", "100000");
+    expect(relayMaxGas()).toBe(100_000n);
+    for (const bad of ["", "0", "-5", "abc", "1.5", "01"]) {
+      vi.stubEnv("RELAY_MAX_GAS", bad);
+      expect(relayMaxGas()).toBe(DEFAULT_RELAY_MAX_GAS);
+    }
   });
 });

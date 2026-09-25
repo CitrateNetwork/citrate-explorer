@@ -8,21 +8,21 @@
  * `request.from` address AND the client IP.
  *
  * Why not `src/lib/api/ratelimit.ts`? That helper is a per-second token bucket
- * (and its Upstash path is a hardcoded 1-second fixed window), built for burst
+ * (its Upstash path is a fixed window sized to the sustained rate), built for burst
  * control on cheap read endpoints. The relay needs a long (hourly) window with
  * a hard cap, so it gets its own sliding-window limiter here.
  *
  * Backend: in-memory Map of timestamps — per-instance and reset on cold start.
- * Acceptable for the MVP single-instance deploy; on a multi-instance/serverless
- * deploy each instance enforces the cap independently, so the effective global
- * cap is `limit × instances`. Move to a shared store (Upstash, with an
- * hour-long window) before scaling out.
+ * PBA-L3c-011: {@link checkRelayQuota} (what the route calls) ALSO enforces the
+ * subject + IP caps in the shared Upstash store when it is configured, with an
+ * hour-long window and fail-closed on store errors.
  *
  * Limits are env-overridable (`RELAY_MAX_PER_FROM_PER_HOUR`,
  * `RELAY_MAX_PER_IP_PER_HOUR`) with fail-closed parsing: a missing or
  * malformed value falls back to the conservative default — never to
  * "unlimited".
  */
+import { checkRateLimit, isDistributed } from "@/lib/api/ratelimit";
 
 export const RELAY_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 export const DEFAULT_MAX_PER_FROM_PER_HOUR = 30;
@@ -33,7 +33,7 @@ export interface RelayRateResult {
   /** Seconds until the oldest in-window hit expires (only when blocked). */
   retryAfter?: number;
   /** Which key tripped the limit (only when blocked). */
-  scope?: "from" | "ip";
+  scope?: "subject" | "from" | "ip";
 }
 
 /** Per-key request timestamps within the current window. */
@@ -95,5 +95,39 @@ export function checkRelayRateLimit(
   if (!byFrom.ok) return { ...byFrom, scope: "from" };
   const byIp = slidingWindowLimit(`relay:ip:${ip}`, ipLimit, now);
   if (!byIp.ok) return { ...byIp, scope: "ip" };
+  return { ok: true };
+}
+
+/**
+ * PBA-L3c-011: the full relay quota for an AUTHENTICATED caller.
+ *
+ *  1. per-subject (the verified session `sub`, verbatim — SR-0 case-sensitive),
+ *     so rotating the self-chosen `request.from` no longer mints fresh budget;
+ *  2. the existing per-`from` + per-IP sliding windows (per instance);
+ *  3. when the shared store is configured, the same subject and IP caps
+ *     enforced ACROSS instances, failing CLOSED on a store error (EX-B-008), so
+ *     the effective cap is no longer `limit × instances`.
+ *
+ * The per-subject limit reuses the per-from budget (`RELAY_MAX_PER_FROM_PER_HOUR`).
+ */
+export async function checkRelayQuota(
+  subject: string,
+  from: string,
+  ip: string,
+  now: number = Date.now(),
+): Promise<RelayRateResult> {
+  const { fromLimit, ipLimit } = relayLimits();
+  const bySubject = slidingWindowLimit(`relay:sub:${subject}`, fromLimit, now);
+  if (!bySubject.ok) return { ...bySubject, scope: "subject" };
+  const local = checkRelayRateLimit(from, ip, now);
+  if (!local.ok) return local;
+
+  if (isDistributed()) {
+    const hour = RELAY_WINDOW_MS / 1000;
+    const sharedSub = await checkRateLimit(`relay:sub:${subject}`, fromLimit / hour, fromLimit, { failClosed: true });
+    if (!sharedSub.ok) return { ok: false, retryAfter: sharedSub.retryAfter ?? 60, scope: "subject" };
+    const sharedIp = await checkRateLimit(`relay:ip:${ip}`, ipLimit / hour, ipLimit, { failClosed: true });
+    if (!sharedIp.ok) return { ok: false, retryAfter: sharedIp.retryAfter ?? 60, scope: "ip" };
+  }
   return { ok: true };
 }

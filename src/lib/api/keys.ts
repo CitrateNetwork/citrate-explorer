@@ -4,10 +4,29 @@
  * it up. Anonymous access is allowed at a lower rate (no key) so the API is
  * browsable; a valid key raises the limit.
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { apiKeys } from "@/lib/db/schema";
 import { hashApiKey } from "@/lib/crypto";
+import { checkRateLimit } from "@/lib/api/ratelimit";
+
+/**
+ * PBA-L3c-013: how many non-revoked keys one subject may hold. Every key used to
+ * get its own rate-limit bucket, so minting keys multiplied the caller's budget;
+ * the limiter is now keyed per OWNER (below) and the key count is capped too.
+ */
+export const MAX_ACTIVE_KEYS_PER_SUBJECT = 5;
+
+/** Count a subject's non-revoked keys. */
+export async function countActiveKeys(subject: string): Promise<number> {
+  const db = getDb();
+  if (!db) return 0;
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(apiKeys)
+    .where(and(eq(apiKeys.subject, subject), eq(apiKeys.revoked, false)));
+  return Number(row?.n ?? 0);
+}
 
 export interface KeyCheck {
   valid: boolean;
@@ -16,6 +35,8 @@ export interface KeyCheck {
   id: string;
   perSec: number;
   keyId?: number;
+  /** PBA-L3c-013: the key is real but its `quotaPerDay` is spent for today. */
+  quotaExceeded?: boolean;
 }
 
 export async function validateApiKey(rawKey: string | null, ip: string): Promise<KeyCheck> {
@@ -36,12 +57,23 @@ export async function validateApiKey(rawKey: string | null, ip: string): Promise
 
   if (!row) return { valid: false, anonymous: false, id: `bad:${ip}`, perSec: 0 };
 
+  // PBA-L3c-013: enforce the stored daily quota (a counter with a one-day
+  // window: `quota` per 86,400 s), shared across instances when Upstash is set.
+  // Fail-open on a store blip (degrades to a per-instance counter) so a Redis
+  // outage does not switch every keyed caller off.
+  const quota = row.quotaPerDay ?? 100_000;
+  const daily = await checkRateLimit(`quota:key:${row.id}`, quota / 86_400, quota);
+  if (!daily.ok) {
+    return { valid: false, anonymous: false, id: `quota:${row.id}`, perSec: 0, keyId: row.id, quotaExceeded: true };
+  }
+
   // Best-effort last-used stamp.
   void db.update(apiKeys).set({ lastUsed: new Date() }).where(eq(apiKeys.id, row.id)).catch(() => {});
   return {
     valid: true,
     anonymous: false,
-    id: `key:${row.id}`,
+    // PBA-L3c-013: one rate-limit bucket per OWNER, however many keys they mint.
+    id: `owner:${row.subject ?? row.userAddress}`,
     perSec: row.rateLimitPerSec ?? 5,
     keyId: row.id,
   };

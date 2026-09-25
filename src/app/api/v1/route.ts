@@ -2,7 +2,7 @@ import type { Address, Hex } from "viem";
 import { getChainStatus, getAddress, getBalance, getTransaction, getLogs, readContract } from "@/lib/harness/ops";
 import { harnessClient } from "@/lib/harness/client";
 import { citrateRequest } from "@/lib/citrate/rpc";
-import { isReadMethodAllowed } from "@/lib/harness/allowlist";
+import { guardProxyCall } from "@/lib/harness/allowlist";
 import { erc20Abi } from "@/lib/citrate/abi";
 import { searchTransactions } from "@/lib/indexer/repository";
 import { validateApiKey, extractApiKey, clientIp } from "@/lib/api/keys";
@@ -19,12 +19,18 @@ const ok = (result: unknown, message = "OK") => Response.json({ status: "1", mes
 const noData = (message = "No records found") => Response.json({ status: "0", message, result: [] });
 const fail = (message: string) => Response.json({ status: "0", message, result: null });
 const rpcOk = (result: unknown) => Response.json({ jsonrpc: "2.0", id: 1, result });
-const rpcErr = (message: string) => Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32600, message } });
+const rpcErr = (message: string, code = -32600) => Response.json({ jsonrpc: "2.0", id: 1, error: { code, message } });
 
 export async function GET(req: Request) {
   // Key + rate limit.
   const check = await validateApiKey(extractApiKey(req), clientIp(req));
   if (check.id.startsWith("bad:")) return fail("Invalid API Key");
+  if (check.quotaExceeded) {
+    return Response.json(
+      { status: "0", message: "Daily API key quota exceeded", result: null },
+      { status: 429, headers: { "retry-after": "3600" } },
+    );
+  }
   const rl = await checkRateLimit(check.id, check.perSec || 2);
   if (!rl.ok) {
     return Response.json(
@@ -40,9 +46,13 @@ export async function GET(req: Request) {
   try {
     // ---- proxy: JSON-RPC passthrough (allowlisted read methods) ----
     if (mod === "proxy") {
-      if (!isReadMethodAllowed(action)) return rpcErr(`method ${action} not allowed`);
       const params = buildProxyParams(action, p);
-      const result = await citrateRequest(harnessClient(), action, params);
+      if (params === null) return rpcErr("params is not valid JSON", -32602);
+      // One chokepoint: method allowlist + per-method bounds (PBA-L3c-039: a raw
+      // eth_getLogs must not bypass the ops.getLogs range/address/topic limits).
+      const guarded = guardProxyCall(action, params);
+      if (!guarded.ok) return rpcErr(guarded.error, guarded.code === -32601 ? -32600 : guarded.code);
+      const result = await citrateRequest(harnessClient(), action, guarded.params);
       return rpcOk(result);
     }
 
@@ -91,12 +101,17 @@ export async function GET(req: Request) {
       const address = p.get("address");
       const fromBlock = p.get("fromBlock");
       const toBlock = p.get("toBlock");
-      const logs = await getLogs({
-        address: isAddr(address) ? (address as Address) : undefined,
-        fromBlock: fromBlock && fromBlock !== "latest" ? BigInt(fromBlock) : undefined,
-        toBlock: toBlock && toBlock !== "latest" ? BigInt(toBlock) : undefined,
-      });
-      return logs.length ? ok(logs) : noData("No logs found");
+      // EX-B-004: a contract address and an explicit numeric range are required;
+      // ops.getLogs caps the span and chunks the RPC calls.
+      const from = parseBlock(fromBlock);
+      const to = parseBlock(toBlock);
+      if (!isAddr(address) || from === null || to === null) {
+        return fail("getLogs requires a contract address and explicit numeric fromBlock/toBlock");
+      }
+      const result = await getLogs({ address: address as Address, fromBlock: from, toBlock: to });
+      if (!result.logs.length) return noData("No logs found");
+      // Etherscan shape (array result); truncation is signalled in `message`.
+      return ok(result.logs, result.truncated ? "OK (truncated at 1000 logs; narrow the range)" : "OK");
     }
 
     // ---- stats ----
@@ -126,15 +141,23 @@ export async function GET(req: Request) {
 function isAddr(a: string | null): a is string {
   return !!a && /^0x[0-9a-fA-F]{40}$/.test(a);
 }
+/** A decimal or 0x-hex block number; block tags ("latest", "earliest") are refused. */
+function parseBlock(b: string | null): bigint | null {
+  if (!b || !/^(0x[0-9a-fA-F]{1,16}|[0-9]{1,20})$/.test(b)) return null;
+  return BigInt(b);
+}
 function isHash(h: string | null): h is string {
   return !!h && /^0x[0-9a-fA-F]{64}$/.test(h);
 }
 
-/** Map Etherscan proxy query params to JSON-RPC positional params. */
-function buildProxyParams(method: string, p: URLSearchParams): unknown[] {
+/**
+ * Map Etherscan proxy query params to JSON-RPC positional params. Returns null
+ * when an explicit `params` is not valid JSON (refused, never silently replaced).
+ */
+function buildProxyParams(method: string, p: URLSearchParams): unknown | null {
   const raw = p.get("params");
   if (raw) {
-    try { return JSON.parse(raw); } catch { /* fall through */ }
+    try { return JSON.parse(raw); } catch { return null; }
   }
   const tag = p.get("tag") || "latest";
   switch (method) {

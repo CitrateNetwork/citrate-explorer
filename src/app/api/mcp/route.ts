@@ -23,6 +23,8 @@ import { checkRateLimit } from "@/lib/api/ratelimit";
 
 const PROTOCOL_VERSION = "2025-06-18";
 const SERVER_INFO = { name: "citratescan", version: "1.1.0" };
+/** EX-B-003: a batch fans out into parallel tool calls, each hitting live RPC. */
+export const MAX_MCP_BATCH = 20;
 
 type Json = Record<string, unknown>;
 interface McpTool {
@@ -170,13 +172,37 @@ async function handleOne(msg: RpcReq, tools: Record<string, McpTool>): Promise<o
 /** POST — JSON-RPC 2.0 transport (single message or batch). */
 export async function POST(req: Request) {
   // Abuse guard: optional API key (higher limit) else anonymous per-IP limit,
-  // shared with /api/v1. MCP tools/call hits live RPC, so it must be bounded.
+  // shared with /api/v1. MCP tools/call hits live RPC, so it must be bounded —
+  // and a batch is charged one token PER MESSAGE (EX-B-003), not one per request.
   const ip = clientIp(req);
   const raw = extractApiKey(req);
   const keyInfo = raw ? await validateApiKey(raw, ip) : null;
-  const limitId = keyInfo?.valid ? `mcp:key:${keyInfo.keyId}` : `mcp:ip:${ip}`;
+  if (keyInfo?.quotaExceeded) {
+    return Response.json(rpcErr(null, -32000, "Daily API key quota exceeded"), {
+      status: 429,
+      headers: { "retry-after": "3600" },
+    });
+  }
+  // PBA-L3c-013: keyed callers share ONE bucket per owner (keyInfo.id), however
+  // many keys they hold.
+  const limitId = keyInfo?.valid ? `mcp:${keyInfo.id}` : `mcp:ip:${ip}`;
   const perSec = keyInfo?.valid ? keyInfo.perSec : 2;
-  const limited = await checkRateLimit(limitId, perSec);
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json(rpcErr(null, -32700, "Parse error"), { status: 400 });
+  }
+  if (Array.isArray(body) && body.length === 0) {
+    return Response.json(rpcErr(null, -32600, "Empty batch"), { status: 400 });
+  }
+  if (Array.isArray(body) && body.length > MAX_MCP_BATCH) {
+    return Response.json(rpcErr(null, -32600, `Batch exceeds the ${MAX_MCP_BATCH}-message limit`), { status: 400 });
+  }
+  const cost = Array.isArray(body) ? body.length : 1;
+
+  const limited = await checkRateLimit(limitId, perSec, undefined, { cost });
   if (!limited.ok) {
     return Response.json(rpcErr(null, -32000, "Rate limit exceeded"), {
       status: 429,
@@ -188,15 +214,7 @@ export async function POST(req: Request) {
   const subject = keyInfo?.valid ? `mcp:key:${keyInfo.keyId}` : undefined;
   const tools = buildTools(subject);
 
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return Response.json(rpcErr(null, -32700, "Parse error"), { status: 400 });
-  }
-
   if (Array.isArray(body)) {
-    if (body.length === 0) return Response.json(rpcErr(null, -32600, "Empty batch"), { status: 400 });
     const out = (await Promise.all(body.map((m) => handleOne(m as RpcReq, tools)))).filter(Boolean);
     if (out.length === 0) return new Response(null, { status: 204 });
     return Response.json(out);

@@ -1,5 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { POST } from "./route";
+
+// PBA-L3c-011: the relay requires a session; these policy tests run as a
+// signed-in subject (the auth seam itself is covered by src/lib/auth/*.test.ts).
+vi.mock("@/lib/auth/session", () => ({ requireOwner: vi.fn(async () => "policy-test-subject") }));
 import { CONTRACT_ADDRESSES } from "@/lib/citrate/addresses";
 
 // CIT-EXP-01 (RM-Q, 2026-09-06): the gasless relay must refuse to sponsor

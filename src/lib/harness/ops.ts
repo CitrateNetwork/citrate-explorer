@@ -8,6 +8,7 @@
  */
 import { formatEther, formatGwei, keccak256, parseAbiItem, type Abi, type Address, type Hex } from "viem";
 import { harnessClient } from "./client";
+import { assertLogRange, MAX_LOG_BLOCK_RANGE, MAX_LOG_CHUNK, MAX_LOG_RESULTS } from "./logBounds";
 import { getDagStats, isFinalized, type DagStats } from "@/lib/citrate/dag";
 import { getDagBlock, dagStats as liveDagStats, isFinal } from "@/lib/citrate/rpc";
 import { erc20Abi } from "@/lib/citrate/abi";
@@ -219,26 +220,61 @@ export async function isContract(address: Address): Promise<boolean> {
 }
 
 export interface LogQuery {
-  address?: Address;
-  fromBlock?: bigint | "earliest";
-  toBlock?: bigint | "latest";
+  address: Address;
+  fromBlock: bigint;
+  toBlock: bigint;
 }
 
-export async function getLogs(query: LogQuery = {}) {
+export interface LogsResult {
+  logs: Array<{
+    address: string;
+    topics: readonly string[];
+    data: string;
+    blockNumber: string | null;
+    txHash: string | null;
+    logIndex: number | null;
+  }>;
+  truncated: boolean;
+}
+
+/**
+ * Bounded event-log read (EX-B-004 / PBA-L3c-039): one contract, an explicit
+ * range of at most MAX_LOG_BLOCK_RANGE blocks, fetched in MAX_LOG_CHUNK-block
+ * RPC calls and truncated at MAX_LOG_RESULTS. There is deliberately no
+ * earliest..latest default.
+ */
+export async function getLogs(query: LogQuery): Promise<LogsResult> {
+  assertLogRange(query?.fromBlock, query?.toBlock, MAX_LOG_BLOCK_RANGE);
+  if (typeof query.address !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(query.address)) {
+    throw new Error("getLogs requires a contract address");
+  }
+
   const c = harnessClient();
-  const logs = await c.getLogs({
-    address: query.address,
-    fromBlock: query.fromBlock ?? "earliest",
-    toBlock: query.toBlock ?? "latest",
-  });
-  return logs.map((l) => ({
-    address: l.address,
-    topics: l.topics,
-    data: l.data,
-    blockNumber: l.blockNumber?.toString() ?? null,
-    txHash: l.transactionHash,
-    logIndex: l.logIndex,
-  }));
+  const result: LogsResult["logs"] = [];
+  let chunkFrom = query.fromBlock;
+  let truncated = false;
+  while (chunkFrom <= query.toBlock && !truncated) {
+    const chunkEnd = chunkFrom + MAX_LOG_CHUNK - 1n;
+    const chunkTo = chunkEnd < query.toBlock ? chunkEnd : query.toBlock;
+    const logs = await c.getLogs({ address: query.address, fromBlock: chunkFrom, toBlock: chunkTo });
+    for (const l of logs) {
+      if (result.length >= MAX_LOG_RESULTS) {
+        truncated = true;
+        break;
+      }
+      result.push({
+        address: l.address,
+        topics: l.topics,
+        data: l.data,
+        blockNumber: l.blockNumber?.toString() ?? null,
+        txHash: l.transactionHash,
+        logIndex: l.logIndex,
+      });
+    }
+    if (result.length >= MAX_LOG_RESULTS && chunkTo < query.toBlock) truncated = true;
+    chunkFrom = chunkTo + 1n;
+  }
+  return { logs: result, truncated };
 }
 
 /**

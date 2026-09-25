@@ -34,6 +34,15 @@ describe("rateLimit — in-memory token bucket", () => {
   });
 });
 
+describe("rateLimit — operation cost (EX-B-003)", () => {
+  it("charges a multi-operation request by its operation cost", () => {
+    const id = "test:operation-cost";
+    expect(rateLimit(id, 1, 5, 4).ok).toBe(true);
+    expect(rateLimit(id, 1, 5, 2).ok).toBe(false);
+    expect(rateLimit(id, 1, 5, 1).ok).toBe(true);
+  });
+});
+
 describe("checkRateLimit — backend selection", () => {
   it("reports not-distributed when no store is configured (test env)", () => {
     // UPSTASH_REDIS_REST_URL/_TOKEN are unset in the test env.
