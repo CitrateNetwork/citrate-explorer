@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireOwner } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/client";
 import { settings } from "@/lib/db/schema";
+import { checkSameOrigin } from "@/lib/security/sameOrigin";
 
 /**
  * E2EE user settings (P-6 WP-6.2). The client encrypts settings in the browser
@@ -27,6 +28,9 @@ export async function GET(req: Request) {
 const schema = z.object({ ciphertext: z.string().min(1), iv: z.string().min(1) });
 
 export async function PUT(req: Request) {
+  // PBA-L3c-018: cookie-authenticated mutation → same-origin only.
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   const owner = await requireOwner(req);
   if (!owner) return Response.json({ error: "unauthorized" }, { status: 401 });
   const db = getDb();

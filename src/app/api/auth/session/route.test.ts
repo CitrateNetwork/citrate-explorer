@@ -20,7 +20,8 @@ const NOW = Math.floor(Date.now() / 1000);
 function post(body: unknown, headers: Record<string, string> = {}): Request {
   return new Request("http://localhost/api/auth/session", {
     method: "POST",
-    headers: { "content-type": "application/json", ...headers },
+    // A browser's same-origin fetch POST always carries Origin (PBA-L3c-017).
+    headers: { "content-type": "application/json", origin: "http://localhost", ...headers },
     body: JSON.stringify(body),
   });
 }

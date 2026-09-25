@@ -15,6 +15,7 @@ import { checkRelayQuota } from "@/lib/relay/rateLimit";
 import { requireOwner } from "@/lib/auth/session";
 import { checkSponsorPolicy } from "@/lib/relay/policy";
 import { publicMessage } from "@/lib/api/errors";
+import { checkSameOrigin } from "@/lib/security/sameOrigin";
 
 /**
  * Gasless write relay (EIP-2771). The user signs an EIP-712 ForwardRequest in the
@@ -41,6 +42,9 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
+  // PBA-L3c-018: cookie-authenticated mutation → same-origin only.
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return Response.json(

@@ -6,6 +6,7 @@ import { countActiveKeys, MAX_ACTIVE_KEYS_PER_SUBJECT } from "@/lib/api/keys";
 import { getDb } from "@/lib/db/client";
 import { apiKeys } from "@/lib/db/schema";
 import { generateApiKey, hashApiKey } from "@/lib/crypto";
+import { checkSameOrigin } from "@/lib/security/sameOrigin";
 
 /**
  * API-key management (hybrid storage): we store only a salted hash, so a new key
@@ -47,6 +48,9 @@ const mintSchema = z.object({
 
 /** Issue a new API key. The raw key is returned ONCE; only its hash is stored. */
 export async function POST(req: Request) {
+  // PBA-L3c-018: cookie-authenticated mutation → same-origin only.
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   const owner = await requireOwner(req);
   if (!owner) return Response.json({ error: "unauthorized" }, { status: 401 });
   const db = getDb();
@@ -95,6 +99,9 @@ export async function POST(req: Request) {
 
 /** Revoke (delete) one of the caller's API keys by id. */
 export async function DELETE(req: Request) {
+  // PBA-L3c-018: cookie-authenticated mutation → same-origin only.
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   const owner = await requireOwner(req);
   if (!owner) return Response.json({ error: "unauthorized" }, { status: 401 });
   const db = getDb();

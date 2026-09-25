@@ -11,6 +11,7 @@ import { verifySession } from "@/lib/auth/session";
 import { checkRateLimit } from "@/lib/api/ratelimit";
 import { clientIp } from "@/lib/api/keys";
 import { createThread, createThreadWithId, ownsThread, appendMessage } from "@/lib/db/conversations";
+import { checkSameOrigin } from "@/lib/security/sameOrigin";
 
 /** Plain text from an AI SDK UIMessage (concatenated text parts). */
 function uiText(m: UIMessage | undefined): string {
@@ -30,6 +31,9 @@ export const maxDuration = 300;
  * before composing the final answer. READ-ONLY: there is no write/sign tool.
  */
 export async function POST(req: Request) {
+  // PBA-L3c-018: cookie-authenticated mutation → same-origin only.
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   // Auth gate via the auth seam (OIDC RP). When an authority is configured the
   // session is required + JWKS-verified; in local/mock dev the gate is open and
   // the mock identity scopes the audit log. No provider-specific code here.

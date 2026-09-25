@@ -8,8 +8,8 @@
  *    cleared) when there is no refresh token or the authority rejects it
  *    (expired / revoked / rotated away).
  *
- * CSRF: cookies are SameSite=Strict; the mutating verb also rejects cross-site
- * callers via Sec-Fetch-Site (same posture as /api/auth/session).
+ * CSRF: cookies are SameSite=Strict; the mutating verb goes through
+ * checkSameOrigin (same posture as /api/auth/session).
  */
 import {
   REFRESH_COOKIE,
@@ -20,14 +20,10 @@ import {
 } from "@/lib/auth/cookies";
 import { buildSessionCookies, claimNames } from "@/lib/auth/refresh";
 import { serverOidcEndpoints, serverClientId } from "@/lib/auth/discovery.server";
+import { checkSameOrigin } from "@/lib/security/sameOrigin";
 
 export const runtime = "nodejs";
 
-/** Reject plainly cross-site requests on mutating verbs (defense in depth). */
-function crossSite(req: Request): boolean {
-  const site = req.headers.get("sec-fetch-site");
-  return site !== null && site !== "same-origin" && site !== "none";
-}
 
 function clearedResponse(status: number, error: string): Response {
   const headers = new Headers({ "content-type": "application/json" });
@@ -38,9 +34,10 @@ function clearedResponse(status: number, error: string): Response {
 }
 
 export async function POST(req: Request): Promise<Response> {
-  if (crossSite(req)) {
-    return Response.json({ error: "cross-site request rejected" }, { status: 403 });
-  }
+  // PBA-L3c-017/-018: Origin + Sec-Fetch-Site (and, for login, a JSON body
+  // and a mandatory browser signal) — closes login CSRF and same-site forgery.
+  const csrf = checkSameOrigin(req, { requireBrowserSignal: true });
+  if (csrf) return csrf;
   const refreshToken = cookieValue(req, REFRESH_COOKIE);
   if (!refreshToken) {
     return Response.json({ ok: false, error: "no refresh token" }, { status: 401 });

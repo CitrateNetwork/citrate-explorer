@@ -1,5 +1,6 @@
 import { verifySession } from "@/lib/auth/session";
 import { listThreads, createThread } from "@/lib/db/conversations";
+import { checkSameOrigin } from "@/lib/security/sameOrigin";
 
 /**
  * The signed-in user's conversation threads (WS-4). Auth-gated; ownership-scoped
@@ -16,6 +17,9 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  // PBA-L3c-018: cookie-authenticated mutation → same-origin only.
+  const csrf = checkSameOrigin(req);
+  if (csrf) return csrf;
   const auth = await verifySession(req);
   if (auth.required && !auth.authenticated) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
