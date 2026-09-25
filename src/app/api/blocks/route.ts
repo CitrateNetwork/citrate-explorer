@@ -3,6 +3,7 @@ import { harnessClient } from "@/lib/harness/client";
 import { getDagBlock } from "@/lib/citrate/rpc";
 import { cachedRead } from "@/lib/api/cache";
 import { publicMessage } from "@/lib/api/errors";
+import { limitPublicRead } from "@/lib/api/publicRead";
 
 /**
  * Recent blocks. Prefers the indexer (fast, blue_score-ordered) — but ONLY when
@@ -32,7 +33,10 @@ async function liveRecent() {
   return { head, blocks };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  // PBA-L3c-019: shared per-IP budget for public reads.
+  const limited = await limitPublicRead(req);
+  if (limited) return limited;
   const indexed = await getRecentBlocks(N);
 
   if (Array.isArray(indexed) && indexed.length) {

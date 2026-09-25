@@ -6,14 +6,18 @@ import {
   addressTokenTransfers,
 } from "@/lib/indexer/repository";
 import { publicMessage } from "@/lib/api/errors";
+import { limitPublicRead } from "@/lib/api/publicRead";
 
 /** Address page: live balance/nonce/code (RPC) + indexed activity, recent txs, and token transfers.
  *  Token transfers are included so a relayer-funded, nonce-0 recipient (an SBT mint / grant transfer,
  *  never a tx sender) still resolves with real on-chain history instead of an empty page. */
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ addr: string }> },
 ) {
+  // PBA-L3c-019: shared per-IP budget for public reads.
+  const limited = await limitPublicRead(req);
+  if (limited) return limited;
   const { addr } = await ctx.params;
   if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) {
     return Response.json({ error: "invalid address" }, { status: 400 });

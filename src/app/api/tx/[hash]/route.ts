@@ -2,6 +2,7 @@ import type { Hex } from "viem";
 import { getTransaction } from "@/lib/harness/ops";
 import { getDagBlock, dagStats, isFinal } from "@/lib/citrate/rpc";
 import { publicMessage } from "@/lib/api/errors";
+import { limitPublicRead } from "@/lib/api/publicRead";
 
 /**
  * Transaction detail (tx + receipt) by hash, enriched with its block's timestamp
@@ -10,9 +11,12 @@ import { publicMessage } from "@/lib/api/errors";
  * indexer + the AI agent's explainTransaction (P-2); this returns the core facts. (P-1)
  */
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ hash: string }> },
 ) {
+  // PBA-L3c-019: shared per-IP budget for public reads.
+  const limited = await limitPublicRead(req);
+  if (limited) return limited;
   const { hash } = await ctx.params;
   if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) {
     return Response.json({ error: "invalid tx hash" }, { status: 400 });

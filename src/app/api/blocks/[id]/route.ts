@@ -1,6 +1,7 @@
 import type { Hex } from "viem";
 import { getDagBlock, dagStats, isFinal } from "@/lib/citrate/rpc";
 import { publicMessage } from "@/lib/api/errors";
+import { limitPublicRead } from "@/lib/api/publicRead";
 
 /**
  * Block detail by height (number) or 0x block hash — DAG-rich: exposes
@@ -8,9 +9,12 @@ import { publicMessage } from "@/lib/api/errors";
  * fields), which the explorer's block page needs. (P-1)
  */
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
+  // PBA-L3c-019: shared per-IP budget for public reads.
+  const limited = await limitPublicRead(req);
+  if (limited) return limited;
   const { id } = await ctx.params;
   try {
     const ref = id.startsWith("0x") ? (id as Hex) : Number(id);

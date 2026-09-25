@@ -1,6 +1,7 @@
 import type { Address, Hex } from "viem";
 import { getAddress, getTransaction, getBlock } from "@/lib/harness/ops";
 import { publicMessage } from "@/lib/api/errors";
+import { limitPublicRead } from "@/lib/api/publicRead";
 
 /**
  * Omni-search resolver. Classifies the query by shape and resolves it to a
@@ -8,6 +9,9 @@ import { publicMessage } from "@/lib/api/errors";
  * language for the agent (DESIGN_HARNESS_AND_SETTINGS.md §A6).
  */
 export async function GET(req: Request) {
+  // PBA-L3c-019: shared per-IP budget for public reads.
+  const limited = await limitPublicRead(req);
+  if (limited) return limited;
   const q = new URL(req.url).searchParams.get("q")?.trim() ?? "";
   if (!q) return Response.json({ error: "missing ?q" }, { status: 400 });
 

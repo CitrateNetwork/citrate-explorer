@@ -3,6 +3,7 @@ import { getAddress, getContractCode, getToken } from "@/lib/harness/ops";
 import { getVerifiedContract } from "@/lib/verify/engine";
 import { verificationBadge } from "@/lib/verify/badge";
 import { publicMessage } from "@/lib/api/errors";
+import { limitPublicRead } from "@/lib/api/publicRead";
 
 /**
  * Contract page data: confirms the address holds bytecode and returns the REAL
@@ -12,9 +13,12 @@ import { publicMessage } from "@/lib/api/errors";
  * address with eth_getCode before treating it as a contract (Rule 11).
  */
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ addr: string }> },
 ) {
+  // PBA-L3c-019: shared per-IP budget for public reads.
+  const limited = await limitPublicRead(req);
+  if (limited) return limited;
   const { addr } = await ctx.params;
   if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) {
     return Response.json({ error: "invalid address" }, { status: 400 });
