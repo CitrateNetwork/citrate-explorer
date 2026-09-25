@@ -212,3 +212,32 @@ describe("checkRelayQuota shared store (mutation kills)", () => {
     expect(f).not.toHaveBeenCalled();
   });
 });
+
+describe("checkRelayQuota fails closed on a store error (mutation kill)", () => {
+  it("a store error denies (subject scope first)", async () => {
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://upstash.invalid");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "t");
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("store down");
+    }));
+    vi.resetModules();
+    const { checkRelayQuota } = await import("@/lib/relay/rateLimit");
+    const r = await checkRelayQuota(`fc-${Math.random()}`, "0x" + "9".repeat(40), "9.9.9.9");
+    expect(r).toMatchObject({ ok: false, scope: "subject" });
+  });
+
+  it("a store error on the IP check denies too", async () => {
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://upstash.invalid");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "t");
+    let n = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      n += 1;
+      if (n === 1) return new Response(JSON.stringify([{ result: 1 }, { result: 1 }]), { status: 200 });
+      throw new Error("store down");
+    }));
+    vi.resetModules();
+    const { checkRelayQuota } = await import("@/lib/relay/rateLimit");
+    const r = await checkRelayQuota(`fc2-${Math.random()}`, "0x" + "8".repeat(40), "9.9.9.8");
+    expect(r).toMatchObject({ ok: false, scope: "ip" });
+  });
+});

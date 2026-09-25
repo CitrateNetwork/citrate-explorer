@@ -302,3 +302,25 @@ describe("quota and bad keys at the API surfaces (mutation kills)", () => {
     expect(db.state.selectResults).toHaveLength(1); // the query key was never looked up
   });
 });
+
+describe("mint throttle fails closed on a store error (mutation kill)", () => {
+  it("429 when Upstash is configured but unreachable", async () => {
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://upstash.invalid");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "t");
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("store down");
+    }));
+    vi.resetModules();
+    try {
+      const { POST: FRESH } = await import("./route");
+      db.state.selectResults.push([{ n: 0 }]);
+      const res = await FRESH(new Request("http://x/api/keys", { method: "POST", headers: { "x-test-sub": `fc-${Math.random()}` }, body: "{}" }));
+      expect(res.status).toBe(429);
+      expect(db.state.inserts).toHaveLength(0);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  });
+});

@@ -51,6 +51,7 @@ describe("ratelimit.ts", () => {
 
   it.each([
     ["a non-2xx store response", () => new Response("no", { status: 500 })],
+    ["a non-2xx store response with a well-formed body", () => new Response(JSON.stringify([{ result: 1 }, { result: 1 }]), { status: 500 })],
     ["a malformed store body", () => new Response(JSON.stringify([{}]), { status: 200 })],
     ["an empty store body", () => new Response(JSON.stringify(null), { status: 200 })],
   ])("%s degrades to the memory bucket (fail open) and denies when failClosed", async (_n, make) => {

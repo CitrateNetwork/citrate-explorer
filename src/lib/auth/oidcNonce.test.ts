@@ -56,6 +56,11 @@ describe("nonce encoding details (mutation kills)", () => {
     expect(() => idTokenFromTokenResponse({ id_token: `${h}.${p}.s.x` }, "n")).toThrow(/nonce/);
     expect(() => idTokenFromTokenResponse({ id_token: 5 }, "n")).toThrow(/no id_token/);
   });
+  it("refuses a token whose payload is not JSON", () => {
+    const junk = `eyJhbGciOiJSUzI1NiJ9.${Buffer.from("not json").toString("base64url")}.sig`;
+    expect(() => idTokenFromTokenResponse({ id_token: junk }, "n")).toThrow(/nonce/);
+  });
+
   it("uses a namespaced storage key", async () => {
     const { OIDC_NONCE_KEY } = await import("./oidcNonce");
     expect(OIDC_NONCE_KEY).toBe("citrate.auth.oidc.nonce");
