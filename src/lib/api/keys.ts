@@ -35,6 +35,8 @@ export interface KeyCheck {
   id: string;
   perSec: number;
   keyId?: number;
+  /** PBA-L3c-034: the owning OIDC subject (audit attribution), verbatim. */
+  subject?: string;
   /** PBA-L3c-013: the key is real but its `quotaPerDay` is spent for today. */
   quotaExceeded?: boolean;
 }
@@ -76,14 +78,22 @@ export async function validateApiKey(rawKey: string | null, ip: string): Promise
     id: `owner:${row.subject ?? row.userAddress}`,
     perSec: row.rateLimitPerSec ?? 5,
     keyId: row.id,
+    subject: row.subject ?? row.userAddress,
   };
 }
 
-/** Extract the apikey from query (?apikey=) or Bearer header. */
-export function extractApiKey(req: Request): string | null {
-  const url = new URL(req.url);
-  const q = url.searchParams.get("apikey");
-  if (q) return q;
+/**
+ * Extract the apikey from query (?apikey=) or Bearer header.
+ *
+ * PBA-L3c-034: a key in a URL lands in access logs, proxies and Referer headers.
+ * `?apikey=` is kept only where Etherscan-compatible tooling needs it (/api/v1);
+ * other surfaces pass `{ allowQuery: false }` and take the header only.
+ */
+export function extractApiKey(req: Request, opts: { allowQuery?: boolean } = {}): string | null {
+  if (opts.allowQuery !== false) {
+    const q = new URL(req.url).searchParams.get("apikey");
+    if (q) return q;
+  }
   const auth = req.headers.get("authorization");
   if (auth) return auth.replace(/^Bearer\s+/i, "");
   return null;
