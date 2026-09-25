@@ -29,6 +29,13 @@
       "when": 1780968362081,
       "tag": "0003_ra3_token_transfers",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790348298953,
+      "tag": "0004_pba_r2_hmac_api_keys",
+      "breakpoints": true
     }
   ]
 }

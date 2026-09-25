@@ -46,6 +46,28 @@ describe("issued API keys (hash-only)", () => {
     expect(verifyApiKey("cscan_wrong", hash)).toBe(false);
   });
 
+  it("is HMAC-SHA256 under the pepper (PBA R2), not SHA-256(pepper:key)", async () => {
+    const { createHmac, createHash } = await import("node:crypto");
+    const key = generateApiKey();
+    const pepper = process.env.API_KEY_PEPPER as string;
+    expect(hashApiKey(key)).toBe(createHmac("sha256", pepper).update(key).digest("hex"));
+    expect(hashApiKey(key)).not.toBe(createHash("sha256").update(`${pepper}:${key}`).digest("hex"));
+    const saved = process.env.API_KEY_PEPPER;
+    try {
+      process.env.API_KEY_PEPPER = `${pepper}x`;
+      expect(hashApiKey(key)).not.toBe(createHmac("sha256", pepper).update(key).digest("hex"));
+    } finally {
+      process.env.API_KEY_PEPPER = saved;
+    }
+  });
+
+  it("migration 0004 revokes every pre-HMAC key", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const sql = readFileSync(join(__dirname, "db", "migrations", "0004_pba_r2_hmac_api_keys.sql"), "utf8");
+    expect(sql).toMatch(/UPDATE "api_keys" SET "revoked" = true WHERE "revoked" = false;/);
+  });
+
   // EX-B-010: the pepper must be REQUIRED — an unset/empty pepper must throw
   // (fail closed), never silently degrade to a bare unsalted SHA-256. Mirrors
   // the fail-secure posture of APP_MASTER_KEY.

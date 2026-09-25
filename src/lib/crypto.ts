@@ -5,7 +5,7 @@
  * Three data classes, three postures:
  *  1. User settings / logins → E2EE (handled client-side; see crypto-client.ts).
  *     The server only ever stores opaque ciphertext it cannot read.
- *  2. OUR issued API keys → hashed (salted SHA-256 + pepper), shown once, never
+ *  2. OUR issued API keys → hashed (HMAC-SHA256 under a server pepper), shown once, never
  *     recoverable. `hashApiKey` here; we compare hashes on every API request.
  *  3. Third-party provider keys the agent must USE server-side → AES-256-GCM at
  *     rest with a per-user key derived from `APP_MASTER_KEY` + wallet. `sealForUser`
@@ -17,7 +17,7 @@
 import {
   createCipheriv,
   createDecipheriv,
-  createHash,
+  createHmac,
   hkdfSync,
   randomBytes,
   timingSafeEqual,
@@ -151,10 +151,17 @@ function requirePepper(): string {
   return pepper;
 }
 
-/** Salted SHA-256 (+ required server pepper) hash of an issued API key. */
+/**
+ * Keyed hash of an issued API key: HMAC-SHA256 under the required server pepper.
+ *
+ * PBA R2 (CodeQL js/insufficient-password-hash): this was SHA-256(pepper ":" key). Keys are
+ * 192-bit random tokens (generateApiKey), and HMAC is the correct keyed construction for them;
+ * a database read without the pepper is useless offline. Stored pre-HMAC hashes cannot be
+ * converted (the raw keys are never stored), so migration 0004 revokes them; users re-mint.
+ */
 export function hashApiKey(rawKey: string): string {
   const pepper = requirePepper();
-  return createHash("sha256").update(`${pepper}:${rawKey}`).digest("hex");
+  return createHmac("sha256", pepper).update(rawKey).digest("hex");
 }
 
 /** Constant-time comparison of a presented key against a stored hash. */
