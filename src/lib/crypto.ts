@@ -144,6 +144,11 @@ export const API_KEY_RE = /^cscan_[A-Za-z0-9_-]{32}$/;
  * rather than degrading the hash. The hash construction itself is unchanged, so
  * hashes stored under a configured pepper keep verifying.
  */
+/** True when API_KEY_PEPPER is set, i.e. API keys can be hashed. Callers answer 503 otherwise. */
+export function apiKeyPepperConfigured(): boolean {
+  return Boolean(process.env.API_KEY_PEPPER);
+}
+
 function requirePepper(): string {
   const pepper = process.env.API_KEY_PEPPER;
   if (!pepper || pepper.length === 0) {

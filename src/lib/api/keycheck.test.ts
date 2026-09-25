@@ -81,3 +81,47 @@ describe("API-key KDF gating", () => {
     }
   });
 });
+
+describe("key-check budget fails closed; missing pepper is a clean 503", () => {
+  it("M2: a shared-store error on the key-check budget refuses the key and skips the KDF", async () => {
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://upstash.invalid");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "t");
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("store down");
+    }));
+    vi.resetModules();
+    try {
+      const { validateApiKey: fresh } = await import("./keys");
+      expect(await fresh(K("s"), "7.7.5.1")).toMatchObject({ valid: false, throttled: true, id: "throttle:7.7.5.1" });
+      expect(h.calls).toBe(0);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  });
+
+  it("no API_KEY_PEPPER: a well-formed key is reported unavailable, not thrown, and never hashed", async () => {
+    const saved = process.env.API_KEY_PEPPER;
+    delete process.env.API_KEY_PEPPER;
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await validateApiKey(K("p"), "7.7.6.1")).toMatchObject({ valid: false, unavailable: true, id: "unavailable:7.7.6.1" });
+      expect(h.calls).toBe(0);
+      const { GET } = await import("@/app/api/v1/route");
+      const v1 = await GET(new Request(`http://x/api/v1?module=foo&action=bar&apikey=${K("p")}`, { headers: { "x-forwarded-for": "7.7.6.2" } }));
+      expect(v1.status).toBe(503);
+      expect(await v1.json()).toEqual({ status: "0", message: "API key service unavailable", result: null });
+      const { POST: MCP } = await import("@/app/api/mcp/route");
+      const mcp = await MCP(new Request("http://x/api/mcp", { method: "POST", headers: { authorization: `Bearer ${K("p")}`, "x-forwarded-for": "7.7.6.3" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) }));
+      expect(mcp.status).toBe(503);
+      expect((await mcp.json()).error).toEqual({ code: -32000, message: "API key service unavailable" });
+      // Anonymous traffic is unaffected.
+      const anon = await GET(new Request("http://x/api/v1?module=foo&action=bar", { headers: { "x-forwarded-for": "7.7.6.4" } }));
+      expect(anon.status).toBe(200);
+    } finally {
+      process.env.API_KEY_PEPPER = saved;
+      err.mockRestore();
+    }
+  });
+});

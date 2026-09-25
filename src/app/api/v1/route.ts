@@ -25,6 +25,12 @@ const rpcErr = (message: string, code = -32600) => Response.json({ jsonrpc: "2.0
 export async function GET(req: Request) {
   // Key + rate limit.
   const check = await validateApiKey(extractApiKey(req), clientIp(req));
+  if (check.unavailable) {
+    return Response.json(
+      { status: "0", message: "API key service unavailable", result: null },
+      { status: 503, headers: { "retry-after": "60" } },
+    );
+  }
   if (check.throttled) {
     return Response.json(
       { status: "0", message: "Max rate limit reached", result: null },
