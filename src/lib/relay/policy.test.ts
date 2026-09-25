@@ -125,3 +125,11 @@ describe("gas cap (PBA-L3c-011)", () => {
     }
   });
 });
+
+describe("RELAY_MAX_GAS parsing (mutation kills)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it("tolerates surrounding whitespace", () => {
+    vi.stubEnv("RELAY_MAX_GAS", " 250000 ");
+    expect(relayMaxGas()).toBe(250_000n);
+  });
+});

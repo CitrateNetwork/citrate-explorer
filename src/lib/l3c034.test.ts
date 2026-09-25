@@ -35,6 +35,19 @@ describe("(a) per-user key is case-sensitive (SR-0)", () => {
     expect(() => openForUser(sealed, "alice")).toThrow();
   });
 
+  it("new seals use the v2 (domain-separated) key, never the v1 derivation", async () => {
+    const { sealForUser } = await import("@/lib/crypto");
+    const { createDecipheriv } = await import("node:crypto");
+    // Even for an already-lower-case owner, a v2 seal must NOT open under the v1 key.
+    const sealed = sealForUser("secret", "bob");
+    const v1 = Buffer.from(
+      hkdfSync("sha256", Buffer.from(process.env.APP_MASTER_KEY!, "base64"), Buffer.from("citrate-explorer:bob"), Buffer.from("citrate-explorer-secret-v1"), 32),
+    );
+    const d = createDecipheriv("aes-256-gcm", v1, Buffer.from(sealed.iv, "base64"), { authTagLength: 16 });
+    d.setAuthTag(Buffer.from(sealed.authTag, "base64"));
+    expect(() => Buffer.concat([d.update(Buffer.from(sealed.ciphertext, "base64")), d.final()])).toThrow();
+  });
+
   it("legacy (v1, lower-cased) payloads still open for their owner", async () => {
     const { openForUser } = await import("@/lib/crypto");
     expect(openForUser(sealV1("legacy", "Bob"), "Bob")).toBe("legacy");
@@ -42,11 +55,14 @@ describe("(a) per-user key is case-sensitive (SR-0)", () => {
 });
 
 describe("(b)+(c) MCP key identity", () => {
-  it("MCP ignores ?apikey= (header only); v1 keeps it for Etherscan compatibility", async () => {
+  it("extractApiKey: allowQuery:false ignores ?apikey=; the default keeps it (v1 Etherscan compat)", async () => {
     const { extractApiKey } = await import("@/lib/api/keys");
     const req = new Request("http://x/api/mcp?apikey=QKEY");
     expect(extractApiKey(req, { allowQuery: false })).toBeNull();
     expect(extractApiKey(req)).toBe("QKEY");
+  });
+
+  it("MCP ignores ?apikey= (source: header only)", () => {
     const src = readFileSync(join(__dirname, "..", "app", "api", "mcp", "route.ts"), "utf8");
     expect(src).toMatch(/extractApiKey\(req,\s*\{\s*allowQuery:\s*false\s*\}\)/);
   });

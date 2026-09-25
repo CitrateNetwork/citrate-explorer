@@ -62,6 +62,35 @@ describe("checkSameOrigin decision table", () => {
   });
 });
 
+describe("checkSameOrigin details (mutation kills)", () => {
+  const U = "https://explorer.citrate.ai/api/x";
+  it("403 bodies name the failing signal", async () => {
+    const body = async (h: Record<string, string>, o = {}) => (await checkSameOrigin(req("POST", U, h), o)!.json()).error;
+    expect(await body({ "sec-fetch-site": "cross-site" })).toBe("cross-origin request rejected (sec-fetch-site)");
+    expect(await body({ origin: "https://evil.example" })).toBe("cross-origin request rejected (origin)");
+    expect(await body({ cookie: COOKIE })).toBe("cross-origin request rejected (no origin signal)");
+  });
+  it("only a real `Bearer <token>` header exempts a cookie-carrying request", () => {
+    const with_ = (auth: string) => checkSameOrigin(req("POST", U, { authorization: auth, cookie: COOKIE }));
+    expect(with_("Bearer abc")).toBeNull();
+    expect(with_("Bearer  abc")).toBeNull();
+    expect(with_("bearer abc")).toBeNull();
+    expect(with_("Bearer ")?.status).toBe(403);
+    expect(with_("Bearerabc")?.status).toBe(403);
+    expect(with_("Token Bearer abc")?.status).toBe(403);
+    expect(with_("Basic dXNlcg==")?.status).toBe(403);
+  });
+  it("content-type matching ignores case and parameters; the 415 says why", async () => {
+    const ok = (ct: string) => checkSameOrigin(req("POST", U, { "sec-fetch-site": "same-origin", "content-type": ct }), { requireJson: true });
+    expect(ok("Application/JSON")).toBeNull();
+    expect(ok(" application/json ;charset=utf-8")).toBeNull();
+    const r = ok("application/jsonx");
+    expect(r?.status).toBe(415);
+    expect(await r!.json()).toEqual({ error: "content-type must be application/json" });
+    expect(checkSameOrigin(req("POST", U, { "sec-fetch-site": "same-origin" }), { requireJson: true })?.status).toBe(415);
+  });
+});
+
 describe("login CSRF on /api/auth/session (PBA-L3c-017)", () => {
   it("the audit PoC (text/plain, foreign Origin, no Sec-Fetch-Site) is refused and plants no cookie", async () => {
     const { POST } = await import("@/app/api/auth/session/route");

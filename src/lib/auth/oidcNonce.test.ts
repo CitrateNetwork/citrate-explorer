@@ -35,6 +35,33 @@ describe("idTokenFromTokenResponse", () => {
   });
 });
 
+describe("nonce encoding details (mutation kills)", () => {
+  it("newNonce is 32 random bytes in unpadded base64url (43 chars, no + / =)", () => {
+    for (let i = 0; i < 200; i++) {
+      const n = newNonce();
+      expect(n).toHaveLength(43);
+      expect(n).not.toMatch(/[+/=]/);
+    }
+  });
+  it("decodes base64url payloads that contain - and _", () => {
+    // "?>?" and "~~~" produce '_' and '-' in base64url.
+    const nonce = "?>?~~~?>?";
+    const t = jwt({ sub: "a", nonce });
+    expect(t.split(".")[1]).toMatch(/[-_]/);
+    expect(idTokenFromTokenResponse({ id_token: t }, nonce)).toBe(t);
+  });
+  it("refuses a 2-part or 4-part token and a non-string id_token", () => {
+    const [h, p] = jwt({ nonce: "n" }).split(".");
+    expect(() => idTokenFromTokenResponse({ id_token: `${h}.${p}` }, "n")).toThrow(/nonce/);
+    expect(() => idTokenFromTokenResponse({ id_token: `${h}.${p}.s.x` }, "n")).toThrow(/nonce/);
+    expect(() => idTokenFromTokenResponse({ id_token: 5 }, "n")).toThrow(/no id_token/);
+  });
+  it("uses a namespaced storage key", async () => {
+    const { OIDC_NONCE_KEY } = await import("./oidcNonce");
+    expect(OIDC_NONCE_KEY).toBe("citrate.auth.oidc.nonce");
+  });
+});
+
 describe("source tripwire (PBA-L3c-033)", () => {
   const root = join(__dirname, "..", "..");
   it("the login request carries a nonce", () => {
