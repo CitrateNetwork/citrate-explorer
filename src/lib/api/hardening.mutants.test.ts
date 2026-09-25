@@ -115,3 +115,18 @@ describe("extractApiKey", () => {
     expect(extractApiKey(new Request("http://x/api/mcp?apikey=QK"), { allowQuery: true })).toBe("QK");
   });
 });
+
+describe("/api/v1 429 carries the limiter's retryAfter (verifier K4)", () => {
+  it("retry-after is the limiter value, not a constant", async () => {
+    vi.resetModules();
+    vi.doMock("@/lib/api/ratelimit", () => ({ checkRateLimit: async () => ({ ok: false, retryAfter: 3 }) }));
+    try {
+      const { GET } = await import("@/app/api/v1/route");
+      const r = await GET(new Request("http://x/api/v1?module=proxy&action=eth_blockNumber"));
+      expect(r.status).toBe(429);
+      expect(r.headers.get("retry-after")).toBe("3");
+    } finally {
+      vi.doUnmock("@/lib/api/ratelimit");
+    }
+  });
+});

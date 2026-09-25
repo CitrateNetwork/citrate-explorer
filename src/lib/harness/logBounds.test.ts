@@ -173,3 +173,16 @@ describe("guardProxyCall", () => {
     expect(guardProxyCall("eth_getLogs", [base])).toEqual({ ok: true, params: [base] });
   });
 });
+
+describe("type guards are not redundant with the regexes (verifier K1-K3)", () => {
+  // RegExp.test coerces ["0x0"] to "0x0", so only the typeof checks reject array-wrapped fields.
+  it("refuses array-wrapped fromBlock/toBlock", () => {
+    expect(checkProxyGetLogs([{ address: ADDR, fromBlock: ["0x0"], toBlock: ["0x1"] }]).ok).toBe(false);
+  });
+  it("refuses a nested topic alternative", () => {
+    expect(checkProxyGetLogs([{ ...base, topics: [[[W]]] }]).ok).toBe(false);
+  });
+  it("refuses an array-wrapped blockHash", () => {
+    expect(checkProxyGetLogs([{ address: ADDR, blockHash: [W] }]).ok).toBe(false);
+  });
+});

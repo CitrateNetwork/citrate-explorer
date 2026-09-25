@@ -31,7 +31,7 @@ committed. Full list + how-to-generate in `.env.example`.
 
 | Var | Scope | Prod value / note |
 |---|---|---|
-| `NEXT_PUBLIC_SITE_URL` | public | `https://explorer.citrate.ai` |
+| `NEXT_PUBLIC_SITE_URL` | public | `https://explorer.citrate.ai`. Also an allowed `Origin` for cookie-auth mutations (PBA-L3c-017/018 same-origin guard): if the app is served under an alias host (e.g. `citratescan.ai`), either 308-redirect the alias to this canonical host or set this var to the host users actually browse, or sign-in and settings writes from the alias will 403. |
 | `NEXT_PUBLIC_DEMO` | public | **`0`** — drop the sample fallback; live data only |
 | `NEXT_PUBLIC_CITRATE_CHAIN_ID` | public | `40204` |
 | `NEXT_PUBLIC_CITRATE_RPC_URL` | public | `https://rpc.citrate.ai` |
