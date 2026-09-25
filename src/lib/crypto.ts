@@ -5,7 +5,7 @@
  * Three data classes, three postures:
  *  1. User settings / logins → E2EE (handled client-side; see crypto-client.ts).
  *     The server only ever stores opaque ciphertext it cannot read.
- *  2. OUR issued API keys → hashed (HMAC-SHA256 under a server pepper), shown once, never
+ *  2. OUR issued API keys → hashed (scrypt, salted with a server pepper), shown once, never
  *     recoverable. `hashApiKey` here; we compare hashes on every API request.
  *  3. Third-party provider keys the agent must USE server-side → AES-256-GCM at
  *     rest with a per-user key derived from `APP_MASTER_KEY` + wallet. `sealForUser`
@@ -17,9 +17,9 @@
 import {
   createCipheriv,
   createDecipheriv,
-  createHmac,
   hkdfSync,
   randomBytes,
+  scryptSync,
   timingSafeEqual,
 } from "node:crypto";
 
@@ -152,16 +152,20 @@ function requirePepper(): string {
 }
 
 /**
- * Keyed hash of an issued API key: HMAC-SHA256 under the required server pepper.
+ * Stored form of an issued API key: scrypt(key, salt = server pepper), 32 bytes, hex.
  *
- * PBA R2 (CodeQL js/insufficient-password-hash): this was SHA-256(pepper ":" key). Keys are
- * 192-bit random tokens (generateApiKey), and HMAC is the correct keyed construction for them;
- * a database read without the pepper is useless offline. Stored pre-HMAC hashes cannot be
- * converted (the raw keys are never stored), so migration 0004 revokes them; users re-mint.
+ * PBA R2 (CodeQL js/insufficient-password-hash): this was a single SHA-256 of pepper + key.
+ * scrypt is a memory-hard KDF keyed by the required server pepper, so a database read is not
+ * attackable offline without the pepper and is costly even with it. Keys are 192-bit random
+ * tokens (generateApiKey), so the default cost (N=2^14) is ample. Stored pre-R2 hashes cannot
+ * be converted (raw keys are never stored); migration 0004 revokes them and users re-mint.
  */
+export const API_KEY_SCRYPT = { N: 16384, r: 8, p: 1, keylen: 32 } as const;
+
 export function hashApiKey(rawKey: string): string {
   const pepper = requirePepper();
-  return createHmac("sha256", pepper).update(rawKey).digest("hex");
+  const { N, r, p, keylen } = API_KEY_SCRYPT;
+  return scryptSync(rawKey, pepper, keylen, { N, r, p }).toString("hex");
 }
 
 /** Constant-time comparison of a presented key against a stored hash. */

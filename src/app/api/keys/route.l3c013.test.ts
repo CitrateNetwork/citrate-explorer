@@ -260,6 +260,9 @@ describe("quota and bad keys at the API surfaces (mutation kills)", () => {
   });
 
   it("/api/v1: a keyed caller gets its own (larger) burst", async () => {
+    // Freeze Date: key hashing (scrypt) takes real time and would refill the bucket mid-loop.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-25T00:00:00Z"));
     const { GET } = await import("@/app/api/v1/route");
     const r = { id: 900_020, subject: `burst-${Math.random()}`, userAddress: "x", rateLimitPerSec: 5, quotaPerDay: 1000, revoked: false };
     let ok = 0;
@@ -269,6 +272,7 @@ describe("quota and bad keys at the API surfaces (mutation kills)", () => {
       if (res.status !== 429) ok++;
     }
     expect(ok).toBe(10); // perSec 5 → burst 10
+    vi.useRealTimers();
   });
 
   it("/api/v1: anonymous callers are limited (burst 5) with a JSON 429", async () => {

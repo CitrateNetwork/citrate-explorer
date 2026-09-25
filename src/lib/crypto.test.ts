@@ -5,6 +5,7 @@ import {
   generateApiKey,
   hashApiKey,
   verifyApiKey,
+  API_KEY_SCRYPT,
 } from "./crypto";
 
 const ALICE = "0x1111111111111111111111111111111111111111";
@@ -46,22 +47,26 @@ describe("issued API keys (hash-only)", () => {
     expect(verifyApiKey("cscan_wrong", hash)).toBe(false);
   });
 
-  it("is HMAC-SHA256 under the pepper (PBA R2), not SHA-256(pepper:key)", async () => {
-    const { createHmac, createHash } = await import("node:crypto");
+  it("is scrypt salted with the pepper (PBA R2): deterministic per pepper, changes with it", () => {
     const key = generateApiKey();
-    const pepper = process.env.API_KEY_PEPPER as string;
-    expect(hashApiKey(key)).toBe(createHmac("sha256", pepper).update(key).digest("hex"));
-    expect(hashApiKey(key)).not.toBe(createHash("sha256").update(`${pepper}:${key}`).digest("hex"));
+    const h = hashApiKey(key);
+    expect(h).toMatch(/^[0-9a-f]{64}$/);
+    expect(hashApiKey(key)).toBe(h);
+    expect(hashApiKey(`${key}x`)).not.toBe(h);
     const saved = process.env.API_KEY_PEPPER;
     try {
-      process.env.API_KEY_PEPPER = `${pepper}x`;
-      expect(hashApiKey(key)).not.toBe(createHmac("sha256", pepper).update(key).digest("hex"));
+      process.env.API_KEY_PEPPER = `${saved}x`;
+      expect(hashApiKey(key)).not.toBe(h);
     } finally {
       process.env.API_KEY_PEPPER = saved;
     }
   });
 
-  it("migration 0004 revokes every pre-HMAC key", async () => {
+  it("uses the documented scrypt cost", () => {
+    expect(API_KEY_SCRYPT).toEqual({ N: 16384, r: 8, p: 1, keylen: 32 });
+  });
+
+  it("migration 0004 revokes every pre-R2 key", async () => {
     const { readFileSync } = await import("node:fs");
     const { join } = await import("node:path");
     const sql = readFileSync(join(__dirname, "db", "migrations", "0004_pba_r2_hmac_api_keys.sql"), "utf8");
