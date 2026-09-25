@@ -181,6 +181,9 @@ describe("checkRelayQuota shared store (mutation kills)", () => {
   });
 
   it("an IP over its shared cap → 429 scoped to ip", async () => {
+    // Pin the clock to the start of an hour-aligned window so the retry is deterministic.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-25T10:00:05Z"));
     vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://upstash.invalid");
     vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "t");
     fakeStore((k) => (k.startsWith("rl:relay:ip:") ? 61 : 1));
@@ -189,18 +192,22 @@ describe("checkRelayQuota shared store (mutation kills)", () => {
     const r = await checkRelayQuota(`ip-${Math.random()}`, "0x" + "d".repeat(40), "9.9.9.2");
     expect(r.ok).toBe(false);
     expect(r.scope).toBe("ip");
-    expect(r.retryAfter).toBeGreaterThan(60);
+    expect(r.retryAfter).toBe(3595);
+    vi.useRealTimers();
   });
 
   it("a subject over its shared cap → 429 scoped to subject with the window's retry", async () => {
+    // Pin the clock to the start of an hour-aligned window so the retry is deterministic.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-25T10:00:05Z"));
     vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://upstash.invalid");
     vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "t");
     fakeStore((k) => (k.startsWith("rl:relay:sub:") ? 31 : 1));
     vi.resetModules();
     const { checkRelayQuota } = await import("@/lib/relay/rateLimit");
     const r = await checkRelayQuota(`s-${Math.random()}`, "0x" + "e".repeat(40), "9.9.9.3");
-    expect(r).toMatchObject({ ok: false, scope: "subject" });
-    expect(r.retryAfter).toBeGreaterThan(60);
+    expect(r).toMatchObject({ ok: false, scope: "subject", retryAfter: 3595 });
+    vi.useRealTimers();
   });
 
   it("with no store configured the shared path is skipped (no fetch)", async () => {
