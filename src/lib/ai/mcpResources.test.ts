@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { RESOURCES, PROMPTS, getResource, getPrompt } from "./mcpResources";
+import { RESOURCES, getResource, getPrompt } from "./mcpResources";
 
 describe("mcpResources", () => {
   it("exposes the core resources with readable content", () => {
