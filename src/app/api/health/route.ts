@@ -22,6 +22,18 @@ export const dynamic = "force-dynamic";
 const CHAIN_ID = 40204;
 const MAX_LAG = Number(process.env.CITRATE_INDEXER_MAX_LAG ?? 50);
 
+/**
+ * Deployed git commit, surfaced on /health so a deploy can be *probed* not attested
+ * (audit rescore #10, dim 8). Priority: GIT_SHA (explicit override) →
+ * VERCEL_GIT_COMMIT_SHA (Vercel sets this automatically at build + runtime, which is
+ * how prod is deployed) → SOURCE_COMMIT. Falls back to "unknown" when none is set.
+ */
+const GIT_SHA =
+  process.env.GIT_SHA ||
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.SOURCE_COMMIT ||
+  "unknown";
+
 export async function GET(req: Request) {
   // PBA-L3c-019: shared per-IP budget for public reads.
   const limited = await limitPublicRead(req);
@@ -79,6 +91,7 @@ export async function GET(req: Request) {
   return Response.json(
     {
       status: overall,
+      sha: GIT_SHA,
       uptimeCheckMs: Date.now() - startedAt,
       components: { chain, indexer, limiter, inference },
     },
