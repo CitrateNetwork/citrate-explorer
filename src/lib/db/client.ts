@@ -1,18 +1,19 @@
 /**
- * Neon/Drizzle database client.
+ * Postgres/Drizzle database client (DO Managed Postgres via node-postgres).
+ * Migrated off Neon serverless 2026-09-29 (reroll fan-out; Neon quota 402).
+ * Returns a singleton Drizzle client, OR null when DATABASE_URL is unset. The
+ * null path is deliberate: the app + indexer must build/run before the DB is
+ * provisioned, and reads fall through to live RPC.
  *
- * Returns a singleton Drizzle client backed by @neondatabase/serverless, OR
- * `null` when `DATABASE_URL` is unset. The null path is deliberate: the app +
- * indexer must build and run before Neon is provisioned, and reads fall through
- * to live RPC. Every caller checks for null and degrades rather than throwing.
- *
- * Data source (Rule 11): Neon Postgres at `DATABASE_URL`.
+ * Data source: DO Managed Postgres at DATABASE_URL (ssl, self-signed CA →
+ * rejectUnauthorized:false; do NOT put sslmode=require in the URL — newer pg
+ * treats it as verify-full and rejects DO's cert).
  */
-import { drizzle, type NeonHttpDatabase } from "drizzle-orm/neon-http";
-import { neon } from "@neondatabase/serverless";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import pg from "pg";
 import * as schema from "./schema";
 
-export type Database = NeonHttpDatabase<typeof schema>;
+export type Database = NodePgDatabase<typeof schema>;
 
 let cached: Database | null | undefined;
 
@@ -23,7 +24,8 @@ export function getDb(): Database | null {
     cached = null;
     return cached;
   }
-  cached = drizzle(neon(url), { schema });
+  const pool = new pg.Pool({ connectionString: url, ssl: { rejectUnauthorized: false } });
+  cached = drizzle(pool, { schema });
   return cached;
 }
 
