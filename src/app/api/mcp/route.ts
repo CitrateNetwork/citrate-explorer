@@ -46,11 +46,25 @@ function jsonSchema(tool: McpTool): Json {
   return js;
 }
 
+/**
+ * HUP-S4.3: MCP tool annotations. Every CitrateScan tool is read-only by
+ * construction, and spec-following hosts (citrate-agent-runtime's agent-mcp-host)
+ * treat a tool WITHOUT `readOnlyHint` as a write and do not offer it by default.
+ * The explorer's world is its own index + the chain, so openWorldHint is false.
+ */
+const READ_ONLY_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
+
 function toolList(tools: Record<string, McpTool>) {
   return Object.entries(tools).map(([name, t]) => ({
     name,
     description: t.description,
     inputSchema: jsonSchema(t),
+    annotations: READ_ONLY_ANNOTATIONS,
   }));
 }
 
