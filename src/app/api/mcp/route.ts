@@ -21,6 +21,7 @@ import { RESOURCES, PROMPTS, getResource, getPrompt } from "@/lib/ai/mcpResource
 import { extractApiKey, validateApiKey, clientIp } from "@/lib/api/keys";
 import { checkRateLimit } from "@/lib/api/ratelimit";
 import { publicMessage } from "@/lib/api/errors";
+import { annotationsFor, allReadOnly } from "@/lib/ai/mcpAnnotations";
 
 const PROTOCOL_VERSION = "2025-06-18";
 const SERVER_INFO = { name: "citratescan", version: "1.1.0" };
@@ -47,24 +48,17 @@ function jsonSchema(tool: McpTool): Json {
 }
 
 /**
- * HUP-S4.3: MCP tool annotations. Every CitrateScan tool is read-only by
- * construction, and spec-following hosts (citrate-agent-runtime's agent-mcp-host)
- * treat a tool WITHOUT `readOnlyHint` as a write and do not offer it by default.
- * The explorer's world is its own index + the chain, so openWorldHint is false.
+ * HUP-S4.3: MCP tool annotations. Spec-following hosts (citrate-agent-runtime's
+ * agent-mcp-host) treat a tool WITHOUT `readOnlyHint` as a write and do not offer
+ * it by default. The hint is decided per tool in `mcpAnnotations.ts`: only tools
+ * reviewed as read-only say so, and any other tool is annotated as a write.
  */
-const READ_ONLY_ANNOTATIONS = {
-  readOnlyHint: true,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: false,
-} as const;
-
 function toolList(tools: Record<string, McpTool>) {
   return Object.entries(tools).map(([name, t]) => ({
     name,
     description: t.description,
     inputSchema: jsonSchema(t),
-    annotations: READ_ONLY_ANNOTATIONS,
+    annotations: annotationsFor(name),
   }));
 }
 
@@ -78,6 +72,7 @@ const promptList = () => PROMPTS.map(({ name, description, arguments: a }) => ({
 
 /** GET — discovery manifest (also handy for humans hitting the endpoint). */
 export async function GET() {
+  const tools = buildTools();
   return Response.json({
     name: SERVER_INFO.name,
     version: SERVER_INFO.version,
@@ -85,9 +80,9 @@ export async function GET() {
     protocolVersion: PROTOCOL_VERSION,
     transport: "json-rpc-2.0 over HTTP POST",
     capabilities: CAPABILITIES,
-    readOnly: true,
+    readOnly: allReadOnly(Object.keys(tools)),
     units: "dual (SALT + raw grains/wei)",
-    tools: toolList(buildTools()),
+    tools: toolList(tools),
     resources: resourceList(),
     prompts: promptList(),
   });
