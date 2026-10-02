@@ -40,6 +40,7 @@ import {
 } from "@/lib/indexer/repository";
 import { resolveAmount, resolveTimeRange, amountRange } from "@/lib/research/resolvers";
 import { describeContract, listContracts, CITRATE_OVERVIEW, CONTRACT_CATEGORIES, type ContractCategory } from "@/lib/citrate/contractCatalog";
+import { getVerifiedSource, MAX_SOURCE_CHARS_LIMIT } from "@/lib/verify/verifiedSource";
 import { logToolCall } from "./audit";
 
 const addressSchema = z
@@ -226,6 +227,26 @@ export function citrateTools(opts: ToolOptions = {}) {
         const { bytecode, ...facts } = await getContractCode(address as Address);
         return { ...facts, bytecodePreview: bytecode && bytecode.length > 2 ? `${bytecode.slice(0, 42)}…` : bytecode };
       }),
+    }),
+    getVerifiedSource: tool({
+      description:
+        "A contract's VERIFIED source, ABI, and compiler metadata (HUP-S4.3). status: verified (full match) | " +
+        "partial-match (NOT verified) | unverified (no verified source; never guess its code) | unavailable.",
+      inputSchema: z.object({
+        address: addressSchema,
+        maxSourceChars: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_SOURCE_CHARS_LIMIT)
+          .optional()
+          .describe("cap on returned source length (default 60000)"),
+      }),
+      execute: audited(
+        "getVerifiedSource",
+        async ({ address, maxSourceChars }: { address: string; maxSourceChars?: number }) =>
+          getVerifiedSource(address, { maxSourceChars }),
+      ),
     }),
     getToken: tool({
       description:

@@ -27,12 +27,50 @@ describe("MCP GET — discovery manifest", () => {
     expect(json.readOnly).toBe(true);
     expect(Array.isArray(json.tools)).toBe(true);
     // RA-4: generated from the agent's tool set — same surface, no drift.
-    expect(json.tools.length).toBe(22);
+    expect(json.tools.length).toBe(23);
     const names = json.tools.map((t: { name: string }) => t.name);
     expect(names).toContain("exploreDag");
     expect(names).toContain("findTransfers"); // was missing from the old hand-written list
     expect(names).toContain("ledger");
     expect(names).toContain("describeContract"); // RA-5 — auto-flows via the shared registry
+    expect(names).toContain("getVerifiedSource"); // HUP-S4.3 / F-6
+  });
+});
+
+describe("MCP tool annotations (HUP-S4.3)", () => {
+  // An MCP host that honours the spec (citrate-agent-runtime's agent-mcp-host) treats a tool
+  // with no readOnlyHint as a write and does not offer it by default. Every CitrateScan tool
+  // is read-only by construction, so every listed tool must say so.
+  it("every tool in tools/list is annotated read-only and non-destructive", async () => {
+    const json = await (await rpc({ jsonrpc: "2.0", id: 20, method: "tools/list" })).json();
+    for (const t of json.result.tools) {
+      expect(t.annotations, t.name).toEqual({
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      });
+    }
+  });
+
+  it("the discovery manifest carries the same annotations", async () => {
+    const json = await (await GET()).json();
+    for (const t of json.tools) expect(t.annotations?.readOnlyHint, t.name).toBe(true);
+  });
+
+  it("getVerifiedSource takes exactly an address (+ optional maxSourceChars)", async () => {
+    const json = await (await rpc({ jsonrpc: "2.0", id: 21, method: "tools/list" })).json();
+    const t = json.result.tools.find((x: { name: string }) => x.name === "getVerifiedSource");
+    expect(t).toBeDefined();
+    expect(t.inputSchema.required).toEqual(["address"]);
+    expect(Object.keys(t.inputSchema.properties).sort()).toEqual(["address", "maxSourceChars"]);
+  });
+
+  it("getVerifiedSource validates the address before any lookup (-32602)", async () => {
+    const json = await (
+      await rpc({ jsonrpc: "2.0", id: 22, method: "tools/call", params: { name: "getVerifiedSource", arguments: { address: "0x12" } } })
+    ).json();
+    expect(json.error.code).toBe(-32602);
   });
 });
 
@@ -46,7 +84,7 @@ describe("MCP POST — JSON-RPC transport", () => {
 
   it("lists all tools with input schemas", async () => {
     const json = await (await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" })).json();
-    expect(json.result.tools.length).toBe(22);
+    expect(json.result.tools.length).toBe(23);
     for (const t of json.result.tools) {
       expect(t.inputSchema.type).toBe("object");
     }
