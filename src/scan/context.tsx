@@ -47,6 +47,23 @@ export function parseRoute() {
 
 const ScanContext = createContext(null);
 
+/** One identifier-ish token: the shape of a contract name, not a question. */
+export const CONTRACT_NAME_RE = /^[A-Za-z][A-Za-z0-9_.:-]{1,99}$/;
+
+/**
+ * Resolves a contract name to its address via /api/contracts: an exact
+ * (case-insensitive) name match wins, else a lone result; otherwise null.
+ */
+export async function findContract(q) {
+  const r = await fetch(`/api/contracts?q=${encodeURIComponent(q)}&limit=5`);
+  if (!r.ok) return null;
+  const j = await r.json();
+  const rows = (j && j.results) || [];
+  const exact = rows.find((x) => x.name && x.name.toLowerCase() === q.toLowerCase());
+  if (exact) return exact.address;
+  return rows.length === 1 ? rows[0].address : null;
+}
+
 export function useScan() {
   return useContext(ScanContext);
 }
@@ -116,9 +133,18 @@ export function ScanProvider({ children }) {
   // Omni-search resolver (shared by header, home, palette).
   const search = useCallback((qstr) => {
     const c = SH.classify(qstr);
-    if (c.kind === "search" || c.kind === "empty") {
+    const askAgent = () => {
       setAgentOpen(true);
       agentRef.current && agentRef.current.ask && agentRef.current.ask(qstr);
+    };
+    if (c.kind === "empty") return askAgent();
+    if (c.kind === "search") {
+      // A contract name ("ModelRegistry") jumps straight to the contract when the
+      // contract directory has an exact (or single) match; anything else goes to
+      // the agent. Data source: GET /api/contracts (index, else the 40204 book).
+      const q = String(qstr).trim();
+      if (!CONTRACT_NAME_RE.test(q)) return askAgent();
+      findContract(q).then((addr) => (addr ? nav(`contract/${addr}`) : askAgent()), askAgent);
       return;
     }
     const r =

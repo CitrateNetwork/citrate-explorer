@@ -10,7 +10,7 @@
  * live in the real Settings screen.
  */
 import { useState, useEffect, useRef, Fragment } from "react";
-import { ScanProvider, useScan } from "./context";
+import { ScanProvider, useScan, CONTRACT_NAME_RE } from "./context";
 import { AuthProvider, useAuth } from "@/lib/auth/client";
 import { SiteFooter } from "@/components/site-footer";
 import { SD } from "./data";
@@ -32,6 +32,20 @@ function CommandPalette({ open, onClose }) {
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
   const inputRef = useRef(null);
+  const [contractHits, setContractHits] = useState([]);
+  // Debounced contract-name lookup while typing (name-like queries only).
+  useEffect(() => {
+    const term = q.trim();
+    if (!open || !CONTRACT_NAME_RE.test(term)) { setContractHits([]); return; }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      fetch(`/api/contracts?q=${encodeURIComponent(term)}&limit=5`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => { if (!cancelled) setContractHits((j && j.results) || []); })
+        .catch(() => { if (!cancelled) setContractHits([]); });
+    }, 200);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [q, open]);
   useEffect(() => {
     if (open) {
       setQ("");
@@ -56,10 +70,18 @@ function CommandPalette({ open, onClose }) {
         }
       : null;
   const filteredJumps = jumps.filter((j) => !q.trim() || j.label.toLowerCase().includes(q.toLowerCase()));
+  // Contract directory matches by name (GET /api/contracts).
+  const contractRows = contractHits.map((c) => ({
+    label: `Contract ${c.name || SD.short(c.address)} · ${SD.short(c.address)}`,
+    icon: "code",
+    contract: true,
+    action: () => { scan.nav(`contract/${c.address}`); onClose(); },
+  }));
   const askRow = q.trim()
     ? { ask: true, label: `Ask the agent: "${q.trim()}"`, action: () => { scan.ask(q.trim()); onClose(); } }
     : null;
-  const rows = [entityRow, ...filteredJumps.map((j) => ({ ...j, action: () => { scan.nav(j.route); onClose(); } })), askRow].filter(Boolean);
+  const rows = [entityRow, ...contractRows, ...filteredJumps.map((j) => ({ ...j, action: () => { scan.nav(j.route); onClose(); } })), askRow].filter(Boolean);
+  const firstJump = (entityRow ? 1 : 0) + contractRows.length;
 
   const onKey = (e) => {
     if (e.key === "ArrowDown") { e.preventDefault(); setIdx((i) => Math.min(rows.length - 1, i + 1)); }
@@ -79,7 +101,8 @@ function CommandPalette({ open, onClose }) {
           {entityRow && <div className="cmdk-sec">Resolved</div>}
           {rows.map((r, i) => (
             <Fragment key={i}>
-              {i === (entityRow ? 1 : 0) && <div className="cmdk-sec">Jump to</div>}
+              {contractRows.length > 0 && i === (entityRow ? 1 : 0) && <div className="cmdk-sec">Contracts</div>}
+              {i === firstJump && <div className="cmdk-sec">Jump to</div>}
               {r.ask && <div className="cmdk-sec">Ask</div>}
               <div className={"cmdk-item" + (idx === i ? " active" : "")} onMouseEnter={() => setIdx(i)} onClick={r.action}>
                 <span className="ic"><Icon name={r.ask ? "spark" : r.icon || "arrowright"} size={16} /></span>
