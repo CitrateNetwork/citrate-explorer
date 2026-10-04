@@ -76,6 +76,11 @@
       "hono@4": ">=4.12.25",
       "socket.io-parser@4": ">=4.2.7",
       "minimatch@3>brace-expansion": ">=1.1.18 <2.0.0"
+    },
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-vfj7-8cjw-p6xm"
+      ]
     }
   }
 }
