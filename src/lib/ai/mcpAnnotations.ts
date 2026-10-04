@@ -26,7 +26,7 @@ export interface ToolAnnotations {
  * nothing. The explorer's world is its own index plus the chain, so
  * openWorldHint is false.
  */
-export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
+export const READ_ONLY_TOOLS: readonly string[] = Object.freeze([
   "getChainStatus",
   "getBlock",
   "getTransaction",
@@ -52,6 +52,12 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "ledger",
 ]);
 
+/**
+ * Private lookup built once from the frozen list. It is not exported, so no
+ * caller can add a name to it and widen a later answer.
+ */
+const READ_ONLY_SET: ReadonlySet<string> = new Set(READ_ONLY_TOOLS);
+
 const READ_ONLY: ToolAnnotations = Object.freeze({
   readOnlyHint: true,
   destructiveHint: false,
@@ -69,11 +75,11 @@ const UNREVIEWED: ToolAnnotations = Object.freeze({
 
 /** Annotations for one tool, matched by exact name. */
 export function annotationsFor(name: string): ToolAnnotations {
-  return READ_ONLY_TOOLS.has(name) ? READ_ONLY : UNREVIEWED;
+  return READ_ONLY_SET.has(name) ? READ_ONLY : UNREVIEWED;
 }
 
 /** True only when every named tool is in the reviewed read-only set. */
 export function allReadOnly(names: Iterable<string>): boolean {
-  for (const n of names) if (!READ_ONLY_TOOLS.has(n)) return false;
+  for (const n of names) if (!READ_ONLY_SET.has(n)) return false;
   return true;
 }

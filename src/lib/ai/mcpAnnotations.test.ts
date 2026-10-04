@@ -44,6 +44,15 @@ describe("MCP tool annotations are per tool", () => {
     expect(Object.isFrozen(w)).toBe(true);
   });
 
+  it("the exported reviewed list cannot be widened at runtime", () => {
+    expect(Object.isFrozen(READ_ONLY_TOOLS)).toBe(true);
+    expect(() => (READ_ONLY_TOOLS as string[]).push("submitTransaction")).toThrow();
+    // Even if a caller holds a mutable copy, the decision does not read it.
+    const copy = [...READ_ONLY_TOOLS, "submitTransaction"];
+    expect(copy).toContain("submitTransaction");
+    expect(annotationsFor("submitTransaction").readOnlyHint).toBe(false);
+  });
+
   it("the server-level readOnly flag is false as soon as one tool is unreviewed", () => {
     expect(allReadOnly(Object.keys(citrateTools()))).toBe(true);
     expect(allReadOnly(["getBlock", "submitTransaction"])).toBe(false);
