@@ -1,8 +1,15 @@
 /**
  * AgentSBT reads (HUP US-7.1 AC2): one agent's identity (DID, owner, parent org,
- * mint transaction) and the registry's agent list. Read-only by construction:
- * every call is an `eth_getCode`, `eth_call`, `eth_blockNumber` or a bounded
- * `eth_getLogs` on the read-only harness client; there is no signer here.
+ * mint transaction and who sent it) and the registry's agent list. Read-only by
+ * construction: every call is an `eth_getCode`, `eth_call`, `eth_blockNumber`,
+ * `eth_getTransactionByHash` or a bounded `eth_getLogs` on the read-only harness
+ * client; there is no signer here.
+ *
+ * Issuance (2026-10-05 reroll): members mint their own agent from their wallet
+ * (gated on the membership SBT) under the member organization, and an operator
+ * mint may still exist. So nothing here assumes who minted: the holder is
+ * `ownerOf`, the parent org is what `getAgent` stores, and the minter is the
+ * mint transaction's sender, which for a member mint is the holder itself.
  *
  * Data source (Rule 11): the AgentSBT pinned in the canonical address book
  * (`agentSbtAddress()`), read over live RPC via {@link harnessClient}; transfer
@@ -12,7 +19,7 @@
  * The reads take an explicit `{ client, address }` source so the same code runs
  * against a local anvil deploy in tests and against chain 40204 in production.
  */
-import { BaseError, ContractFunctionRevertedError, type Address, type Hex, type PublicClient } from "viem";
+import { BaseError, ContractFunctionRevertedError, TransactionNotFoundError, type Address, type Hex, type PublicClient } from "viem";
 import { harnessClient } from "./client";
 import { assertLogRange, MAX_LOG_BLOCK_RANGE, MAX_LOG_CHUNK } from "./logBounds";
 import {
@@ -107,6 +114,11 @@ export interface AgentDetail {
   parentOrg: AgentParentOrg;
   /** The mint (Transfer from the zero address), when the history covers it. */
   mint: AgentTransfer | null;
+  /**
+   * Who sent the mint transaction, lowercase, or null when the mint is outside the
+   * history or the node has no such transaction. Equals `owner` for a member's own mint.
+   */
+  mintSender: string | null;
   transfers: AgentTransfer[];
   history: AgentHistory;
 }
@@ -255,6 +267,21 @@ export async function agentTransferLogs(
   };
 }
 
+/**
+ * The sender of a mint transaction, or null when the node does not have it. Any
+ * other failure is rethrown, like {@link readOwner}, so a flaky node is an error.
+ */
+export async function readTxSender(src: AgentSbtSource, txHash: string | null): Promise<string | null> {
+  if (!txHash) return null;
+  try {
+    const tx = await src.client.getTransaction({ hash: txHash as Hex });
+    return tx.from.toLowerCase();
+  } catch (err) {
+    if (err instanceof BaseError && err.walk((e) => e instanceof TransactionNotFoundError)) return null;
+    throw err;
+  }
+}
+
 /** Transfer history: the index when provisioned, else the bounded RPC window. */
 async function agentHistory(src: AgentSbtSource, tokenId: bigint): Promise<{ transfers: AgentTransfer[]; history: AgentHistory }> {
   const indexed = await tokenIdTransfers(src.address, tokenId, MAX_AGENT_TRANSFERS);
@@ -282,7 +309,11 @@ export async function readAgent(src: AgentSbtSource, tokenId: bigint): Promise<A
   const registry = await readAgentRegistry(src);
   if (!registry.deployed || tokenId >= BigInt(registry.total)) return null;
   const [raw, owner, hist] = await Promise.all([readRawAgent(src, tokenId), readOwner(src, tokenId), agentHistory(src, tokenId)]);
-  const parentOrg = await readParentOrg(src, registry.orgContract, raw.parent_org_id);
+  const mint = hist.transfers.find((t) => t.from === ZERO_ADDRESS) ?? null;
+  const [parentOrg, mintSender] = await Promise.all([
+    readParentOrg(src, registry.orgContract, raw.parent_org_id),
+    readTxSender(src, mint?.txHash ?? null),
+  ]);
   return {
     registry: registry.address,
     tokenId: tokenId.toString(),
@@ -291,7 +322,8 @@ export async function readAgent(src: AgentSbtSource, tokenId: bigint): Promise<A
     pubkeyFingerprint: raw.pubkey_fingerprint.toLowerCase(),
     quarantined: raw.quarantined,
     parentOrg,
-    mint: hist.transfers.find((t) => t.from === ZERO_ADDRESS) ?? null,
+    mint,
+    mintSender,
     transfers: hist.transfers,
     history: hist.history,
   };

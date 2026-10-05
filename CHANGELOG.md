@@ -6,6 +6,13 @@ Agentile sprint record under `.agentile/sprints/`.
 
 ## [Unreleased]
 
+### Changed: AgentSBT pages for member-minted agents (2026-10-05 reroll)
+- Members mint their own AgentSBT from their wallet (gated on the membership SBT) under the
+  member organization. The agent page and `/api/agents/[tokenId]` now report `mintSender`, the
+  mint transaction's sender, read from the chain: the holder for a member's own mint, the
+  sending account otherwise. Parent org stays whatever `getAgent` stores.
+- Copy: the agents pages explain member minting, and say "Holder" rather than "Owner".
+
 ### Added: HUP US-7.1 AC2, AgentSBT agent pages (2026-10-04)
 - `#/agents` (registered agents, newest first) and `#/agent/<tokenId>` (DID, owner,
   parent organization, identity-key fingerprint, quarantine flag, mint transaction),

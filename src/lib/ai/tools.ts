@@ -388,8 +388,10 @@ export function citrateTools(opts: ToolOptions = {}) {
     getAgent: tool({
       description:
         "Read one AgentSBT agent identity by token id (HUP US-7.1): its DID hash (and the " +
-        "did:citrate:agent string when the hash matches the owner), owner, parent organization, " +
-        "identity-key fingerprint, quarantine flag and mint transaction. Returns found=false with a note " +
+        "did:citrate:agent string when the hash matches the owner), owner (the holder), parent organization " +
+        "(as stored by the contract; a member's own mint sits under the member organization), identity-key " +
+        "fingerprint, quarantine flag, mint transaction and its sender (mintSender, equal to the owner when the " +
+        "member minted it from their own wallet). Returns found=false with a note " +
         "when no agent has that id (for example 'No agents registered yet.').",
       inputSchema: z.object({
         tokenId: z

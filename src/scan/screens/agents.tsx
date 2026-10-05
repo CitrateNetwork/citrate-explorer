@@ -4,8 +4,9 @@
 
 /**
  * AgentSBT screens (HUP US-7.1 AC2): the registered-agents list (#/agents) and one
- * agent (#/agent/<tokenId>) with its DID, owner, parent organization and mint
- * transaction. Live only: there is no sample fallback, so an empty registry
+ * agent (#/agent/<tokenId>) with its DID, holder, parent organization, mint
+ * transaction and who sent it. Members mint their own agents (gated on the
+ * membership SBT), so the minter is read from the mint transaction, never assumed. Live only: there is no sample fallback, so an empty registry
  * renders "No agents registered yet." instead of invented agents.
  *
  * Data source (Rule 11): /api/agents and /api/agents/[tokenId] (AgentSBT over live RPC).
@@ -16,6 +17,7 @@ import { Icon } from "@/scan/icons";
 import { EntityChip, CopyBtn, SummaryCard, KV, Crumb } from "@/scan/components";
 import { useScan } from "@/scan/context";
 import { useLiveAgents, useLiveAgent } from "@/scan/live";
+import { AGENT_ISSUANCE_LINE } from "@/scan/agentView";
 import { ScreenLoading, ScreenError } from "@/scan/screens/states";
 
 function Mono({ text }) {
@@ -52,11 +54,11 @@ export function AgentsScreen({ before }) {
         <div className="card"><div className="empty" style={{ padding: 50 }} data-testid="agents-empty">
           <div className="ic"><Icon name="user" size={28} /></div>
           <h3>{v.emptyLine}</h3>
-          <p>Each Hermes agent gets a soulbound AgentSBT under a parent organization. Agents appear here once they are minted on chain {SD.CHAIN.chainId}.</p>
+          <p>{AGENT_ISSUANCE_LINE} Agents appear here once they are minted on chain {SD.CHAIN.chainId}.</p>
         </div></div>
       ) : (
         <div className="tbl-wrap">
-          <table className="tbl"><thead><tr><th>Agent</th><th>Owner</th><th>Parent org</th><th>DID</th><th>Status</th></tr></thead>
+          <table className="tbl"><thead><tr><th>Agent</th><th>Holder</th><th>Parent org</th><th>DID</th><th>Status</th></tr></thead>
             <tbody>{v.rows.map((r) => (
               <tr key={r.tokenId} onClick={() => scan.nav(`agent/${r.tokenId}`)} style={{ cursor: "pointer" }}>
                 <td className="mono">#{r.tokenId}</td>
@@ -115,8 +117,11 @@ export function AgentScreen({ id, tweaks }) {
         <div className="card">
           <div className="card-h"><span className="t">Identity</span></div>
           <div className="card-bd">
-            <KV k="Owner">{a.owner ? <EntityChip value={a.owner} kind="address" /> : "—"}</KV>
-            <KV k="DID">{a.didNamed ? <Mono text={a.didLabel} /> : <span className="mono" style={{ fontSize: 12, color: "var(--text-3)" }}>not a did:citrate:agent for this owner</span>}</KV>
+            <KV k="Holder">{a.owner ? <EntityChip value={a.owner} kind="address" /> : "—"}</KV>
+            <KV k="Minted by">{a.mintSender ? (
+              <span className="row" style={{ gap: 6 }}><EntityChip value={a.mintSender} kind="address" noMenu />{a.mintedByHolder && <span className="badge" style={{ height: 20 }}>holder</span>}</span>
+            ) : <span className="mono" style={{ fontSize: 12, color: "var(--text-3)" }}>mint transaction not in the scanned history</span>}</KV>
+            <KV k="DID">{a.didNamed ? <Mono text={a.didLabel} /> : <span className="mono" style={{ fontSize: 12, color: "var(--text-3)" }}>not a did:citrate:agent for this holder</span>}</KV>
             <KV k="DID hash"><Mono text={a.didHash} /></KV>
             <KV k="Key fingerprint"><Mono text={a.fingerprint} /></KV>
             <KV k="Token id" v={a.tokenId} mono />
