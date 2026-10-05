@@ -50,6 +50,7 @@ export const READ_ONLY_TOOLS: readonly string[] = Object.freeze([
   "findTransfers",
   "saltDistribution",
   "ledger",
+  "getAgent",
 ]);
 
 /**

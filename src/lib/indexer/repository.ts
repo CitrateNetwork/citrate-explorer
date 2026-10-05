@@ -422,3 +422,29 @@ export async function classifyHash(
   if (t) return "transaction";
   return "unknown";
 }
+
+/**
+ * Every indexed transfer of one ERC-721 token id, oldest first (HUP US-7.1 AC2: the
+ * AgentSBT mint and any later transfer). Data source (Rule 11): indexed `token_transfers`.
+ */
+export async function tokenIdTransfers(
+  token: Address,
+  tokenId: bigint,
+  limit = 50,
+): Promise<NotProvisioned | { provisioned: true; results: Array<{ txHash: string; blockHeight: number | null; from: string; to: string; logIndex: number | null }> }> {
+  const db = getDb();
+  if (!db) return NOT_PROVISIONED;
+  const results = await db
+    .select({
+      txHash: tokenTransfers.txHash,
+      blockHeight: tokenTransfers.blockHeight,
+      from: tokenTransfers.from,
+      to: tokenTransfers.to,
+      logIndex: tokenTransfers.logIndex,
+    })
+    .from(tokenTransfers)
+    .where(and(eq(tokenTransfers.token, token.toLowerCase()), eq(tokenTransfers.tokenId, tokenId.toString())))
+    .orderBy(tokenTransfers.blockHeight, tokenTransfers.logIndex)
+    .limit(limit);
+  return { provisioned: true, results };
+}

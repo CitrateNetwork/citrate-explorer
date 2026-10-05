@@ -24,6 +24,7 @@ import { BlockScreen, AddressScreen, TokenScreen } from "./screens/entity";
 import { ContractScreen } from "./screens/contract";
 import { VerifyScreen } from "./screens/verify";
 import { DagView } from "./screens/dag";
+import { AgentsScreen, AgentScreen } from "./screens/agents";
 import { AgentPanel } from "./screens/agent";
 import { SettingsScreen, DevHub } from "./screens/settings";
 
@@ -43,6 +44,7 @@ function CommandPalette({ open, onClose }) {
   const jumps = [
     { label: "Home", icon: "search", route: "" },
     { label: "Live DAG", icon: "lattice", route: "dag" },
+    { label: "Registered agents", icon: "shieldCheck", route: "agents" },
     { label: "Developer hub", icon: "code", route: "apis" },
     { label: "Settings", icon: "settings", route: "account" },
   ];
@@ -155,6 +157,8 @@ function Shell() {
   else if (r.name === "contract") view = <ContractScreen addr={r.id} tweaks={tweaksForScreens} />;
   else if (r.name === "verify") view = <VerifyScreen addr={r.id} />;
   else if (r.name === "token") view = <TokenScreen addr={r.id} tweaks={tweaksForScreens} />;
+  else if (r.name === "agents") view = <AgentsScreen before={r.id} />;
+  else if (r.name === "agent") view = <AgentScreen id={r.id} tweaks={tweaksForScreens} />;
   else if (r.name === "dag") view = <DagView reducedMotion={tweaks.reducedMotion} />;
   else if (r.name === "dev") view = <DevHub />;
   else if (r.name === "settings") view = <SettingsScreen tweaks={tweaks} />;

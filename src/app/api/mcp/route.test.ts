@@ -27,13 +27,14 @@ describe("MCP GET — discovery manifest", () => {
     expect(json.readOnly).toBe(true);
     expect(Array.isArray(json.tools)).toBe(true);
     // RA-4: generated from the agent's tool set — same surface, no drift.
-    expect(json.tools.length).toBe(23);
+    expect(json.tools.length).toBe(24);
     const names = json.tools.map((t: { name: string }) => t.name);
     expect(names).toContain("exploreDag");
     expect(names).toContain("findTransfers"); // was missing from the old hand-written list
     expect(names).toContain("ledger");
     expect(names).toContain("describeContract"); // RA-5 — auto-flows via the shared registry
     expect(names).toContain("getVerifiedSource"); // HUP-S4.3 / F-6
+    expect(names).toContain("getAgent"); // HUP US-7.1 AC2
   });
 });
 
@@ -74,6 +75,28 @@ describe("MCP tool annotations (HUP-S4.3)", () => {
   });
 });
 
+describe("MCP getAgent tool (HUP US-7.1 AC2)", () => {
+  it("is annotated read-only and takes exactly a decimal tokenId", async () => {
+    const json = await (await rpc({ jsonrpc: "2.0", id: 30, method: "tools/list" })).json();
+    const t = json.result.tools.find((x: { name: string }) => x.name === "getAgent");
+    expect(t).toBeDefined();
+    expect(t.annotations.readOnlyHint).toBe(true);
+    expect(t.annotations.destructiveHint).toBe(false);
+    expect(t.inputSchema.required).toEqual(["tokenId"]);
+    expect(Object.keys(t.inputSchema.properties)).toEqual(["tokenId"]);
+  });
+
+  it.each([["-1"], ["01"], ["1.5"], ["0x10"], [""], ["123456789012345678901"]])(
+    "refuses tokenId %j before any chain read (-32602)",
+    async (tokenId) => {
+      const json = await (
+        await rpc({ jsonrpc: "2.0", id: 31, method: "tools/call", params: { name: "getAgent", arguments: { tokenId } } })
+      ).json();
+      expect(json.error.code).toBe(-32602);
+    },
+  );
+});
+
 describe("MCP POST — JSON-RPC transport", () => {
   it("responds to initialize with serverInfo + protocolVersion", async () => {
     const json = await (await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })).json();
@@ -84,7 +107,7 @@ describe("MCP POST — JSON-RPC transport", () => {
 
   it("lists all tools with input schemas", async () => {
     const json = await (await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" })).json();
-    expect(json.result.tools.length).toBe(23);
+    expect(json.result.tools.length).toBe(24);
     for (const t of json.result.tools) {
       expect(t.inputSchema.type).toBe("object");
     }

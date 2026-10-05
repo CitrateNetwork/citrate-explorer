@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { Hex } from "viem";
 import { explainTransaction } from "./explainTransaction";
 import { getDagBlock } from "@/lib/citrate/rpc";
+import { CONTRACT_ADDRESSES } from "@/lib/citrate/addresses";
 
 const live = process.env.LIVE_RPC === "1";
 const liveIt = live ? it : it.skip;
@@ -41,7 +42,8 @@ import { decodeLog } from "./explainTransaction";
 const TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const APPROVAL = "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925";
 const topicAddr = (a: string) => `0x000000000000000000000000${a.replace(/^0x/, "")}` as const;
-const MODEL_REGISTRY = "0xdf3250fcc9000c6a91c4f4cc13b258391ac4ee8f"; // current canonical ModelRegistry (src/generated/addresses.json)
+// Read from the vendored canonical book so a re-roll never strands this test on a dead address.
+const MODEL_REGISTRY = CONTRACT_ADDRESSES.ModelRegistry;
 const ALICE = "0x1111111111111111111111111111111111111111";
 const BOB = "0x2222222222222222222222222222222222222222";
 
