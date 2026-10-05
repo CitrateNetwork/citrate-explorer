@@ -75,6 +75,10 @@
       "hono@4": ">=4.12.25",
       "socket.io-parser@4": ">=4.2.7",
       "minimatch@3>brace-expansion": ">=1.1.18 <2.0.0"
+    },
+    "auditConfigComment": "Pending owner sign-off (2026-10-04): GHSA-vfj7-8cjw-p6xm (braces <=3.0.3, stack exhaustion on deeply nested patterns) has no patched release. The only path is devDependencies eslint-config-next > @next/eslint-plugin-next > fast-glob > micromatch > braces, which runs at lint time on this repo's own glob patterns and never ships in the app. Ignored by GHSA id only, so any other braces advisory still fails `pnpm audit --audit-level=high`. Remove this entry as soon as a fixed braces (or a Next lint plugin without it) is released.",
+    "auditConfig": {
+      "ignoreGhsas": ["GHSA-vfj7-8cjw-p6xm"]
     }
   }
 }
