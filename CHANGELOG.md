@@ -6,6 +6,22 @@ Agentile sprint record under `.agentile/sprints/`.
 
 ## [Unreleased]
 
+### Changed: generated 40204 chain constants (2026-10-05 reroll prep)
+- `pnpm sync-addresses` now also writes `src/generated/chainConstants.json`: the
+  precompile catalog (the book's `precompiles` merged with citrate-chain's
+  `PURE_PRECOMPILE_ADDRESSES` and `AGENT_FORK_PRECOMPILE_ADDRESSES`, so the agent
+  precompiles 0x0112/0x0113/0x0121/0x0122 and 0x0130 are listed) and the genesis SALT
+  allocations (citrate-chain `GenesisConfig::testnet_beta`). New flags `--chain`,
+  `--only book|constants`; `--check` covers both. It fails on a precompile with no
+  description or a genesis account with no label (`scripts/lib/chainLabels.mjs`).
+- `GENESIS_ALLOCATIONS` and `PRECOMPILES` read the generated file. The hand-written
+  0x1000/0x1001/0x1003 "state precompile" entries are gone (no chain source lists them),
+  and the inference precompiles carry the book's names (ModelDeploy, ModelInference, ...).
+- `NEXT_PUBLIC_MODEL_REGISTRY` / `NEXT_PUBLIC_INFERENCE_ROUTER` override the book only
+  when set to a well-formed address; `.env.example` leaves them unset.
+- CI `address-drift.yml` (and `scripts/check-address-drift.sh`) also check the generated
+  constants against citrate-chain.
+
 ### Added — S-1 Indexer + AI foundation (in progress, 2026-06-02)
 - Typed DAG RPC layer (`src/lib/citrate/rpc.ts`): `getDagBlock` exposing
   `selected_parent_hash` / `merge_parent_hashes[]` / `blue_score`, `isFinal`, WS client.

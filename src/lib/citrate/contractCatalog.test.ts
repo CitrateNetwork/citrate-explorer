@@ -20,7 +20,7 @@ describe("citrate/contractCatalog", () => {
   it("describes a precompile", () => {
     const d = describeContract("0x0000000000000000000000000000000000000100");
     expect(d.isPrecompile).toBe(true);
-    expect(d.name).toBe("InferenceDeploy");
+    expect(d.name).toBe("ModelDeploy");
     expect(PRECOMPILES["0x0000000000000000000000000000000000000100"]).toBeTruthy();
   });
 
