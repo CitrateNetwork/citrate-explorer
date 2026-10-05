@@ -21,3 +21,4 @@ if [ ! -f "$TOOL" ]; then
   echo "[address-drift] citrate-chain not found at $CHAIN (set CITRATE_CHAIN_DIR)"; exit 2
 fi
 node "$TOOL" check "$VENDORED" --canonical "$CANON"
+node "$HERE/scripts/sync-addresses.mjs" --chain "$CHAIN" --only constants --check

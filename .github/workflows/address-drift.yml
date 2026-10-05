@@ -16,6 +16,10 @@ on:
   pull_request:
     paths:
       - 'src/generated/addresses.json'
+      - 'src/generated/chainConstants.json'
+      - 'scripts/sync-addresses.mjs'
+      - 'scripts/lib/chainSync.mjs'
+      - 'scripts/lib/chainLabels.mjs'
       - '.github/workflows/address-drift.yml'
 
 permissions:
@@ -50,9 +54,12 @@ jobs:
           ref: main
           token: ${{ secrets.CITRATE_CHAIN_READ_TOKEN }}
           path: citrate-chain
+          sparse-checkout-cone-mode: false
           sparse-checkout: |
-            contracts/addresses
-            packages/chain-config
+            contracts/addresses/
+            packages/chain-config/
+            core/execution/src/precompiles/mod.rs
+            core/economics/src/genesis.rs
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: env.CHAIN_TOKEN != ''
         with:
@@ -63,3 +70,7 @@ jobs:
           node citrate-chain/packages/chain-config/bin/check.mjs \
             check "consumer/src/generated/addresses.json" \
             --canonical citrate-chain/contracts/addresses/40204.json
+      - name: Generated chain constants drift check (blocking)
+        if: env.CHAIN_TOKEN != ''
+        # Precompile catalog + genesis allocations, regenerated from the same chain checkout.
+        run: node consumer/scripts/sync-addresses.mjs --chain citrate-chain --only constants --check
