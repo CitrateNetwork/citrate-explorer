@@ -6,6 +6,27 @@ Agentile sprint record under `.agentile/sprints/`.
 
 ## [Unreleased]
 
+### Changed: AgentSBT pages for member-minted agents (2026-10-05 reroll)
+- Members mint their own AgentSBT from their wallet (gated on the membership SBT) under the
+  member organization. The agent page and `/api/agents/[tokenId]` now report `mintSender`, the
+  mint transaction's sender, read from the chain: the holder for a member's own mint, the
+  sending account otherwise. Parent org stays whatever `getAgent` stores.
+- Copy: the agents pages explain member minting, and say "Holder" rather than "Owner".
+
+### Added: HUP US-7.1 AC2, AgentSBT agent pages (2026-10-04)
+- `#/agents` (registered agents, newest first) and `#/agent/<tokenId>` (DID, owner,
+  parent organization, identity-key fingerprint, quarantine flag, mint transaction),
+  read from the AgentSBT pinned in the address book. An empty registry renders
+  "No agents registered yet." Linked from the address page (the registry itself and
+  any holder) and the token page.
+- `GET /api/agents` and `GET /api/agents/[tokenId]`; MCP + in-app tool `getAgent`
+  (reviewed read-only, `readOnlyHint: true`).
+- Transfer history comes from the index when provisioned, else a bounded
+  `eth_getLogs` window (one contract, Transfer topic and token id).
+- `scripts/anvil-agent-sbt.sh`: builds AgentSBT + OrganizationSBT from citrate-chain
+  and runs the anvil test (real deploy, no mocks).
+- Address book synced to the 2026-09-29 reroll (identical to citrate-chain main
+  `contracts/addresses/40204.json`), which adds `AgentSBT`.
 ### Changed: generated 40204 chain constants (2026-10-05 reroll prep)
 - `pnpm sync-addresses` now also writes `src/generated/chainConstants.json`: the
   precompile catalog (the book's `precompiles` merged with citrate-chain's

@@ -22,6 +22,27 @@ import { useScan } from "@/scan/context";
 import { NotFound } from "@/scan/screens/tx";
 import { useLiveBlock, useLiveAddress, DEMO } from "@/scan/live";
 import { ScreenLoading } from "@/scan/screens/states";
+import { isAgentSbt } from "@/lib/citrate/agentSbt";
+
+/** HUP US-7.1 AC2: links from an address or token page to the AgentSBT pages. */
+function AgentLinks({ registry, agentIds }) {
+  const scan = useScan();
+  if (!registry && !(agentIds && agentIds.length)) return null;
+  return (
+    <div className="note info" style={{ marginBottom: 18 }} data-testid="agent-links">
+      <span className="ic"><Icon name="shieldCheck" size={15} /></span>
+      {registry ? (
+        <span>This is the AgentSBT registry. <a style={{ cursor: "pointer" }} onClick={() => scan.nav("agents")}>View registered agents</a></span>
+      ) : (
+        <span>Holds AgentSBT {agentIds.length === 1 ? "agent" : "agents"}{" "}
+          {agentIds.map((id, i) => (
+            <React.Fragment key={id}>{i > 0 && ", "}<a style={{ cursor: "pointer" }} onClick={() => scan.nav(`agent/${id}`)}>#{id}</a></React.Fragment>
+          ))}
+        </span>
+      )}
+    </div>
+  );
+}
 
 export function BlockScreen({ id, tweaks }) {
   const scan = useScan();
@@ -122,6 +143,7 @@ export function AddressScreen({ addr, tweaks }) {
 
       <div style={{ marginBottom: 18 }}><SummaryCard text={{ full: a.summary, short: a.summary }} seed="explain" verbosity={tweaks.verbosity} warming={tweaks.warming}
         foot={<React.Fragment><span className="badge" style={{ height: 22 }}>Balance: {a.balanceSalt} SALT</span>{!a.isContract && <GaslessPill />}</React.Fragment>} /></div>
+      <AgentLinks registry={a.isAgentRegistry || isAgentSbt(addr)} agentIds={a.agentIds} />
 
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginBottom: 18 }}>
         <div className="card"><div className="card-bd"><div className="eyebrow">SALT balance</div><div style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 500, marginTop: 4 }}>{a.balanceSalt} <span style={{ fontSize: 14, color: "var(--text-3)" }}>SALT</span></div></div></div>
@@ -181,6 +203,15 @@ export function TokenScreen({ addr, tweaks }) {
   const [tab, setTab] = useState("holders");
   const res = SH.tools.getToken(addr);
   const tk = res.data;
+  if (!tk && isAgentSbt(addr)) {
+    return (
+      <div className="wrap">
+        <Crumb items={[{ label: "Home", route: "" }, { label: "Tokens" }, { label: "AgentSBT" }]} />
+        <div className="pagehead"><div><h1 className="row" style={{ gap: 10 }}><Icon name="coin" size={24} />Citrate AgentSBT</h1><div className="sub row" style={{ gap: 8 }}><span className="badge green" style={{ height: 20 }}>CIT-AGENT</span><span className="mono" style={{ fontSize: 13 }}>{SD.short(addr)}</span><CopyBtn text={addr} /></div></div></div>
+        <AgentLinks registry agentIds={[]} />
+      </div>
+    );
+  }
   if (!tk) return <NotFound kind="token" value={addr} />;
   useEffect(() => { scan.setCtx("token " + tk.symbol); }, [addr]);
   const tabs = [{ id: "holders", label: "Holders", count: tk.holderCount }, { id: "transfers", label: "Transfers", count: tk.transferCount }, { id: "info", label: "Info" }];
