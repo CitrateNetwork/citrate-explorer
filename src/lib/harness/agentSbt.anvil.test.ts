@@ -220,6 +220,8 @@ suite("AgentSBT on a real anvil deploy", () => {
       quarantined: false,
       parentOrg: { id: "0", contract: org.toLowerCase(), did: ORG_DID, active: true, signingAuthority: signer.toLowerCase() },
       mint: { from: ZERO, to: memberA.toLowerCase(), txHash: mintTxA, blockNumber: rcpt.blockNumber.toString(), logIndex: expect.any(Number) },
+      // An operator (the contract owner) sent this mint, so the sender is not the holder.
+      mintSender: admin.toLowerCase(),
       transfers: [{ from: ZERO, to: memberA.toLowerCase(), txHash: mintTxA, blockNumber: rcpt.blockNumber.toString(), logIndex: expect.any(Number) }],
       history: { source: "rpc-window", fromBlock: "0", toBlock: expect.any(String), complete: true },
     });
@@ -263,6 +265,24 @@ suite("AgentSBT on a real anvil deploy", () => {
     expect(BigInt(hist.history.toBlock ?? "0") - BigInt(hist.history.fromBlock ?? "0")).toBe(3n);
   });
 
+  it("a holder that sends its own mint reads as self-minted under the stored parent org (#3)", async () => {
+    // The member path (mintAgentAsMember) mints to msg.sender under the member org. This deploy has
+    // the owner-only mintAgent, so the owner mints to itself: the same on-chain shape for the
+    // explorer (Transfer(0, holder, id) in a tx the holder sent, parent org from getAgent).
+    const orgDid = (i: number) => keccak256(stringToBytes(`did:citrate:org:explorer-anvil-test-${i}`));
+    for (let i = 1; i <= 3; i++) await send(org, orgAbi, "mintOrg", [admin, orgDid(i), signer, []]);
+    const selfTx = await send(sbt, agentAbi, "mintAgent", [admin, 3n, didHashFor(admin), FINGERPRINT_A]);
+    const a = await harness.readAgent({ client: pub, address: sbt }, 2n);
+    expect(a?.owner).toBe(admin.toLowerCase());
+    expect(a?.parentOrg.id).toBe("3");
+    expect(a?.parentOrg.did).toBe(orgDid(3));
+    expect(a?.parentOrg.active).toBe(true);
+    expect(a?.mint?.txHash).toBe(selfTx);
+    expect(a?.mint?.to).toBe(admin.toLowerCase());
+    expect(a?.mintSender).toBe(admin.toLowerCase());
+    expect(a?.did.did).toBe(`did:citrate:agent:${admin.toLowerCase()}`);
+  });
+
   it("serves the agent over /api/agents/[tokenId] and /api/agents", async () => {
     const r0 = await oneRoute.GET(req("/api/agents/0"), { params: Promise.resolve({ tokenId: "0" }) });
     expect(r0.status).toBe(200);
@@ -276,7 +296,7 @@ suite("AgentSBT on a real anvil deploy", () => {
 
     const l = await (await listRoute.GET(req("/api/agents?limit=5"))).json();
     expect(l.note).toBeNull();
-    expect(l.agents.map((x: { tokenId: string }) => x.tokenId)).toEqual(["1", "0"]);
+    expect(l.agents.map((x: { tokenId: string }) => x.tokenId)).toEqual(["2", "1", "0"]);
   });
 
   it("the MCP getAgent tool returns the same agent", async () => {
@@ -288,6 +308,6 @@ suite("AgentSBT on a real anvil deploy", () => {
 
     const missing = await mcpGetAgent("7");
     expect(missing.structuredContent.found).toBe(false);
-    expect(missing.structuredContent.note).toMatch(/Agent #7 is not registered \(2 agents so far\)/);
+    expect(missing.structuredContent.note).toMatch(/Agent #7 is not registered \(3 agents so far\)/);
   });
 });

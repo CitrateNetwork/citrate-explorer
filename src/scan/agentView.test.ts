@@ -2,7 +2,7 @@
 // "No agents registered yet." (today's 40204), a DID string is shown only when the route
 // named one, and an address page links only to agents the address still holds.
 import { describe, it, expect } from "vitest";
-import { deriveAgentsView, deriveAgentView, agentIdsHeldBy, EMPTY_AGENTS_LINE } from "./agentView";
+import { deriveAgentsView, deriveAgentView, agentIdsHeldBy, EMPTY_AGENTS_LINE, AGENT_ISSUANCE_LINE } from "./agentView";
 import { deriveAddressView } from "./live";
 import canonical from "@/generated/addresses.json";
 
@@ -23,6 +23,13 @@ describe("deriveAgentsView", () => {
     expect(v?.total).toBe(0);
     expect(v?.deployed).toBe(true);
     expect(v?.emptyLine).toBe("No agents registered yet.");
+  });
+
+  it("explains issuance as a member mint gated on the membership SBT, never a registrar", () => {
+    expect(AGENT_ISSUANCE_LINE).toMatch(/members mint their own AgentSBT from their wallet/i);
+    expect(AGENT_ISSUANCE_LINE).toMatch(/membership SBT/);
+    expect(AGENT_ISSUANCE_LINE).toMatch(/member organization/);
+    expect(AGENT_ISSUANCE_LINE).not.toMatch(/registrar|issued by/i);
   });
 
   it("falls back to the same line when the route sent no note", () => {
@@ -118,6 +125,32 @@ describe("deriveAgentView", () => {
     expect(v?.didNamed).toBe(false);
     expect(v?.didLabel).toBe(HASH);
     expect(v?.summary).toContain("quarantined");
+  });
+
+  it("a member self-mint reads as minted by its holder under the member org, with no other issuer", () => {
+    const v = deriveAgentView(detail({ parentOrg: { id: "3", contract: OTHER, did: HASH, active: true, signingAuthority: OTHER }, mintSender: OWNER }));
+    expect(v?.owner).toBe(OWNER);
+    expect(v?.parentOrg.id).toBe("3");
+    expect(v?.mintSender).toBe(OWNER);
+    expect(v?.mintedByHolder).toBe(true);
+    expect(v?.summary).toContain(`held by ${OWNER}`);
+    expect(v?.summary).toContain("parent organization #3");
+    expect(v?.summary).toContain("The holder minted it from their own wallet.");
+    expect(v?.summary).not.toMatch(/registrar|issued by/i);
+  });
+
+  it("a mint sent by another account names that account, not a registrar", () => {
+    const v = deriveAgentView(detail({ mintSender: OTHER }));
+    expect(v?.mintedByHolder).toBe(false);
+    expect(v?.summary).toContain(`It was minted to the holder in a transaction sent by ${OTHER}.`);
+    expect(v?.summary).not.toMatch(/registrar|issued by/i);
+  });
+
+  it("says nothing about the minter when the mint transaction is unknown", () => {
+    const v = deriveAgentView(detail({ mint: null, mintSender: null, transfers: [] }));
+    expect(v?.mintSender).toBeNull();
+    expect(v?.mintedByHolder).toBeNull();
+    expect(v?.summary).not.toMatch(/minted/);
   });
 
   it("returns null on a 404 or errored response", () => {

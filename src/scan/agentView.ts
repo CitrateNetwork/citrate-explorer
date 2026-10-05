@@ -11,6 +11,11 @@ import { ZERO_ADDRESS } from "@/lib/citrate/agentSbt";
 /** The empty-state line for a deployed registry with no agents. */
 export const EMPTY_AGENTS_LINE = "No agents registered yet.";
 
+/** How an agent comes to exist (2026-10-05 reroll), shown on the agents pages. */
+export const AGENT_ISSUANCE_LINE =
+  "Members mint their own AgentSBT from their wallet, gated on the membership SBT, under the member organization. " +
+  "Each agent is soulbound to the wallet that holds it.";
+
 export interface AgentRowView {
   tokenId: string;
   owner: string | null;
@@ -73,6 +78,10 @@ export interface AgentDetailView {
   parentOrg: { id: string; contract: string | null; active: boolean | null; signingAuthority: string | null; did: string | null };
   mintTx: string | null;
   mintBlock: string | null;
+  /** Who sent the mint transaction, or null when unknown. */
+  mintSender: string | null;
+  /** True when the holder sent its own mint, false when another account did, null when unknown. */
+  mintedByHolder: boolean | null;
   transfers: Array<{ kind: "mint" | "burn" | "transfer"; from: string; to: string; txHash: string | null; blockNumber: string | null }>;
   /** Plain sentence on where the history came from and whether it is complete. */
   historyNote: string;
@@ -100,9 +109,19 @@ export function deriveAgentView(data: any): AgentDetailView | null {
           (data.mint ? "" : "The mint is older than this window and appears here once the indexer covers it.");
   const org = data.parentOrg ?? {};
   const orgState = org.active === true ? "an active" : org.active === false ? "an inactive" : "a";
+  const owner: string | null = data.owner ?? null;
+  const mintSender: string | null = data.mint && data.mintSender ? String(data.mintSender).toLowerCase() : null;
+  const mintedByHolder = mintSender && owner ? mintSender === owner.toLowerCase() : null;
+  const minter =
+    mintedByHolder === true
+      ? " The holder minted it from their own wallet."
+      : mintedByHolder === false
+        ? ` It was minted to the holder in a transaction sent by ${mintSender}.`
+        : "";
   const summary =
-    `Agent #${data.tokenId} is a soulbound AgentSBT held by ${data.owner ?? "no current owner"}, ` +
+    `Agent #${data.tokenId} is a soulbound AgentSBT held by ${owner ?? "no current owner"}, ` +
     `under ${orgState} parent organization #${org.id ?? "?"}.` +
+    minter +
     (data.quarantined ? " It is quarantined." : "") +
     (d.didNamed ? ` Its DID is ${d.didLabel}.` : "");
   return {
@@ -123,6 +142,8 @@ export function deriveAgentView(data: any): AgentDetailView | null {
     },
     mintTx: data.mint?.txHash ?? null,
     mintBlock: data.mint?.blockNumber ?? null,
+    mintSender,
+    mintedByHolder,
     transfers,
     historyNote: historyNote.trim(),
     summary,

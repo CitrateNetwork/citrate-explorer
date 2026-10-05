@@ -4,9 +4,10 @@ import { publicMessage } from "@/lib/api/errors";
 import { limitPublicRead } from "@/lib/api/publicRead";
 
 /**
- * GET /api/agents/[tokenId] : one agent's DID, owner, parent org and mint tx (HUP US-7.1 AC2).
+ * GET /api/agents/[tokenId] : one agent's DID, owner, parent org, mint tx and mint sender (HUP US-7.1 AC2).
  * Data source (Rule 11): AgentSBT (canonical address book) getAgent/ownerOf, the parent
- * OrganizationSBT getOrg, and Transfer logs (indexed token_transfers, else a bounded eth_getLogs window).
+ * OrganizationSBT getOrg, Transfer logs (indexed token_transfers, else a bounded eth_getLogs window)
+ * and the mint transaction (eth_getTransactionByHash) for its sender.
  */
 export async function GET(req: Request, ctx: { params: Promise<{ tokenId: string }> }) {
   const limited = await limitPublicRead(req);
