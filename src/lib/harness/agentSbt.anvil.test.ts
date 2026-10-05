@@ -189,6 +189,12 @@ suite("AgentSBT on a real anvil deploy", () => {
     expect(tool.structuredContent.note).toBe("No agents registered yet.");
   });
 
+  it("ownerOf: a revert (no such token) is null, an unreachable node is an error", async () => {
+    expect(await harness.readOwner({ client: pub, address: sbt }, 999n)).toBeNull();
+    const dead = createPublicClient({ transport: http("http://127.0.0.1:1", { retryCount: 0, timeout: 2_000 }) }) as PublicClient;
+    await expect(harness.readOwner({ client: dead, address: sbt }, 0n)).rejects.toThrow();
+  });
+
   it("an address with no code reads as not deployed, not as an empty registry", async () => {
     const reg = await harness.readAgentRegistry({ client: pub, address: memberA });
     expect(reg.deployed).toBe(false);

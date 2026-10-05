@@ -12,7 +12,7 @@
  * The reads take an explicit `{ client, address }` source so the same code runs
  * against a local anvil deploy in tests and against chain 40204 in production.
  */
-import type { Address, Hex, PublicClient } from "viem";
+import { BaseError, ContractFunctionRevertedError, type Address, type Hex, type PublicClient } from "viem";
 import { harnessClient } from "./client";
 import { assertLogRange, MAX_LOG_BLOCK_RANGE, MAX_LOG_CHUNK } from "./logBounds";
 import {
@@ -151,8 +151,12 @@ async function readRawAgent(src: AgentSbtSource, tokenId: bigint): Promise<RawAg
   })) as RawAgent;
 }
 
-/** ownerOf, or null when the token has no owner (ERC721NonexistentToken). */
-async function readOwner(src: AgentSbtSource, tokenId: bigint): Promise<string | null> {
+/**
+ * ownerOf, or null when the contract reverts (ERC721NonexistentToken: no owner).
+ * Any other failure (RPC down, timeout, bad response) is rethrown, so a flaky node
+ * surfaces as an error instead of an agent shown with "no current owner".
+ */
+export async function readOwner(src: AgentSbtSource, tokenId: bigint): Promise<string | null> {
   try {
     const owner = await src.client.readContract({
       address: src.address,
@@ -161,8 +165,9 @@ async function readOwner(src: AgentSbtSource, tokenId: bigint): Promise<string |
       args: [tokenId],
     });
     return owner.toLowerCase();
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof BaseError && err.walk((e) => e instanceof ContractFunctionRevertedError)) return null;
+    throw err;
   }
 }
 

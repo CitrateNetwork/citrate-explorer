@@ -6,7 +6,7 @@ Agentile sprint record under `.agentile/sprints/`.
 
 ## [Unreleased]
 
-### Added — HUP US-7.1 AC2: AgentSBT agent pages (2026-10-04)
+### Added: HUP US-7.1 AC2, AgentSBT agent pages (2026-10-04)
 - `#/agents` (registered agents, newest first) and `#/agent/<tokenId>` (DID, owner,
   parent organization, identity-key fingerprint, quarantine flag, mint transaction),
   read from the AgentSBT pinned in the address book. An empty registry renders

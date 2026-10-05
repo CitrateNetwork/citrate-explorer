@@ -18,7 +18,8 @@ const WORD_RE = /^0x[0-9a-fA-F]{64}$/;
 /**
  * The AgentSBT address this explorer reads: `NEXT_PUBLIC_AGENT_SBT` when set to a
  * well-formed address (preview, staging or a local anvil), else the canonical
- * book's `contracts.AgentSBT`. Null when neither names a 20-byte address, so a
+ * book's `contracts.AgentSBT`. A set but malformed override returns null (it does not
+ * fall back to the book), and so does a book with no AgentSBT, so a
  * build whose book has no AgentSBT renders "not in the address book" instead of
  * reading some other contract.
  */

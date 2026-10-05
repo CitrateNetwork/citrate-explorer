@@ -96,7 +96,7 @@ export function deriveAgentView(data: any): AgentDetailView | null {
       ? "History from the explorer's index."
       : h.complete
         ? `History from Transfer logs, blocks ${h.fromBlock} to ${h.toBlock}.`
-        : `History from Transfer logs in the last blocks ${h.fromBlock} to ${h.toBlock}. ` +
+        : `History from Transfer logs in recent blocks only (${h.fromBlock} to ${h.toBlock}). ` +
           (data.mint ? "" : "The mint is older than this window and appears here once the indexer covers it.");
   const org = data.parentOrg ?? {};
   const orgState = org.active === true ? "an active" : org.active === false ? "an inactive" : "a";
@@ -131,8 +131,9 @@ export function deriveAgentView(data: any): AgentDetailView | null {
 
 /**
  * AgentSBT token ids an address received, from its indexed token transfers
- * (`/api/address/[addr]` tokenTransfers). Used to link an address page to its
- * agent pages. Empty when the index is not provisioned.
+ * (`/api/address/[addr]` tokenTransfers, the address's 25 most recent token
+ * transfers). Used to link an address page to its agent pages. Empty when the
+ * index is not provisioned; an agent minted before those 25 transfers is not linked.
  */
 export function agentIdsHeldBy(addr: string, tokenTransfers: any, sbt: string | null): string[] {
   if (!sbt || !tokenTransfers || !tokenTransfers.provisioned) return [];
