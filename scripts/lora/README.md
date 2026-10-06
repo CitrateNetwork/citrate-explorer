@@ -62,7 +62,7 @@ sudo systemctl daemon-reload && sudo systemctl restart citrate-llama.service
 `/lora-adapters` endpoint, for A/B without a restart.)
 
 ## 4. Register in LoRAFactory (on-chain dogfooding)
-Register the adapter id in `LoRAFactory` (`0x6e564d22949992705b5de7108b2c68d3554d5863`)
+Register the adapter id in `LoRAFactory` (`0x9BF27858C9Ece2eC13fAEa3e6BD356A20E9C5185`)
 so it's discoverable on-chain — the demonstration of Citrate's small-model + LoRA value
 prop (a registered Citrate LoRA serving the flagship agent). Use the deployer/treasury
 key from `.env.testnet`.

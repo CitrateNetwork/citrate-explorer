@@ -27,7 +27,7 @@ EVAL_PASSWORD="${EVAL_PASSWORD:-Testpass123}"
 if [[ "${1:-}" == "--mock" ]]; then
   # Mirrors the mock adapter token the server's mock verifier decodes:
   # base64url(JSON{sub, wallet_address}). Only valid when the app runs AUTH_MODE=mock.
-  ADDR="${EVAL_MOCK_ADDRESS:-0x4250675f9015e65fc866f3a373f82bb9dfc000c6}"
+  ADDR="${EVAL_MOCK_ADDRESS:-0x7dabc319867fcca7de8a20809efbd39bbf17acdf}"
   python3 - "$ADDR" <<'PY'
 import base64, json, sys
 addr = sys.argv[1].lower()
