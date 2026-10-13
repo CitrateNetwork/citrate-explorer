@@ -34,7 +34,7 @@ async function main() {
   if (b.ok)
     await show("treasury sent ≥ 10k SALT", {
       ...amountRange(b.grains, "atleast"),
-      counterparty: "0xaceaa7d00c024d32e6e0a07094ceb1a7706786d1",
+      counterparty: "0x26f8e5c441afbe40d16d3e521a69361172556896",
       direction: "sent",
       limit: 5,
     });
