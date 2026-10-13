@@ -228,52 +228,52 @@
   ],
   "genesisAllocations": [
     {
-      "address": "0xa5d097c0abbb3b6bbdb75bd06d51b44f9277e6d4",
+      "address": "0x26f8e5c441afbe40d16d3e521a69361172556896",
       "label": "Genesis treasury",
       "genesisSalt": "500000000000"
     },
     {
-      "address": "0x1089d392d72930fb330749f6b9d5a05870d99c16",
+      "address": "0xcbce1295ca21f4acf31e89b715e2f848db840287",
       "label": "Reserve",
       "genesisSalt": "50000000000"
     },
     {
-      "address": "0xa3512be80abe86439525a3e5a185884ab0ccb87a",
+      "address": "0x7dabc319867fcca7de8a20809efbd39bbf17acdf",
       "label": "Deployer",
       "genesisSalt": "10000000000"
     },
     {
-      "address": "0x827e177cc510d460632821653228c94962647b8e",
+      "address": "0x58bff28eebc55b24e8626404722dd237a649d7a7",
       "label": "Team / dev",
       "genesisSalt": "10000000000"
     },
     {
-      "address": "0x081d1cedb0b9cfdda26286df592ec865a93d4e01",
+      "address": "0xd04bbb7e81687d815392e869d612c0ede3776d85",
       "label": "Validator coinbase",
       "genesisSalt": "5000000000"
     },
     {
-      "address": "0x9c046a90ced2dedfe2cd5329a1b143e70fea1ad9",
+      "address": "0xd87b5cc94897e932d37beb8d78063c9cbcbdb32d",
       "label": "Testnet faucet",
       "genesisSalt": "10000000000"
     },
     {
-      "address": "0xb4e42731908a00fea7e1aedb0817e78b416889c5",
+      "address": "0x6f24c86bea62e4676217f1cec762c8ebaeff2880",
       "label": "Validator staker 1",
       "genesisSalt": "40000000"
     },
     {
-      "address": "0x62298a9585ad2c07894b5172ce050e4fc839d9ee",
+      "address": "0x8b93a3eef023090f927290db1411b3be2d682d52",
       "label": "Validator staker 2",
       "genesisSalt": "40000000"
     },
     {
-      "address": "0x531c70586088d71ed91708b4a7803162fd19c8ae",
+      "address": "0xf3415a538ceeeae30aa1bc11757c7b5b112b864a",
       "label": "Validator staker 3",
       "genesisSalt": "40000000"
     },
     {
-      "address": "0x73f6ee78874e7dc72e349afad68af67f2e21a829",
+      "address": "0x1b1c2ec47dc05daa436b151519b332e26f2637e3",
       "label": "Validator staker 4",
       "genesisSalt": "40000000"
     }

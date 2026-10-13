@@ -66,7 +66,7 @@ cat <<EOF
   [$(stamp)] DONE. Gemma Citrate-expert LoRA ready: $OUT.gguf
   Final (deliberate) steps:
     SERVE:    add '--lora $OUT.gguf' to /etc/systemd/system/citrate-llama.service ExecStart, daemon-reload + restart
-    REGISTER: record the adapter id in LoRAFactory 0x6e564d22949992705b5de7108b2c68d3554d5863 (deployer key)
+    REGISTER: record the adapter id in LoRAFactory 0x9BF27858C9Ece2eC13fAEa3e6BD356A20E9C5185 (deployer key)
     MEASURE:  EVAL_BASE_URL=https://explorer.citrate.ai EVAL_LORA_ID=citrate-expert-gemma-v1 EVAL_RUNS=3 scripts/eval/run-eval.sh
 EOF
 sudo systemctl disable --now citrate-lora-watch.timer 2>/dev/null
