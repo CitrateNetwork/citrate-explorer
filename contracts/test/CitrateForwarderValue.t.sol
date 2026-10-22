@@ -78,6 +78,11 @@ contract CitrateForwarderValueTest is Test {
         vm.expectRevert(abi.encodeWithSelector(MISMATCHED_VALUE, supplied, expected));
     }
 
+    /// The spelled-out selector above is the contract's own error.
+    function testMismatchedValueSelectorMatchesContract() public pure {
+        assertEq(CitrateForwarder.MismatchedValue.selector, MISMATCHED_VALUE);
+    }
+
     // ------------------------------------------------------- value mismatches
 
     /// A funded forwarder must not pay a signed request out of its own balance

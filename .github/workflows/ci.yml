@@ -59,3 +59,22 @@ jobs:
       # so a clean prod build is a real signal, not a config artifact.
       - name: Build
         run: pnpm build
+
+  contracts:
+    # The forwarder and pulse contracts ship from contracts/; their Foundry
+    # suites (including the forwarder call-value accounting tests) must run on
+    # every PR, not only locally. Compiler version comes from foundry.toml.
+    name: Contracts (forge test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+        with:
+          version: v1.8.3
+
+      - name: Forge tests
+        run: forge test -vv
