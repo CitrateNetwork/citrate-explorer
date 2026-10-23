@@ -8,7 +8,8 @@
  *  2. OUR issued API keys → hashed (scrypt, salted with a server pepper), shown once, never
  *     recoverable. `hashApiKey` here; we compare hashes on every API request.
  *  3. Third-party provider keys the agent must USE server-side → AES-256-GCM at
- *     rest with a per-user key derived from `APP_MASTER_KEY` + wallet. `sealForUser`
+ *     rest with a per-user key derived from `APP_MASTER_KEY` + the owner's OIDC
+ *     subject (verbatim, see deriveUserKey). `sealForUser`
  *     / `openForUser` here — the server can decrypt to run tools on the user's behalf.
  *
  * Data source (Rule 11): ciphertext/iv/authTag columns in Neon; keys from the
@@ -70,7 +71,7 @@ function deriveUserKey(owner: string, version: 1 | 2 = 2): Buffer {
   return Buffer.from(derived);
 }
 
-/** Seal a third-party secret for `userAddress` (recoverable server-side). */
+/** Seal a third-party secret for an owner (the OIDC subject; recoverable server-side). */
 export function sealForUser(
   plaintext: string,
   userAddress: string,
