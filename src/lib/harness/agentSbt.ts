@@ -22,6 +22,7 @@
 import { BaseError, ContractFunctionRevertedError, TransactionNotFoundError, type Address, type Hex, type PublicClient } from "viem";
 import { harnessClient } from "./client";
 import { assertLogRange, MAX_LOG_BLOCK_RANGE, MAX_LOG_CHUNK } from "./logBounds";
+import { pageLogs } from "./logPaging";
 import {
   AGENT_SBT_ABI,
   AGENT_TRANSFER_EVENT,
@@ -235,18 +236,24 @@ export async function agentTransferLogs(
   const fromBlock = head >= window ? head - window + 1n : 0n;
   assertLogRange(fromBlock, head, MAX_LOG_BLOCK_RANGE);
   const transfers: AgentTransfer[] = [];
-  let chunkFrom = fromBlock;
-  while (chunkFrom <= head && transfers.length < MAX_AGENT_TRANSFERS) {
-    const chunkEnd = chunkFrom + MAX_LOG_CHUNK - 1n;
-    const chunkTo = chunkEnd < head ? chunkEnd : head;
-    const logs = await src.client.getLogs({
-      address: src.address,
-      event: AGENT_TRANSFER_EVENT,
-      args: { tokenId },
-      fromBlock: chunkFrom,
-      toBlock: chunkTo,
-    });
-    for (const l of logs) {
+  // Retryable -32002 windows are retried, over-limit -32005 windows are paged
+  // smaller; a window the node cannot serve rejects (LogsUnavailableError), so
+  // a history is never returned with a silently missing window.
+  const pages = pageLogs(
+    (from, to) =>
+      src.client.getLogs({
+        address: src.address,
+        event: AGENT_TRANSFER_EVENT,
+        args: { tokenId },
+        fromBlock: from,
+        toBlock: to,
+      }),
+    fromBlock,
+    head,
+    { chunk: MAX_LOG_CHUNK },
+  );
+  for await (const page of pages) {
+    for (const l of page.logs) {
       if (transfers.length >= MAX_AGENT_TRANSFERS) break;
       // The topic filter already pins the token id; check it anyway so a node that
       // ignores topics cannot attribute another token's transfer to this agent.
@@ -259,7 +266,7 @@ export async function agentTransferLogs(
         logIndex: l.logIndex,
       });
     }
-    chunkFrom = chunkTo + 1n;
+    if (transfers.length >= MAX_AGENT_TRANSFERS) break;
   }
   return {
     transfers,

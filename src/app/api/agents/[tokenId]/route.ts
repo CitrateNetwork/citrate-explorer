@@ -2,6 +2,7 @@ import { readAgent, agentSbtSource } from "@/lib/harness/agentSbt";
 import { parseAgentTokenId } from "@/lib/citrate/agentSbt";
 import { publicMessage } from "@/lib/api/errors";
 import { limitPublicRead } from "@/lib/api/publicRead";
+import { LogsUnavailableError } from "@/lib/harness/logPaging";
 
 /**
  * GET /api/agents/[tokenId] : one agent's DID, owner, parent org, mint tx and mint sender (HUP US-7.1 AC2).
@@ -22,6 +23,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ tokenId: string
     if (!agent) return Response.json({ error: `agent #${tokenId} is not registered` }, { status: 404 });
     return Response.json(agent);
   } catch (err) {
+    if (err instanceof LogsUnavailableError) {
+      // Transfer history could not be read yet: an error the screen shows, not an empty history.
+      return Response.json({ error: err.message }, { status: 503, headers: { "retry-after": "5" } });
+    }
     return Response.json({ error: publicMessage(err, "api.agents.one") }, { status: 502 });
   }
 }

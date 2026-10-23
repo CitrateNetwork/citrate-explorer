@@ -8,6 +8,7 @@ import { searchTransactions } from "@/lib/indexer/repository";
 import { validateApiKey, extractApiKey, clientIp, INVALID_KEY_MESSAGE } from "@/lib/api/keys";
 import { checkRateLimit } from "@/lib/api/ratelimit";
 import { publicMessage } from "@/lib/api/errors";
+import { classifyLogsError, LogsUnavailableError, RPC_LIMIT_EXCEEDED, RPC_RESOURCE_UNAVAILABLE, withLogsRetry } from "@/lib/harness/logPaging";
 
 /**
  * Etherscan-compatible REST surface: `/api/v1?module=&action=&...&apikey=`.
@@ -20,7 +21,10 @@ const ok = (result: unknown, message = "OK") => Response.json({ status: "1", mes
 const noData = (message = "No records found") => Response.json({ status: "0", message, result: [] });
 const fail = (message: string) => Response.json({ status: "0", message, result: null });
 const rpcOk = (result: unknown) => Response.json({ jsonrpc: "2.0", id: 1, result });
-const rpcErr = (message: string, code = -32600) => Response.json({ jsonrpc: "2.0", id: 1, error: { code, message } });
+const rpcErr = (message: string, code = -32600, data?: unknown, init?: ResponseInit) =>
+  Response.json({ jsonrpc: "2.0", id: 1, error: data === undefined ? { code, message } : { code, message, data } }, init);
+/** Seconds a caller should wait before retrying a read the node could not serve yet. */
+const LOGS_RETRY_AFTER_S = "5";
 
 export async function GET(req: Request) {
   // Key + rate limit.
@@ -65,6 +69,24 @@ export async function GET(req: Request) {
       // eth_getLogs must not bypass the ops.getLogs range/address/topic limits).
       const guarded = guardProxyCall(action, params);
       if (!guarded.ok) return rpcErr(guarded.error, guarded.code === -32601 ? -32600 : guarded.code);
+      if (action === "eth_getLogs") {
+        // A retryable -32002 is retried with back-off; an exhausted retry or an
+        // over-limit range is reported with the node's code, never as [].
+        const f = guarded.params[0] as { fromBlock?: string; toBlock?: string };
+        const from = typeof f?.fromBlock === "string" ? BigInt(f.fromBlock) : null;
+        const to = typeof f?.toBlock === "string" ? BigInt(f.toBlock) : null;
+        try {
+          return rpcOk(await withLogsRetry(() => citrateRequest(harnessClient(), action, guarded.params), from, to));
+        } catch (err) {
+          if (err instanceof LogsUnavailableError) {
+            return rpcErr(err.message, RPC_RESOURCE_UNAVAILABLE, { retryable: true }, { status: 503, headers: { "retry-after": LOGS_RETRY_AFTER_S } });
+          }
+          if (classifyLogsError(err) === "range-too-large") {
+            return rpcErr("eth_getLogs range is over this node's limit; request it in smaller pages", RPC_LIMIT_EXCEEDED);
+          }
+          throw err;
+        }
+      }
       const result = await citrateRequest(harnessClient(), action, guarded.params);
       return rpcOk(result);
     }
@@ -147,6 +169,10 @@ export async function GET(req: Request) {
 
     return fail(`Unsupported or not-yet-implemented module/action: ${mod}/${action}`);
   } catch (err) {
+    if (err instanceof LogsUnavailableError) {
+      // The read failed: say so, never "No logs found".
+      return Response.json({ status: "0", message: err.message, result: null }, { status: 503, headers: { "retry-after": LOGS_RETRY_AFTER_S } });
+    }
     return fail(publicMessage(err, "api.v1"));
   }
 }
