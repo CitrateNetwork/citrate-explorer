@@ -41,7 +41,7 @@
     "solc": "^0.8.35",
     "viem": "^2.51.3",
     "wagmi": "^3.6.16",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -80,9 +80,9 @@
       "follow-redirects@1": ">=1.16.1 <2.0.0",
       "vite@8": ">=8.1.6 <9.0.0"
     },
-    "auditConfigComment": "Pending owner sign-off (2026-10-04): GHSA-vfj7-8cjw-p6xm (braces <=3.0.3, stack exhaustion on deeply nested patterns) has no patched release. The only path is devDependencies eslint-config-next > @next/eslint-plugin-next > fast-glob > micromatch > braces, which runs at lint time on this repo's own glob patterns and never ships in the app. Ignored by GHSA id only, so any other braces advisory still fails `pnpm audit --audit-level=high`. Remove this entry as soon as a fixed braces (or a Next lint plugin without it) is released.",
+    "auditConfigComment": "Pending owner sign-off (2026-10-04): GHSA-vfj7-8cjw-p6xm (braces <=3.0.3, stack exhaustion on deeply nested patterns) has no patched release. The only path is devDependencies eslint-config-next > @next/eslint-plugin-next > fast-glob > micromatch > braces, which runs at lint time on this repo's own glob patterns and never ships in the app. Ignored by GHSA id only, so any other braces advisory still fails `pnpm audit --audit-level=high`. Remove this entry as soon as a fixed braces (or a Next lint plugin without it) is released. Pending owner sign-off (2026-10-25), expires 2027-01-31: GHSA-mrhx-c7xc-m3w5 (zod <4.6.6, memory exhaustion validating oversized constrained collections) has no zod 3 fix. The app's own zod is on ^4.6.6 and every zod 4.x in the lock is >=4.6.6; the ignore covers only the zod 3 pulled by third-party SDKs whose latest releases still require zod 3 (@privy-io/api-base, @privy-io/public-api, @reown/appkit-wallet, @coinbase/cdp-sdk, x402). Forcing those onto zod 4 would change their runtime behaviour, so they are not overridden. src/lib/zod-advisory-guard.test.ts fails if any other package depends on an unpatched zod, if any zod 4.x is below 4.6.6, after the expiry, or once the ignore is stale.",
     "auditConfig": {
-      "ignoreGhsas": ["GHSA-vfj7-8cjw-p6xm"]
+      "ignoreGhsas": ["GHSA-vfj7-8cjw-p6xm", "GHSA-mrhx-c7xc-m3w5"]
     }
   }
 }
