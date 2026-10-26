@@ -415,6 +415,7 @@ describe("getLogs source tripwire", () => {
     // `.getLogs(` on a viem client, or a raw `eth_getLogs` request.
     const REVIEWED = new Set([
       "lib/harness/ops.ts", // bounded + chunked (assertLogRange)
+      "lib/harness/agentSbt.ts", // one contract + Transfer topic + token id, window <= MAX_LOG_BLOCK_RANGE, chunked
     ]);
     const hits = files
       .filter(({ text }) => /\bc(lient)?\.getLogs\(|harnessClient\(\)\.getLogs\(|request\(\s*\{\s*method:\s*["']eth_getLogs/.test(text))

@@ -38,6 +38,11 @@ The dedicated keeper key lives in `.env.beacon` (gitignored). Its address:
 KEEPER = 0xacA9CB582b800aeDf1992506C5758539a422ed6b
 ```
 
+This keeper address and any `CitratePulse` address recorded for a past run predate the
+2026-10-05 40204 re-roll. After a re-roll, fund the keeper again and redeploy; read
+system-contract addresses from the synced book (`src/generated/addresses.json`), never
+from this file.
+
 1. **Fund the keeper** with SALT (covers deploy gas + the contract's tip treasury +
    ongoing per-pulse gas). Suggested: 200–1000 SALT for a long run.
 2. **Deploy** (seeds the contract's treasury and sets the tip):

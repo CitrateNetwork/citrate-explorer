@@ -53,7 +53,7 @@ SERVE (hot-load A/B, no restart):
   curl -s http://100.68.173.64:8181/lora-adapters         # confirm slot
   # or add '--lora ${GGUF_OUT}' to /etc/systemd/system/citrate-llama.service and restart
 REGISTER on-chain (dogfooding): record the adapter id in LoRAFactory
-  0x6e564d22949992705b5de7108b2c68d3554d5863  (deployer/treasury key in .env.testnet)
+  0x9BF27858C9Ece2eC13fAEa3e6BD356A20E9C5185  (deployer/treasury key in .env.testnet)
 MEASURE the lift (X-8 tag):
   EVAL_BASE_URL=https://explorer.citrate.ai EVAL_RUNS=3 scripts/eval/run-eval.sh                 # base
   EVAL_LORA_ID=citrate-expert-v1 EVAL_RUNS=3 scripts/eval/run-eval.sh                            # +LoRA

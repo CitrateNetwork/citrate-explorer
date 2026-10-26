@@ -1,138 +1,145 @@
 #!/usr/bin/env node
 /**
- * Sync the canonical Citrate contract-address table from citrate-chain into
- * this repo's committed vendored copies:
- *   src/generated/addresses.json            <- contracts/addresses/40204.json
- *   src/generated/addresses.provenance.json <- contracts/addresses/40204.provenance.json
+ * Sync the explorer's 40204 chain data from one citrate-chain checkout. Three generated files:
  *
- * The provenance file is the on-chain deployer-tx ledger (tx hash, block, CREATE
- * vs CREATE2, canonical vs orphan). The contract index uses it to fill
- * `contracts.creation_tx` / `creator` for book entries (src/lib/indexer/contractLabels.ts).
- * The explorer never reads the sibling checkout at runtime: only these copies.
+ *   src/generated/addresses.json       verbatim copy of contracts/addresses/40204.json (the book)
+ *   src/generated/addresses.provenance.json
+ *                                      verbatim copy of contracts/addresses/40204.provenance.json, the
+ *                                      on-chain deployer-tx ledger (tx hash, block, CREATE vs CREATE2,
+ *                                      canonical vs orphan). The contract index uses it to fill
+ *                                      `contracts.creation_tx` / `creator` for book entries
+ *                                      (src/lib/indexer/contractLabels.ts).
+ *   src/generated/chainConstants.json  precompile catalog + genesis SALT allocations, built from
+ *                                      the book's `precompiles`, core/execution/src/precompiles/mod.rs
+ *                                      (PURE_PRECOMPILE_ADDRESSES, AGENT_FORK_PRECOMPILE_ADDRESSES)
+ *                                      and core/economics/src/genesis.rs (testnet_beta)
  *
- * Source-of-truth lives in citrate-chain (sibling of this repo under
- * Citrate-Labs/, or wherever CITRATE_CHAIN_DIR points).
+ * Usage:
+ *   pnpm sync-addresses [--chain <citrate-chain dir>] [--only book|constants] [--check]
  *
- * Run via `pnpm sync-addresses`. With `--check` (CI gate) it exits non-zero if
- * either vendored copy differs from the canonical. Without `--check`, it
- * overwrites both and prints what changed.
+ *   --chain   the citrate-chain checkout (default: ../citrate-chain, or CITRATE_CHAIN_DIR)
+ *   --only    sync just the book (book + provenance) or the constants (default: all)
+ *   --check   write nothing; exit 1 if a committed file differs from what the inputs generate
  *
- *   CITRATE_CHAIN_DIR=/path/to/citrate-chain pnpm sync-addresses
+ * Fails closed: a malformed book, an unparsable chain source, a chain precompile with no catalog
+ * description, or a genesis account with no label (scripts/lib/chainLabels.mjs) is an error, and
+ * nothing is written. The explorer never reads the citrate-chain checkout at runtime: only these copies.
  */
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildChainConstants, serializeChainConstants } from "./lib/chainSync.mjs";
+import { PRECOMPILE_DESCRIPTIONS, GENESIS_LABELS } from "./lib/chainLabels.mjs";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(__dirname, "..");
-// citrate-chain is a sibling of citrate-explorer under Citrate-Labs/ unless
-// CITRATE_CHAIN_DIR says otherwise. VENDORED_DIR override exists for the test.
-const CHAIN_DIR = process.env.CITRATE_CHAIN_DIR
-  ? resolve(process.env.CITRATE_CHAIN_DIR)
-  : resolve(REPO_ROOT, "..", "citrate-chain");
-const CANONICAL = resolve(CHAIN_DIR, "contracts", "addresses", "40204.json");
-const CANONICAL_PROVENANCE = resolve(
-  CHAIN_DIR,
-  "contracts",
-  "addresses",
-  "40204.provenance.json",
-);
-const VENDORED_DIR = process.env.VENDORED_DIR
-  ? resolve(process.env.VENDORED_DIR)
-  : resolve(REPO_ROOT, "src", "generated");
-const VENDORED = resolve(VENDORED_DIR, "addresses.json");
-const VENDORED_PROVENANCE = resolve(VENDORED_DIR, "addresses.provenance.json");
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const args = process.argv.slice(2);
+const argValue = (flag) => {
+  const i = args.indexOf(flag);
+  return i >= 0 ? args[i + 1] : undefined;
+};
+const CHECK_MODE = args.includes("--check");
+const ONLY = argValue("--only");
+if (ONLY !== undefined && ONLY !== "book" && ONLY !== "constants") {
+  console.error("[sync-addresses] --only takes `book` or `constants`");
+  process.exit(2);
+}
+const CHAIN = resolve(argValue("--chain") ?? process.env.CITRATE_CHAIN_DIR ?? resolve(REPO_ROOT, "..", "citrate-chain"));
 
-const CHECK_MODE = process.argv.includes("--check");
+const INPUTS = {
+  book: resolve(CHAIN, "contracts", "addresses", "40204.json"),
+  provenance: resolve(CHAIN, "contracts", "addresses", "40204.provenance.json"),
+  precompiles: resolve(CHAIN, "core", "execution", "src", "precompiles", "mod.rs"),
+  genesis: resolve(CHAIN, "core", "economics", "src", "genesis.rs"),
+};
+// VENDORED_DIR redirects the outputs (the generator's own tests write to a temp dir with it).
+const VENDORED_DIR = process.env.VENDORED_DIR ? resolve(process.env.VENDORED_DIR) : resolve(REPO_ROOT, "src", "generated");
+const OUTPUTS = {
+  book: resolve(VENDORED_DIR, "addresses.json"),
+  provenance: resolve(VENDORED_DIR, "addresses.provenance.json"),
+  constants: resolve(VENDORED_DIR, "chainConstants.json"),
+};
 
-if (!existsSync(CANONICAL)) {
-  console.error(
-    `[sync-addresses] canonical not found at ${CANONICAL}\n` +
-      "  Make sure citrate-chain is a sibling of this repo under Citrate-Labs/, or set CITRATE_CHAIN_DIR.",
-  );
+const fail = (msg) => {
+  console.error(`[sync-addresses] ${msg}`);
   process.exit(1);
-}
-if (!existsSync(CANONICAL_PROVENANCE)) {
-  console.error(`[sync-addresses] canonical provenance not found at ${CANONICAL_PROVENANCE}`);
-  process.exit(1);
-}
+};
+const read = (p) => {
+  if (!existsSync(p)) fail(`input not found: ${p}\n  Pass --chain <citrate-chain checkout> (or set CITRATE_CHAIN_DIR).`);
+  return readFileSync(p, "utf8");
+};
 
-const canonical = JSON.parse(readFileSync(CANONICAL, "utf8"));
+const canonical = JSON.parse(read(INPUTS.book));
 
-// Minimum-shape gate: a malformed canonical must NOT pollute the vendored
-// copy. Reject anything missing `chainId`, `contracts`, or `aaStack`.
-const requiredTop = ["chainId", "contracts", "aaStack"];
-for (const k of requiredTop) {
-  if (!(k in canonical)) {
-    console.error(`[sync-addresses] canonical is missing required key: ${k}`);
-    process.exit(1);
-  }
+// Minimum-shape gate: a malformed book must NOT pollute the vendored copy.
+for (const k of ["chainId", "contracts", "aaStack"]) {
+  if (!(k in canonical)) fail(`canonical is missing required key: ${k}`);
 }
-if (canonical.chainId !== 40204) {
-  console.error(
-    `[sync-addresses] canonical chainId is ${canonical.chainId}, expected 40204`,
-  );
-  process.exit(1);
-}
-
+if (canonical.chainId !== 40204) fail(`canonical chainId is ${canonical.chainId}, expected 40204`);
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
-const allAddresses = [
+for (const [name, addr] of [
   ...Object.entries(canonical.contracts ?? {}),
   ...Object.entries(canonical.aaStack ?? {}),
   ...Object.entries(canonical.genesis ?? {}),
-];
-for (const [name, addr] of allAddresses) {
-  if (typeof addr !== "string" || !ADDRESS_RE.test(addr)) {
-    console.error(
-      `[sync-addresses] address for ${name} is not a 20-byte hex: ${addr}`,
+  ...Object.entries(canonical.precompiles ?? {}),
+]) {
+  if (typeof addr !== "string" || !ADDRESS_RE.test(addr)) fail(`address for ${name} is not a 20-byte hex: ${addr}`);
+}
+
+const outputs = {};
+if (ONLY !== "constants") {
+  outputs.book = JSON.stringify(canonical, null, 2) + "\n";
+  const provenance = JSON.parse(read(INPUTS.provenance));
+  if (provenance.chainId !== 40204 || !Array.isArray(provenance.ledger)) {
+    fail("canonical provenance must have chainId 40204 and a ledger[]");
+  }
+  const TX_RE = /^0x[0-9a-fA-F]{64}$/;
+  for (const e of provenance.ledger) {
+    if (e.kind !== "CREATE" && e.kind !== "CREATE2") continue;
+    if (!TX_RE.test(e.tx ?? "") || !ADDRESS_RE.test(e.address ?? "")) {
+      fail(`provenance entry nonce=${e.nonce} has a malformed tx/address`);
+    }
+  }
+  outputs.provenance = JSON.stringify(provenance, null, 2) + "\n";
+}
+if (ONLY !== "book") {
+  try {
+    outputs.constants = serializeChainConstants(
+      buildChainConstants({
+        book: canonical,
+        precompileRs: read(INPUTS.precompiles),
+        genesisRs: read(INPUTS.genesis),
+        descriptions: PRECOMPILE_DESCRIPTIONS,
+        genesisLabels: GENESIS_LABELS,
+      }),
     );
-    process.exit(1);
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
   }
 }
-
-const provenance = JSON.parse(readFileSync(CANONICAL_PROVENANCE, "utf8"));
-if (provenance.chainId !== 40204 || !Array.isArray(provenance.ledger)) {
-  console.error("[sync-addresses] canonical provenance must have chainId 40204 and a ledger[]");
-  process.exit(1);
-}
-const TX_RE = /^0x[0-9a-fA-F]{64}$/;
-for (const e of provenance.ledger) {
-  if (e.kind !== "CREATE" && e.kind !== "CREATE2") continue;
-  if (!TX_RE.test(e.tx ?? "") || !ADDRESS_RE.test(e.address ?? "")) {
-    console.error(`[sync-addresses] provenance entry nonce=${e.nonce} has a malformed tx/address`);
-    process.exit(1);
-  }
-}
-
-const serialized = JSON.stringify(canonical, null, 2) + "\n";
-const serializedProvenance = JSON.stringify(provenance, null, 2) + "\n";
 
 if (CHECK_MODE) {
-  for (const [path, want] of [
-    [VENDORED, serialized],
-    [VENDORED_PROVENANCE, serializedProvenance],
-  ]) {
-    if (!existsSync(path)) {
-      console.error(`[sync-addresses] no vendored copy at ${path}`);
-      process.exit(1);
-    }
-    if (readFileSync(path, "utf8") !== want) {
-      console.error(
-        `[sync-addresses] ${path} is OUT OF SYNC with canonical. Run \`pnpm sync-addresses\` and commit the diff.`,
-      );
-      process.exit(1);
+  let drift = false;
+  for (const [k, text] of Object.entries(outputs)) {
+    const committed = existsSync(OUTPUTS[k]) ? readFileSync(OUTPUTS[k], "utf8") : null;
+    if (committed !== text) {
+      drift = true;
+      console.error(`[sync-addresses] ${OUTPUTS[k]} is OUT OF SYNC with ${CHAIN}.`);
+    } else {
+      console.log(`[sync-addresses] ${k}: matches ${CHAIN}`);
     }
   }
-  console.log("[sync-addresses] vendored copies match canonical ✓");
+  if (drift) fail("run `pnpm sync-addresses --chain <citrate-chain>` and commit the diff.");
   process.exit(0);
 }
 
-writeFileSync(VENDORED, serialized);
-writeFileSync(VENDORED_PROVENANCE, serializedProvenance);
-console.log(`[sync-addresses] wrote ${VENDORED}`);
-console.log(`[sync-addresses] wrote ${VENDORED_PROVENANCE} (${provenance.ledger.length} ledger entries)`);
-console.log(
-  `  contracts: ${Object.keys(canonical.contracts ?? {}).length}` +
-    `, aaStack: ${Object.keys(canonical.aaStack ?? {}).length}` +
-    `, genesis: ${Object.keys(canonical.genesis ?? {}).length}`,
-);
+for (const [k, text] of Object.entries(outputs)) {
+  writeFileSync(OUTPUTS[k], text);
+  console.log(`[sync-addresses] wrote ${OUTPUTS[k]}`);
+}
+if (outputs.provenance) {
+  console.log(`  provenance ledger entries: ${JSON.parse(outputs.provenance).ledger.length}`);
+}
+if (outputs.constants) {
+  const c = JSON.parse(outputs.constants);
+  console.log(`  precompiles: ${c.precompiles.length}, genesis allocations: ${c.genesisAllocations.length}`);
+}

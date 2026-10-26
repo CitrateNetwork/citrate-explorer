@@ -41,6 +41,9 @@ import {
 import { resolveAmount, resolveTimeRange, amountRange } from "@/lib/research/resolvers";
 import { describeContract, listContracts, CITRATE_OVERVIEW, CONTRACT_CATEGORIES, type ContractCategory } from "@/lib/citrate/contractCatalog";
 import { getVerifiedSource, MAX_SOURCE_CHARS_LIMIT } from "@/lib/verify/verifiedSource";
+import { agentSbtSource, lookupAgent } from "@/lib/harness/agentSbt";
+import { parseAgentTokenId } from "@/lib/citrate/agentSbt";
+import { PublicError } from "@/lib/api/errors";
 import { logToolCall } from "./audit";
 
 const addressSchema = z
@@ -381,6 +384,26 @@ export function citrateTools(opts: ToolOptions = {}) {
           return findNativeTransfers(q);
         },
       ),
+    }),
+    getAgent: tool({
+      description:
+        "Read one AgentSBT agent identity by token id (HUP US-7.1): its DID hash (and the " +
+        "did:citrate:agent string when the hash matches the owner), owner (the holder), parent organization " +
+        "(as stored by the contract; a member's own mint sits under the member organization), identity-key " +
+        "fingerprint, quarantine flag, mint transaction and its sender (mintSender, equal to the owner when the " +
+        "member minted it from their own wallet). Returns found=false with a note " +
+        "when no agent has that id (for example 'No agents registered yet.').",
+      inputSchema: z.object({
+        tokenId: z
+          .string()
+          .regex(/^(0|[1-9][0-9]{0,19})$/, "expected a decimal token id")
+          .describe("the AgentSBT token id, decimal (agents are numbered from 0)"),
+      }),
+      execute: audited("getAgent", async ({ tokenId }: { tokenId: string }) => {
+        const id = parseAgentTokenId(tokenId);
+        if (id === null) throw new PublicError("expected a decimal token id below 2^64");
+        return lookupAgent(agentSbtSource(), id);
+      }),
     }),
     saltDistribution: tool({
       description:

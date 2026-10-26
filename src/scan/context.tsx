@@ -40,6 +40,8 @@ export function parseRoute() {
   if (a === "contract") return { name: "contract", id: b };
   if (a === "token") return { name: "token", id: b };
   if (a === "dag") return { name: "dag" };
+  if (a === "agents") return { name: "agents", id: b };
+  if (a === "agent") return { name: "agent", id: b };
   if (a === "apis") return { name: "dev" };
   if (a === "account" || a === "settings") return { name: "settings" };
   return { name: "home" };

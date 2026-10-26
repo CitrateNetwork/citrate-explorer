@@ -13,6 +13,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { SD } from "./data";
+import { deriveAgentView, deriveAgentsView, agentIdsHeldBy } from "./agentView";
+import { agentSbtAddress, isAgentSbt } from "@/lib/citrate/agentSbt";
 
 /**
  * Demo mode keeps the rich (fictional) sample as the fallback when a live `/api/*`
@@ -377,6 +379,10 @@ export function deriveAddressView(addr: string, data: any): any | null {
       ` ${txCount ? `${txCount} transfers/transactions indexed.` : "Transaction history appears here as the indexer catches up."}`,
     txns,
     tokens,
+    // HUP US-7.1 AC2: link the address page to the agent pages it holds, and the AgentSBT
+    // contract's own address page to the registered-agents list.
+    agentIds: agentIdsHeldBy(addr, data.tokenTransfers, agentSbtAddress()),
+    isAgentRegistry: isAgentSbt(addr),
     _live: true,
   };
 }
@@ -386,4 +392,19 @@ export function useLiveAddress(addr: string) {
   const view = deriveAddressView(addr, data);
   if (!view) return { data: null, loading, error };
   return { data: view, loading, error };
+}
+
+// --- AgentSBT (HUP US-7.1 AC2) ----------------------------------------------
+
+/** The newest agents from `/api/agents` (newest first), mapped for the list screen. */
+export function useLiveAgents(before: string | null = null) {
+  const qs = before ? `?before=${encodeURIComponent(before)}` : "";
+  const { data, loading, error } = useFetch<any>(`/api/agents${qs}`);
+  return { data: deriveAgentsView(data), loading, error };
+}
+
+/** One agent from `/api/agents/[tokenId]`, mapped for the agent screen. */
+export function useLiveAgent(tokenId: string) {
+  const { data, loading, error } = useFetch<any>(tokenId ? `/api/agents/${encodeURIComponent(tokenId)}` : null);
+  return { data: deriveAgentView(data), loading, error };
 }

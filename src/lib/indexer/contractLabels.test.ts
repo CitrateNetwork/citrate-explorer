@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -178,7 +178,7 @@ describe("scripts/sync-addresses.mjs (the vendoring generator)", () => {
 
   it("--check passes when the vendored copies match the canonical", () => {
     const { dir } = fakeChain();
-    const r = run(dir, ["--check"]);
+    const r = run(dir, ["--only", "book", "--check"]);
     expect(r.stderr).toBe("");
     expect(r.status).toBe(0);
   });
@@ -188,13 +188,15 @@ describe("scripts/sync-addresses.mjs (the vendoring generator)", () => {
     const p = JSON.parse(readFileSync(join(addrDir, "40204.provenance.json"), "utf8"));
     p.ledger[0].block += 1;
     writeFileSync(join(addrDir, "40204.provenance.json"), JSON.stringify(p));
-    expect(run(dir, ["--check"]).status).toBe(1);
+    const r = run(dir, ["--only", "book", "--check"]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("addresses.provenance.json is OUT OF SYNC");
   });
 
   it("regenerates byte-identical vendored files", () => {
     const { dir } = fakeChain();
     const out = mkdtempSync(join(tmpdir(), "vendored-"));
-    expect(run(dir, [], out).status).toBe(0);
+    expect(run(dir, ["--only", "book"], out).status).toBe(0);
     for (const f of ["addresses.json", "addresses.provenance.json"]) {
       expect(readFileSync(join(out, f), "utf8")).toBe(readFileSync(join(GENERATED, f), "utf8"));
     }
@@ -204,6 +206,9 @@ describe("scripts/sync-addresses.mjs (the vendoring generator)", () => {
     const { dir, addrDir } = fakeChain();
     writeFileSync(join(addrDir, "40204.provenance.json"), JSON.stringify({ chainId: 40204, ledger: [{ kind: "CREATE2", tx: "0x1", address: "0x2" }] }));
     const out = mkdtempSync(join(tmpdir(), "vendored-"));
-    expect(run(dir, [], out).status).toBe(1);
+    const r = run(dir, ["--only", "book"], out);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("has a malformed tx/address");
+    expect(readdirSync(out)).toEqual([]);
   });
 });
