@@ -1,6 +1,7 @@
 /**
  * Block ingestion (S-1 WP-1.3). Reads a block from live RPC and writes it — with
- * its DAG edges, transactions, receipts, and logs — into Neon. DAG-native: uses
+ * its DAG edges, transactions, receipts, logs, and contract creations (CREATE +
+ * Arachnid CREATE2, see ./contracts.ts) — into Postgres. DAG-native: uses
  * the typed rpc.ts layer so `selected_parent_hash`, `merge_parent_hashes[]`, and
  * `blue_score` are first-class. Idempotent (onConflictDoNothing) so restart and
  * re-ingest never duplicate.
@@ -31,6 +32,14 @@ import {
 } from "@/lib/db/schema";
 import { decodeTransferLog, type RawLog } from "./transferDecode";
 import { getToken } from "@/lib/harness/ops";
+import {
+  contractCandidates,
+  resolveCandidates,
+  upsertContracts,
+  type CreationReceipt,
+  type CreationTx,
+} from "./contracts";
+import { bookNameFor } from "./contractLabels";
 
 const big = (h?: string): string => (h ? BigInt(h).toString() : "0");
 
@@ -145,11 +154,14 @@ export async function ingestBlock(
       )
       .onConflictDoNothing();
 
-    await ingestReceipts(db, txs.map((t) => t.hash as Hash), {
+    const receiptMap = await ingestReceipts(db, txs.map((t) => t.hash as Hash), {
       height: block.height,
       blockHash: block.hash,
       timestamp: block.timestamp,
     });
+
+    // 4b. Contract creations (top-level CREATE + Arachnid CREATE2) → `contracts`.
+    await ingestContracts(db, txs, receiptMap, block.height);
   }
 
   // 5. Advance the resume cursor (monotonic).
@@ -173,9 +185,16 @@ interface BlockRef {
 }
 
 /** Fetches receipts (and their logs) for a set of tx hashes and persists them,
- *  decoding token transfers into `token_transfers` along the way (RA-3). */
-async function ingestReceipts(db: Db, hashes: Hash[], ref: BlockRef): Promise<void> {
+ *  decoding token transfers into `token_transfers` along the way (RA-3).
+ *  Returns the receipt facts the contract-creation step needs, keyed by
+ *  lowercase tx hash (a tx whose receipt was unavailable is absent). */
+async function ingestReceipts(
+  db: Db,
+  hashes: Hash[],
+  ref: BlockRef,
+): Promise<Map<string, CreationReceipt>> {
   const client = harnessClient();
+  const seen = new Map<string, CreationReceipt>();
   for (const hash of hashes) {
     let r;
     try {
@@ -194,6 +213,10 @@ async function ingestReceipts(db: Db, hashes: Hash[], ref: BlockRef): Promise<vo
         logsCount: r.logs.length,
       })
       .onConflictDoNothing();
+    seen.set(hash.toLowerCase(), {
+      status: r.status === "success" ? 1 : 0,
+      contractAddress: r.contractAddress ?? null,
+    });
 
     if (r.logs.length) {
       const rawLogs: (RawLog & { txHash: string })[] = r.logs.map((l) => ({
@@ -223,6 +246,36 @@ async function ingestReceipts(db: Db, hashes: Hash[], ref: BlockRef): Promise<vo
 
       await ingestTransfers(db, rawLogs, ref);
     }
+  }
+  return seen;
+}
+
+/**
+ * Records the block's contract creations into `contracts` (see ./contracts.ts).
+ * Cheap on the hot path: candidate detection is pure, so a block with no
+ * deployment costs nothing; each candidate costs one eth_getCode (bounded
+ * concurrency) and the block's rows go in one batched upsert. Never throws:
+ * a failure here is logged and the block still ingests (the backfill script
+ * reconciles anything missed).
+ */
+async function ingestContracts(
+  db: Db,
+  txs: readonly CreationTx[],
+  receiptMap: ReadonlyMap<string, CreationReceipt>,
+  height: number,
+): Promise<void> {
+  try {
+    const candidates = contractCandidates(txs, receiptMap);
+    if (!candidates.length) return;
+    const client = harnessClient();
+    const rows = await resolveCandidates(candidates, {
+      getCode: (address) => client.getCode({ address, blockNumber: BigInt(height) }),
+      nameFor: bookNameFor,
+      warn: (m) => console.warn(`[indexer] contracts: ${m}`),
+    });
+    await upsertContracts(db, rows);
+  } catch (err) {
+    console.warn(`[indexer] contracts: block ${height} contract indexing failed: ${(err as Error).message}`);
   }
 }
 

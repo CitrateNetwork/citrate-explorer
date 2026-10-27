@@ -2,11 +2,16 @@ import type { Address, Hex } from "viem";
 import { getAddress, getTransaction, getBlock } from "@/lib/harness/ops";
 import { publicMessage } from "@/lib/api/errors";
 import { limitPublicRead } from "@/lib/api/publicRead";
+import { searchContracts } from "@/lib/indexer/contractSearch";
+
+/** A query that could be a contract name (one identifier-ish token, no spaces). */
+const NAME_LIKE_RE = /^[A-Za-z][A-Za-z0-9_.:-]{1,99}$/;
 
 /**
  * Omni-search resolver. Classifies the query by shape and resolves it to a
- * canonical entity (address / transaction / block), or flags it as natural
- * language for the agent (DESIGN_HARNESS_AND_SETTINGS.md §A6).
+ * canonical entity (address / transaction / block), a list of contracts whose
+ * name matches (one name-like token, e.g. "ModelRegistry"), or flags it as
+ * natural language for the agent (DESIGN_HARNESS_AND_SETTINGS.md §A6).
  */
 export async function GET(req: Request) {
   // PBA-L3c-019: shared per-IP budget for public reads.
@@ -38,6 +43,14 @@ export async function GET(req: Request) {
     if (/^\d+$/.test(q)) {
       const block = await getBlock(Number(q));
       return Response.json({ type: "block", result: block });
+    }
+
+    // A contract name → the matching contracts (index, or the address book).
+    if (NAME_LIKE_RE.test(q)) {
+      const found = await searchContracts({ q, limit: 10 });
+      if (found.results.length) {
+        return Response.json({ type: "contracts", query: q, source: found.source, results: found.results });
+      }
     }
 
     // Natural language → hand off to the AI agent.

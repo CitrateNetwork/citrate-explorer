@@ -66,3 +66,6 @@ handoffs/
 **/*EXEC_STATUS*
 **/*COUNSEL*
 **/*DEPLOY_LOG*
+
+# contract backfill resume cursor (scripts/indexer/backfill-contracts.ts)
+.backfill-contracts.cursor

@@ -25,7 +25,8 @@ import {
   resumeHeight,
   headHeight,
 } from "@/lib/indexer/ingest";
-import { isDbEnabled } from "@/lib/db/client";
+import { getDb, isDbEnabled } from "@/lib/db/client";
+import { seedBookLabels } from "@/lib/indexer/contractLabels";
 
 const POLL_MS = Number(process.env.INDEXER_POLL_MS ?? 2000);
 const ONCE = process.env.INDEXER_ONCE === "1";
@@ -61,7 +62,27 @@ async function once() {
   );
 }
 
+/**
+ * Refresh `contracts.name` from the vendored 40204 address book once per start,
+ * so a deploy that ships a re-synced book re-labels without a manual step.
+ * One read + one batched upsert; failure is logged and never blocks ingestion.
+ */
+async function refreshContractLabels() {
+  const db = getDb();
+  if (!db) return;
+  try {
+    const r = await seedBookLabels(db, { warn: (m) => console.warn(`[indexer] ${m}`) });
+    console.log(
+      `[indexer] contract labels: ${r.total} book address(es), ${r.renamed} (re)labelled, ` +
+        `${r.unchanged} unchanged, ${r.conflicts.length} verified-name conflict(s) kept`,
+    );
+  } catch (err) {
+    console.warn(`[indexer] contract labels refresh failed: ${(err as Error).message}`);
+  }
+}
+
 async function loop() {
+  await refreshContractLabels();
   let next = await resumeHeight();
   console.log(
     `[indexer] resuming at height ${next}; db=${isDbEnabled() ? "neon" : "dry"}; poll=${POLL_MS}ms parallel=${PARALLEL}`,

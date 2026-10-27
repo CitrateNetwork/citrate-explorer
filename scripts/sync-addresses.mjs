@@ -1,8 +1,14 @@
 #!/usr/bin/env node
 /**
- * Sync the explorer's 40204 chain data from one citrate-chain checkout. Two generated files:
+ * Sync the explorer's 40204 chain data from one citrate-chain checkout. Three generated files:
  *
  *   src/generated/addresses.json       verbatim copy of contracts/addresses/40204.json (the book)
+ *   src/generated/addresses.provenance.json
+ *                                      verbatim copy of contracts/addresses/40204.provenance.json, the
+ *                                      on-chain deployer-tx ledger (tx hash, block, CREATE vs CREATE2,
+ *                                      canonical vs orphan). The contract index uses it to fill
+ *                                      `contracts.creation_tx` / `creator` for book entries
+ *                                      (src/lib/indexer/contractLabels.ts).
  *   src/generated/chainConstants.json  precompile catalog + genesis SALT allocations, built from
  *                                      the book's `precompiles`, core/execution/src/precompiles/mod.rs
  *                                      (PURE_PRECOMPILE_ADDRESSES, AGENT_FORK_PRECOMPILE_ADDRESSES)
@@ -12,12 +18,12 @@
  *   pnpm sync-addresses [--chain <citrate-chain dir>] [--only book|constants] [--check]
  *
  *   --chain   the citrate-chain checkout (default: ../citrate-chain, or CITRATE_CHAIN_DIR)
- *   --only    sync just one output (default: both)
+ *   --only    sync just the book (book + provenance) or the constants (default: all)
  *   --check   write nothing; exit 1 if a committed file differs from what the inputs generate
  *
  * Fails closed: a malformed book, an unparsable chain source, a chain precompile with no catalog
  * description, or a genesis account with no label (scripts/lib/chainLabels.mjs) is an error, and
- * nothing is written.
+ * nothing is written. The explorer never reads the citrate-chain checkout at runtime: only these copies.
  */
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -41,12 +47,16 @@ const CHAIN = resolve(argValue("--chain") ?? process.env.CITRATE_CHAIN_DIR ?? re
 
 const INPUTS = {
   book: resolve(CHAIN, "contracts", "addresses", "40204.json"),
+  provenance: resolve(CHAIN, "contracts", "addresses", "40204.provenance.json"),
   precompiles: resolve(CHAIN, "core", "execution", "src", "precompiles", "mod.rs"),
   genesis: resolve(CHAIN, "core", "economics", "src", "genesis.rs"),
 };
+// VENDORED_DIR redirects the outputs (the generator's own tests write to a temp dir with it).
+const VENDORED_DIR = process.env.VENDORED_DIR ? resolve(process.env.VENDORED_DIR) : resolve(REPO_ROOT, "src", "generated");
 const OUTPUTS = {
-  book: resolve(REPO_ROOT, "src", "generated", "addresses.json"),
-  constants: resolve(REPO_ROOT, "src", "generated", "chainConstants.json"),
+  book: resolve(VENDORED_DIR, "addresses.json"),
+  provenance: resolve(VENDORED_DIR, "addresses.provenance.json"),
+  constants: resolve(VENDORED_DIR, "chainConstants.json"),
 };
 
 const fail = (msg) => {
@@ -76,7 +86,21 @@ for (const [name, addr] of [
 }
 
 const outputs = {};
-if (ONLY !== "constants") outputs.book = JSON.stringify(canonical, null, 2) + "\n";
+if (ONLY !== "constants") {
+  outputs.book = JSON.stringify(canonical, null, 2) + "\n";
+  const provenance = JSON.parse(read(INPUTS.provenance));
+  if (provenance.chainId !== 40204 || !Array.isArray(provenance.ledger)) {
+    fail("canonical provenance must have chainId 40204 and a ledger[]");
+  }
+  const TX_RE = /^0x[0-9a-fA-F]{64}$/;
+  for (const e of provenance.ledger) {
+    if (e.kind !== "CREATE" && e.kind !== "CREATE2") continue;
+    if (!TX_RE.test(e.tx ?? "") || !ADDRESS_RE.test(e.address ?? "")) {
+      fail(`provenance entry nonce=${e.nonce} has a malformed tx/address`);
+    }
+  }
+  outputs.provenance = JSON.stringify(provenance, null, 2) + "\n";
+}
 if (ONLY !== "book") {
   try {
     outputs.constants = serializeChainConstants(
@@ -111,6 +135,9 @@ if (CHECK_MODE) {
 for (const [k, text] of Object.entries(outputs)) {
   writeFileSync(OUTPUTS[k], text);
   console.log(`[sync-addresses] wrote ${OUTPUTS[k]}`);
+}
+if (outputs.provenance) {
+  console.log(`  provenance ledger entries: ${JSON.parse(outputs.provenance).ledger.length}`);
 }
 if (outputs.constants) {
   const c = JSON.parse(outputs.constants);
