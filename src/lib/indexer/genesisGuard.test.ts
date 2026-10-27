@@ -9,6 +9,8 @@ import {
   GenesisGate,
   genesisHealth,
   normalizeHash,
+  GenesisNotMigratedError,
+  isUndefinedColumn,
   type GenesisRpc,
   type GenesisStore,
   type GenesisStatusRecord,
@@ -44,6 +46,9 @@ class MemStore implements GenesisStore {
   ) {}
   async recorded() {
     return this.recordedHash;
+  }
+  async lastStatus(): Promise<string | null> {
+    return this.status?.status ?? null;
   }
   async anchor() {
     return this.anchorRow;
@@ -162,6 +167,63 @@ describe("checkGenesis: record, index, refuse", () => {
     expect(normalizeHash("0xabc")).toBeNull();
     expect(normalizeHash(undefined)).toBeNull();
     expect(normalizeHash(42)).toBeNull();
+  });
+});
+
+describe("checkGenesis: deploy before migration 0005, and stored refusals", () => {
+  /** A store on a database without the genesis_* columns: every read/write fails like Postgres. */
+  class UnmigratedStore extends MemStore {
+    async recorded(): Promise<string | null> {
+      throw new GenesisNotMigratedError();
+    }
+    async lastStatus(): Promise<string | null> {
+      throw new GenesisNotMigratedError();
+    }
+    async markStatus(): Promise<void> {
+      throw new GenesisNotMigratedError();
+    }
+  }
+
+  it("a database without the genesis columns is a refusal (not_migrated), not a crash", async () => {
+    const v = await checkGenesis({ rpc: fakeRpc({ 0: R1005 }), store: new UnmigratedStore(), expected: R1005 }).catch(
+      (e: Error) => ({ action: "threw", detail: e.message }) as const,
+    );
+    expect(v.action).toBe("refuse");
+    if (v.action !== "refuse") return;
+    expect(v.code).toBe("not_migrated");
+    expect(v.detail).toMatch(/db:migrate/);
+  });
+
+  it("the gate latches not_migrated like any refusal", async () => {
+    const gate = new GenesisGate(
+      { rpc: fakeRpc({ 0: R1005 }), store: new UnmigratedStore(), expected: R1005 },
+      { intervalMs: 0, now: () => 0 },
+    );
+    expect(await gate.allow()).toBe(false);
+    expect(gate.refusal?.code).toBe("not_migrated");
+  });
+
+  it("recognises Postgres undefined_column (42703), directly or as a cause", () => {
+    expect(isUndefinedColumn({ code: "42703" })).toBe(true);
+    expect(isUndefinedColumn({ message: "query failed", cause: { code: "42703" } })).toBe(true);
+    expect(isUndefinedColumn({ code: "42P01" })).toBe(false);
+    expect(isUndefinedColumn(new Error("boom"))).toBe(false);
+    expect(isUndefinedColumn(null)).toBe(false);
+  });
+
+  it("an unavailable check after a restart does not overwrite a stored refusal", async () => {
+    const store = new MemStore(R1005, { height: 0, hash: R1005 });
+    store.status = { status: "refused", code: "genesis_mismatch", observed: R1006, detail: "x" };
+    const v = await checkGenesis({ rpc: fakeRpc({ 0: null }), store, expected: null });
+    expect(v.action).toBe("unavailable");
+    expect(store.status).toMatchObject({ status: "refused", code: "genesis_mismatch" });
+  });
+
+  it("an unavailable check still records 'unavailable' over a non-refused status", async () => {
+    const store = new MemStore(R1005, { height: 0, hash: R1005 });
+    store.status = { status: "ok", code: null, observed: R1005, detail: null };
+    await checkGenesis({ rpc: fakeRpc({ 0: null }), store, expected: null });
+    expect(store.status?.status).toBe("unavailable");
   });
 });
 

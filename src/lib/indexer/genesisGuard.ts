@@ -54,6 +54,8 @@ export interface GenesisStatusRecord {
 export interface GenesisStore {
   /** The recorded genesis hash, or null when none is recorded yet. */
   recorded(): Promise<string | null>;
+  /** The last stored check status (`ok` / `refused` / `unavailable`), or null. */
+  lastStatus(): Promise<string | null>;
   /** The index's lowest live (non-superseded) block, or null when the index is empty. */
   anchor(): Promise<{ height: number; hash: string } | null>;
   /**
@@ -62,6 +64,13 @@ export interface GenesisStore {
    */
   record(genesis: string): Promise<string | null>;
   markStatus(s: GenesisStatusRecord): Promise<void>;
+}
+
+// RED-COMMIT PLACEHOLDERS (replaced in the next commit).
+export class GenesisNotMigratedError extends Error {}
+export function isUndefinedColumn(err: unknown): boolean {
+  void err;
+  return false;
 }
 
 export type GenesisVerdict =

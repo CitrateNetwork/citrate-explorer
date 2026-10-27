@@ -42,6 +42,15 @@ export function dbGenesisStore(db: Database): GenesisStore {
   return {
     recorded,
 
+    async lastStatus() {
+      const [row] = await db
+        .select({ s: indexerState.genesisStatus })
+        .from(indexerState)
+        .where(eq(indexerState.id, 1))
+        .limit(1);
+      return row?.s ?? null;
+    },
+
     async anchor() {
       const [row] = await db
         .select({ height: blocks.height, hash: blocks.hash })

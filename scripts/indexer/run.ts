@@ -36,6 +36,7 @@ import { getDb, isDbEnabled } from "@/lib/db/client";
 import { GenesisGate, type GenesisDeps } from "@/lib/indexer/genesisGuard";
 import { dbGenesisStore, rpcGenesisSource } from "@/lib/indexer/genesisStore";
 import { NETWORK } from "@/lib/citrate/network";
+import { indexerTick } from "@/lib/indexer/loop";
 
 const POLL_MS = Number(process.env.INDEXER_POLL_MS ?? 2000);
 const ONCE = process.env.INDEXER_ONCE === "1";
@@ -101,47 +102,21 @@ async function loop() {
   let refusalLoggedAt = 0;
   for (;;) {
     try {
-      if (!(await gate.allow())) {
-        // Fail closed: no writes. A latched refusal is re-logged once a minute so it stays visible.
-        if (gate.refusal && Date.now() - refusalLoggedAt >= 60_000) {
-          refusalLoggedAt = Date.now();
-          console.error(`[indexer] still refusing (${gate.refusal.code}): ${gate.refusal.detail}`);
-        }
-        await sleep(POLL_MS);
-        continue;
-      }
-      const head = await headHeight();
-      while (next <= head) {
-        // Re-check before every batch: the RPC can be cut over mid-backfill.
-        if (!(await gate.allow())) break;
-        // Process up to PARALLEL heights concurrently. Each call is
-        // idempotent at every persist site, so a partial batch failure
-        // just leaves a gap that the next loop iteration re-covers via
-        // the same `next <= head` check.
-        const batchEnd = Math.min(next + PARALLEL - 1, head);
-        const heights: number[] = [];
-        for (let h = next; h <= batchEnd; h++) heights.push(h);
-        const results = await Promise.allSettled(
-          heights.map((h) => ingestBlock(h)),
-        );
-        for (let i = 0; i < heights.length; i++) {
-          const r = results[i];
-          const h = heights[i];
-          if (r.status === "fulfilled") {
-            const v = r.value;
-            if (v.persisted || v.hash) {
-              const sup = v.superseded ? ` superseded=${v.superseded}` : "";
-              console.log(`[indexer] block ${h} hash=${v.hash} txs=${v.txCount}${sup}`);
-            }
-          } else {
-            console.error(`[indexer] block ${h} failed: ${(r.reason as Error).message}`);
-          }
-        }
-        next = batchEnd + 1;
-      }
-      if (isDbEnabled()) {
-        const f = await reconcileFinality();
-        if (f) console.log(`[indexer] finalized ${f} block(s)`);
+      const r = await indexerTick(next, {
+        gate,
+        headHeight,
+        ingestBlock: (h) => ingestBlock(h),
+        reconcileFinality,
+        dbEnabled: isDbEnabled(),
+        parallel: PARALLEL,
+        log: (m) => console.log(m),
+        logError: (m) => console.error(m),
+      });
+      next = r.next;
+      // Fail closed: no writes. A latched refusal is re-logged once a minute so it stays visible.
+      if (!r.allowed && gate.refusal && Date.now() - refusalLoggedAt >= 60_000) {
+        refusalLoggedAt = Date.now();
+        console.error(`[indexer] still refusing (${gate.refusal.code}): ${gate.refusal.detail}`);
       }
     } catch (err) {
       console.error("[indexer] tick error:", (err as Error).message);
