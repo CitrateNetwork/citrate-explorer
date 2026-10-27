@@ -8,6 +8,8 @@ import {
   parseGenesisAllocations,
   buildChainConstants,
   serializeChainConstants,
+  parseReleaseGenesis,
+  parseR1006Allocations,
 } from "../../../scripts/lib/chainSync.mjs";
 import generated from "@/generated/chainConstants.json";
 import { GENESIS_ALLOCATIONS } from "./addresses";
@@ -73,6 +75,50 @@ const DESCRIPTIONS = {
 const LABELS = { TESTNET_TREASURY_ADDRESS: "Genesis treasury", VALIDATOR_STAKER_1_ADDRESS: "Validator staker 1" };
 const addr = (short: string) => `0x${short.padStart(40, "0")}`;
 
+// r1006 (2026-10-27): r1005 and r1006 share chain id 40204. The generated constants name their
+// network and its block-0 hash (from core/consensus/src/hardening.rs), and r1006's genesis SALT
+// comes from the ceremony allocation (core/economics/assets/r1006/alloc.json), not testnet_beta.
+const HARDENING_RS = `
+pub const RELEASE_GENESIS: &[(u64, [u8; 32])] = &[
+    // testnet_beta (also the profile a 40204 config with no profile uses)
+    // Re-pinned 2026-10-05 for the r1005 fresh-keys reroll (new genesis role addresses
+    // move the genesis state root).
+    (
+        40204,
+        hex32("1dcfc4909dd9fdcb0f03c823d627e4b2032cc86bef5fc4561030d6c64b9775f1"),
+    ),
+    // team_testnet (re-pinned 2026-10-05 for the r1005 fresh-keys reroll)
+    (
+        40204,
+        hex32("90044175c36a6491309d769bd0fa684afbf7b90b64136446db8e2e6ff0927553"),
+    ),
+    // r1006 (profile \`r1006\`: genesis from ceremony state)
+    (40204, R1006_GENESIS),
+];
+
+pub const R1006_GENESIS: [u8; 32] =
+    hex32("a3651a272fe411948cbb4cf7cca4cee44be4248d32ab4376cea7636821c6cdd4");
+`;
+const R1005_G = "0x1dcfc4909dd9fdcb0f03c823d627e4b2032cc86bef5fc4561030d6c64b9775f1";
+const R1006_G = "0xa3651a272fe411948cbb4cf7cca4cee44be4248d32ab4376cea7636821c6cdd4";
+const SALT = (n: bigint) => `0x${(n * 10n ** 18n).toString(16)}`;
+const ALLOC = {
+  format: "citrate-genesis-alloc-v1",
+  profile: "r1006",
+  inputsStatus: "final",
+  baseAllocations: [
+    { role: "treasury", address: "0xEB6082DB09C5383489A0B75057C739818BF33440", balance: SALT(565_000_000_000n) },
+    { role: "faucet", address: "0xd75b8b3776532ea38f7683fdddc94401d0719b59", balance: SALT(10_000_000_000n) },
+  ],
+  accounts: [
+    { address: "0x000000000000000000000000000000c17a7e5eed", balance: "0x0", nonce: 1 },
+    { address: "0x2a60d582019e002dce914c8a24f28435605a47be", balance: SALT(100n), nonce: 1, code: "0x60" },
+  ],
+};
+const R1006_BOOK = { chainId: 40204, contracts: { TeamVesting_team_1: "0x2a60d582019e002dce914c8a24f28435605a47be" }, precompiles: BOOK.precompiles };
+const ROLE_LABELS = { treasury: "Genesis treasury", faucet: "Testnet faucet", team: "Team / dev" };
+
+
 describe("parsePrecompileTables", () => {
   it("reads both chain tables, address from the trailing comment, name from the element", () => {
     expect(parsePrecompileTables(MOD_RS)).toEqual([
@@ -106,7 +152,7 @@ describe("parseGenesisAllocations", () => {
 });
 
 describe("buildChainConstants", () => {
-  const inputs = { book: BOOK, precompileRs: MOD_RS, genesisRs: GENESIS_RS, descriptions: DESCRIPTIONS, genesisLabels: LABELS };
+  const inputs = { book: BOOK, precompileRs: MOD_RS, genesisRs: GENESIS_RS, descriptions: DESCRIPTIONS, genesisLabels: LABELS, hardeningRs: HARDENING_RS };
 
   it("merges book and chain precompiles by address, book names first, sorted", () => {
     const out = buildChainConstants(inputs);
@@ -139,6 +185,55 @@ describe("buildChainConstants", () => {
     const a = serializeChainConstants(buildChainConstants(inputs));
     expect(serializeChainConstants(buildChainConstants(inputs))).toBe(a);
     expect(a.endsWith("\n")).toBe(true);
+  });
+});
+
+describe("parseReleaseGenesis", () => {
+  it("reads r1005's (testnet_beta) and r1006's block-0 hashes", () => {
+    expect(parseReleaseGenesis(HARDENING_RS, "r1005")).toBe(R1005_G);
+    expect(parseReleaseGenesis(HARDENING_RS, "r1006")).toBe(R1006_G);
+  });
+  it("fails closed when the pin is missing or the network is unknown", () => {
+    expect(() => parseReleaseGenesis(HARDENING_RS.replace("pub const R1006_GENESIS", "pub const OTHER"), "r1006")).toThrow(/R1006_GENESIS/);
+    expect(() => parseReleaseGenesis(HARDENING_RS.replace("// testnet_beta", "// other"), "r1005")).toThrow(/testnet_beta/);
+    expect(() => parseReleaseGenesis(HARDENING_RS, "r1007")).toThrow(/r1007/);
+  });
+});
+
+describe("parseR1006Allocations", () => {
+  it("lists the base allocations (whole SALT) and funded ceremony accounts, labelled", () => {
+    expect(parseR1006Allocations(ALLOC, R1006_BOOK, ROLE_LABELS)).toEqual([
+      { address: "0xeb6082db09c5383489a0b75057c739818bf33440", label: "Genesis treasury", genesisSalt: "565000000000" },
+      { address: "0xd75b8b3776532ea38f7683fdddc94401d0719b59", label: "Testnet faucet", genesisSalt: "10000000000" },
+      { address: "0x2a60d582019e002dce914c8a24f28435605a47be", label: "TeamVesting_team_1", genesisSalt: "100" },
+    ]);
+  });
+  it("fails closed on placeholder inputs, a wrong profile, an unlabelled account or a fractional balance", () => {
+    expect(() => parseR1006Allocations({ ...ALLOC, inputsStatus: "placeholder", baseAllocations: null }, R1006_BOOK, ROLE_LABELS)).toThrow(/placeholder/);
+    expect(() => parseR1006Allocations({ ...ALLOC, profile: "r1005" }, R1006_BOOK, ROLE_LABELS)).toThrow(/profile/);
+    expect(() => parseR1006Allocations(ALLOC, { ...R1006_BOOK, contracts: {} }, ROLE_LABELS)).toThrow(/0x2a60d582019e002dce914c8a24f28435605a47be/);
+    expect(() => parseR1006Allocations(ALLOC, R1006_BOOK, { treasury: "Genesis treasury" })).toThrow(/faucet/);
+    const frac = { ...ALLOC, baseAllocations: [{ role: "treasury", address: ALLOC.baseAllocations[0].address, balance: "0x1" }] };
+    expect(() => parseR1006Allocations(frac, R1006_BOOK, ROLE_LABELS)).toThrow(/whole SALT/);
+  });
+});
+
+describe("buildChainConstants names its network and genesis", () => {
+  const base = { precompileRs: MOD_RS, descriptions: DESCRIPTIONS, hardeningRs: HARDENING_RS };
+  it("r1005: testnet_beta allocations, r1005 genesis", () => {
+    const out = buildChainConstants({ ...base, network: "r1005", book: BOOK, genesisRs: GENESIS_RS, genesisLabels: LABELS });
+    expect(out.network).toBe("r1005");
+    expect(out.genesisHash).toBe(R1005_G);
+    expect(out.genesisAllocations[0].label).toBe("Genesis treasury");
+  });
+  it("r1006: ceremony allocations, r1006 genesis, and the serialized file carries both", () => {
+    const out = buildChainConstants({ ...base, network: "r1006", book: R1006_BOOK, allocJson: ALLOC, roleLabels: ROLE_LABELS, genesisRs: GENESIS_RS, genesisLabels: LABELS });
+    expect(out.network).toBe("r1006");
+    expect(out.genesisHash).toBe(R1006_G);
+    expect(out.genesisAllocations.map((g: { genesisSalt: string }) => g.genesisSalt)).toEqual(["565000000000", "10000000000", "100"]);
+    const parsed = JSON.parse(serializeChainConstants(out));
+    expect(parsed).toMatchObject({ chainId: 40204, network: "r1006", genesisHash: R1006_G });
+    expect(parsed.$comment).toMatch(/r1006\/40204\.json/);
   });
 });
 

@@ -158,3 +158,11 @@ export function serializeChainConstants(constants) {
     ) + "\n"
   );
 }
+
+// RED-COMMIT PLACEHOLDERS (replaced in the next commit): no network metadata, no r1006 source.
+export function parseReleaseGenesis(_rs, _network) {
+  return null;
+}
+export function parseR1006Allocations(_alloc, _book, _roleLabels) {
+  return [];
+}
