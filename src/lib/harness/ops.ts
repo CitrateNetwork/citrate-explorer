@@ -10,6 +10,7 @@ import { formatEther, formatGwei, keccak256, parseAbiItem, type Abi, type Addres
 import { harnessClient } from "./client";
 import { PublicError } from "@/lib/api/errors";
 import { assertLogRange, MAX_LOG_BLOCK_RANGE, MAX_LOG_CHUNK, MAX_LOG_RESULTS } from "./logBounds";
+import { pageLogs } from "./logPaging";
 import { getDagStats, isFinalized, type DagStats } from "@/lib/citrate/dag";
 import { getDagBlock, dagStats as liveDagStats, isFinal } from "@/lib/citrate/rpc";
 import { erc20Abi } from "@/lib/citrate/abi";
@@ -242,7 +243,9 @@ export interface LogsResult {
  * Bounded event-log read (EX-B-004 / PBA-L3c-039): one contract, an explicit
  * range of at most MAX_LOG_BLOCK_RANGE blocks, fetched in MAX_LOG_CHUNK-block
  * RPC calls and truncated at MAX_LOG_RESULTS. There is deliberately no
- * earliest..latest default.
+ * earliest..latest default. Paging and the node's retry/limit errors are handled
+ * by {@link pageLogs}; a window the node cannot serve rejects the read with a
+ * LogsUnavailableError ("temporarily unavailable"), never an empty answer.
  */
 export async function getLogs(query: LogQuery): Promise<LogsResult> {
   assertLogRange(query?.fromBlock, query?.toBlock, MAX_LOG_BLOCK_RANGE);
@@ -252,13 +255,17 @@ export async function getLogs(query: LogQuery): Promise<LogsResult> {
 
   const c = harnessClient();
   const result: LogsResult["logs"] = [];
-  let chunkFrom = query.fromBlock;
   let truncated = false;
-  while (chunkFrom <= query.toBlock && !truncated) {
-    const chunkEnd = chunkFrom + MAX_LOG_CHUNK - 1n;
-    const chunkTo = chunkEnd < query.toBlock ? chunkEnd : query.toBlock;
-    const logs = await c.getLogs({ address: query.address, fromBlock: chunkFrom, toBlock: chunkTo });
-    for (const l of logs) {
+  // Retryable -32002 windows are retried, over-limit -32005 windows are paged
+  // smaller, and any failure rejects the whole read: never a partial result.
+  const pages = pageLogs(
+    (from, to) => c.getLogs({ address: query.address, fromBlock: from, toBlock: to }),
+    query.fromBlock,
+    query.toBlock,
+    { chunk: MAX_LOG_CHUNK },
+  );
+  for await (const page of pages) {
+    for (const l of page.logs) {
       if (result.length >= MAX_LOG_RESULTS) {
         truncated = true;
         break;
@@ -272,8 +279,8 @@ export async function getLogs(query: LogQuery): Promise<LogsResult> {
         logIndex: l.logIndex,
       });
     }
-    if (result.length >= MAX_LOG_RESULTS && chunkTo < query.toBlock) truncated = true;
-    chunkFrom = chunkTo + 1n;
+    if (result.length >= MAX_LOG_RESULTS && page.toBlock < query.toBlock) truncated = true;
+    if (truncated) break;
   }
   return { logs: result, truncated };
 }
