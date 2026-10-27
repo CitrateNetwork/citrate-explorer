@@ -41,7 +41,7 @@
     "solc": "^0.8.35",
     "viem": "^2.51.3",
     "wagmi": "^3.6.16",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -80,9 +80,9 @@
       "follow-redirects@1": ">=1.16.1 <2.0.0",
       "vite@8": ">=8.1.6 <9.0.0"
     },
-    "auditConfigComment": "Pending owner sign-off (2026-10-04): GHSA-vfj7-8cjw-p6xm (braces <=3.0.3, stack exhaustion on deeply nested patterns) has no patched release. The only path is devDependencies eslint-config-next > @next/eslint-plugin-next > fast-glob > micromatch > braces, which runs at lint time on this repo's own glob patterns and never ships in the app. Ignored by GHSA id only, so any other braces advisory still fails `pnpm audit --audit-level=high`. Remove this entry as soon as a fixed braces (or a Next lint plugin without it) is released.",
+    "auditConfigComment": "Pending owner sign-off (2026-10-04): GHSA-vfj7-8cjw-p6xm (braces <=3.0.3, stack exhaustion on deeply nested patterns) has no patched release. The only path is devDependencies eslint-config-next > @next/eslint-plugin-next > fast-glob > micromatch > braces, which runs at lint time on this repo's own glob patterns and never ships in the app. Ignored by GHSA id only, so any other braces advisory still fails `pnpm audit --audit-level=high`. Remove this entry as soon as a fixed braces (or a Next lint plugin without it) is released. Owner sign-off 2026-10-27 (merge of #28): GHSA-mrhx-c7xc-m3w5 (zod) is ignored only for the zod 3.x copies that @privy-io/react-auth pins (api-base ^3.25.76, appkit-wallet 3.22.4). No patched 3.x exists, and forcing 4.x would break Privy. The direct zod is ^4.6.7 (patched). Time-boxed: remove by 2026-12-31, or as soon as Privy ships a release on a patched zod, whichever is first.",
     "auditConfig": {
-      "ignoreGhsas": ["GHSA-vfj7-8cjw-p6xm"]
+      "ignoreGhsas": ["GHSA-vfj7-8cjw-p6xm", "GHSA-mrhx-c7xc-m3w5"]
     }
   }
 }

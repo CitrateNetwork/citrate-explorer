@@ -66,7 +66,8 @@ export async function POST(req: Request) {
   // pays gas but must NEVER fund native value (a self-signed request with
   // `value = relayer balance` would otherwise drain the relayer in one call),
   // and may only sponsor calls into allowlisted federation contracts. The
-  // on-chain twin `require(req.value == 0)` is HELD for the contract track.
+  // forwarder separately requires `msg.value == req.value`, and the outer
+  // transaction below always sends zero value.
   // PBA-L3c-011: the policy also caps `gas`.
   const policy = checkSponsorPolicy(parsed.data.request);
   if (!policy.ok) {
@@ -131,7 +132,10 @@ export async function POST(req: Request) {
       abi: forwarderAbi,
       functionName: "execute",
       args: [reqTuple, signature as Hex],
-      value: reqTuple.value,
+      // The relayer pays gas only. The outer transaction value is literal
+      // zero regardless of the request, so it cannot depend on the policy
+      // gate above staying correct.
+      value: 0n,
     });
 
     return Response.json({ txHash, sponsored: true, forwarder });
