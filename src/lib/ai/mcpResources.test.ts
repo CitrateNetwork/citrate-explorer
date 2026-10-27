@@ -17,6 +17,12 @@ describe("mcpResources", () => {
     expect(addrs.contracts.ModelRegistry).toMatch(/^0x[0-9a-fA-F]{40}$/);
   });
 
+  it("the address book names its 40204 network and genesis (r1005 and r1006 share the chain id)", () => {
+    const addrs = JSON.parse(getResource("citrate://addresses")!.read());
+    expect(["r1005", "r1006"]).toContain(addrs.network);
+    expect(addrs.genesisHash).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
   it("prompts render with their arguments substituted", () => {
     const audit = getPrompt("audit_address")!;
     expect(audit.arguments[0]).toMatchObject({ name: "address", required: true });

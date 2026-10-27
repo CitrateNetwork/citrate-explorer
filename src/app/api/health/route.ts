@@ -1,6 +1,9 @@
 import { getChainStatus } from "@/lib/harness/ops";
 import { indexerHead } from "@/lib/indexer/repository";
-import { isDbEnabled } from "@/lib/db/client";
+import { getDb, isDbEnabled } from "@/lib/db/client";
+import { CHAIN_CONSTANTS } from "@/lib/citrate/network";
+import { genesisHealth, normalizeHash } from "@/lib/indexer/genesisGuard";
+import { readGenesisState, rpcGenesisSource } from "@/lib/indexer/genesisStore";
 import { isDistributed } from "@/lib/api/ratelimit";
 import { log } from "@/lib/api/log";
 import { limitPublicRead } from "@/lib/api/publicRead";
@@ -9,8 +12,10 @@ import { limitPublicRead } from "@/lib/api/publicRead";
  * Health + readiness probe (P-8 WP-8.3) for uptime monitors and the indexer
  * freshness alert. Honest, component-level status — never a fake green:
  *
- * - `chain`   — live RPC reachable + chain id is 40204.
- * - `indexer` — DB head height vs chain head → lag in blocks (or not_provisioned).
+ * - `chain`   — live RPC reachable + chain id is 40204 + block 0 is the genesis of this build's
+ *               network (`wrong_genesis` otherwise: r1005 and r1006 share chain id 40204).
+ * - `indexer` — DB head height vs chain head → lag in blocks (or not_provisioned), plus the
+ *               genesis the index was built from (`genesis_refused` / `genesis_mismatch`).
  * - `limiter` — which rate-limit backend is active (redis vs in-memory).
  * - `inference` — configured mode (not called; just reported).
  *
@@ -43,13 +48,21 @@ export async function GET(req: Request) {
   // --- chain (required) ---
   let chain: Record<string, unknown>;
   let chainHead: number | null = null;
+  let rpcGenesis: string | null = null;
   try {
-    const s = await getChainStatus();
+    const [s, g0] = await Promise.all([getChainStatus(), rpcGenesisSource().blockHashAt(0)]);
     chainHead = Number(s.blockNumber);
+    rpcGenesis = normalizeHash(g0);
+    const status =
+      s.chainId !== CHAIN_ID ? "wrong_chain" : rpcGenesis !== CHAIN_CONSTANTS.genesisHash ? "wrong_genesis" : "ok";
     chain = {
-      status: s.chainId === CHAIN_ID ? "ok" : "wrong_chain",
+      status,
       chainId: s.chainId,
       blockNumber: s.blockNumber,
+      // Data source: RPC eth_getBlockByNumber(0) vs the build's generated chain constants.
+      network: CHAIN_CONSTANTS.network,
+      genesis: rpcGenesis,
+      expectedGenesis: CHAIN_CONSTANTS.genesisHash,
     };
   } catch (err) {
     // PBA-L3c-016: the detail (it names the RPC node) stays in the server log.
@@ -69,11 +82,17 @@ export async function GET(req: Request) {
       indexer = { status: "empty", note: "DB connected; start the indexer worker to backfill" };
     } else {
       const lag = chainHead !== null ? Math.max(0, chainHead - head) : null;
+      // Data source: indexer_state.genesis_* (written by the indexer's genesis guard).
+      const g = await readGenesisState(getDb());
+      const genesisIssue = g ? genesisHealth({ status: g.status, recorded: g.recorded, rpcGenesis }) : null;
       indexer = {
-        status: lag === null ? "unknown" : lag <= MAX_LAG ? "ok" : "lagging",
+        status: genesisIssue ?? (lag === null ? "unknown" : lag <= MAX_LAG ? "ok" : "lagging"),
         head,
         lagBlocks: lag,
         maxLag: MAX_LAG,
+        genesis: g
+          ? { recorded: g.recorded, status: g.status, code: g.code, checkedAt: g.checkedAt }
+          : null,
       };
     }
   } catch (err) {
@@ -85,7 +104,11 @@ export async function GET(req: Request) {
   const inference = { mode: process.env.CITRATE_INFERENCE_MODE ?? "gateway" };
 
   const chainOk = chain.status === "ok";
-  const indexerDegraded = indexer.status === "lagging" || indexer.status === "error";
+  const indexerDegraded =
+    indexer.status === "lagging" ||
+    indexer.status === "error" ||
+    indexer.status === "genesis_refused" ||
+    indexer.status === "genesis_mismatch";
   const overall = !chainOk ? "down" : indexerDegraded ? "degraded" : "ok";
 
   return Response.json(

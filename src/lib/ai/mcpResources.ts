@@ -9,6 +9,7 @@
  */
 import { CITRATE_OVERVIEW, listContracts, PRECOMPILES } from "@/lib/citrate/contractCatalog";
 import { CONTRACT_ADDRESSES, AA_STACK, GENESIS_ALLOCATIONS } from "@/lib/citrate/addresses";
+import { CHAIN_CONSTANTS } from "@/lib/citrate/network";
 
 export interface McpResource {
   uri: string;
@@ -35,6 +36,9 @@ const addressBook = (): string =>
   JSON.stringify(
     {
       chainId: 40204,
+      // r1005 and r1006 share chain id 40204: name the network and its block 0.
+      network: CHAIN_CONSTANTS.network,
+      genesisHash: CHAIN_CONSTANTS.genesisHash,
       contracts: CONTRACT_ADDRESSES,
       accountAbstraction: AA_STACK,
       precompiles: Object.fromEntries(Object.entries(PRECOMPILES).map(([a, p]) => [p.name, a])),

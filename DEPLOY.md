@@ -36,6 +36,8 @@ committed. Full list + how-to-generate in `.env.example`.
 | `NEXT_PUBLIC_CITRATE_CHAIN_ID` | public | `40204` |
 | `NEXT_PUBLIC_CITRATE_RPC_URL` | public | `https://rpc.citrate.ai` |
 | `NEXT_PUBLIC_CITRATE_WS_URL` | public | `wss://rpc.citrate.ai` |
+| `NEXT_PUBLIC_CITRATE_NETWORK` | public (web **+** indexer) | `r1005` (default) or `r1006`: the 40204 network's address book + genesis. Build-time for the web app. Switch per [docs/R1006_CUTOVER.md](docs/R1006_CUTOVER.md) |
+| `INDEXER_GENESIS_CHECK_MS` | server (indexer) | genesis-guard check interval; default `0` = before every ingest batch |
 | `NEXT_PUBLIC_FORWARDER_ADDRESS` | public | EIP-2771 forwarder (after P-4 deploy) |
 | `CITRATE_RPC_FALLBACK` | server | optional direct-node URL (prefer TLS); unset = primary only |
 | `DATABASE_URL` | server (Vercel **+** indexer) | Neon pooled connection string |
@@ -127,7 +129,10 @@ fly secrets set DATABASE_URL=… NEXT_PUBLIC_CITRATE_RPC_URL=https://rpc.citrate
 fly deploy
 ```
 
-Resume is gap-free (the `indexer_state` cursor), so restarts are safe. Smoke a
+Resume is gap-free (the `indexer_state` cursor), so restarts are safe. The indexer
+refuses to write when the RPC's block 0 differs from the genesis recorded in
+`indexer_state` (migration 0005: run `pnpm db:migrate` **before** deploying an indexer
+build that has it, or the guard cannot read its state and the indexer stops writing). Smoke a
 single pass first: `INDEXER_ONCE=1 pnpm indexer` (ingests the latest block + exits).
 
 ---
@@ -151,7 +156,10 @@ Point an uptime monitor (Better Uptime / Pingdom / Vercel) at:
 - **`GET /api/health`** — `200` = chain reachable; `503` = down. Alert on:
   - `status != "ok"`,
   - `components.indexer.status == "lagging"` (lag > `CITRATE_INDEXER_MAX_LAG`),
-  - `components.chain.status != "ok"`.
+  - `components.indexer.status` is `genesis_refused` or `genesis_mismatch` (the indexer stopped
+    writing because the RPC's block 0 is not the index's genesis; see docs/R1006_CUTOVER.md),
+  - `components.chain.status != "ok"` (`wrong_genesis` = the RPC serves a different 40204 network
+    than this build's `NEXT_PUBLIC_CITRATE_NETWORK`).
 
 Structured logs (`src/lib/api/log.ts`) emit one JSON object per line for the log
 drain. Wire Sentry at the app boundary when a DSN is available (deferred from P-8).

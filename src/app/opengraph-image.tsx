@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { CHAIN_CONSTANTS } from "@/lib/citrate/network";
 
 /**
  * Default social-share card (P-8 WP-8.2). Rendered at build/edge via next/og —
@@ -55,7 +56,7 @@ export default function Og() {
         </div>
 
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-          {["Chain 40204 · SALT", "AI agents & inference", "x402 · DePIN · FL", "EVM-compatible"].map((t) => (
+          {[`Chain 40204 · ${CHAIN_CONSTANTS.network} · SALT`, "AI agents & inference", "x402 · DePIN · FL", "EVM-compatible"].map((t) => (
             <div
               key={t}
               style={{

@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { buildSystemPrompt } from "@/lib/ai/system-prompt";
 import { SD } from "@/scan/data";
+import { CHAIN_CONSTANTS, networkTag } from "@/lib/citrate/network";
 import { SH } from "@/scan/harness";
 import { Icon } from "@/scan/icons";
 import { CopyBtn, EntityChip, KV, Crumb } from "@/scan/components";
@@ -441,7 +442,7 @@ export function DevSection({ inline }) {
       <div className="set-block"><div className="h">Add Citrate to your wallet</div>
         <div className="card"><div className="card-bd">
           <div className="grid" style={{ gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
-            {[["Chain ID", "40204 · 0x9D0C"], ["Native token", "SALT · 18 decimals"], ["RPC", "rpc.citrate.ai"]].map((m, i) => <div key={i}><div className="eyebrow">{m[0]}</div><div className="mono" style={{ fontSize: 13, marginTop: 4 }}>{m[1]}</div></div>)}
+            {[["Chain ID", "40204 · 0x9D0C"], ["Network", networkTag(CHAIN_CONSTANTS)], ["Native token", "SALT · 18 decimals"], ["RPC", "rpc.citrate.ai"]].map((m, i) => <div key={i}><div className="eyebrow">{m[0]}</div><div className="mono" style={{ fontSize: 13, marginTop: 4 }}>{m[1]}</div></div>)}
           </div>
           <button className="btn sm primary" style={{ marginTop: 14 }} onClick={addChain}><Icon name="wallet" size={15} /> Add Citrate to wallet</button>
         </div></div>

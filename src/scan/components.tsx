@@ -8,6 +8,7 @@ import { SD } from "@/scan/data";
 import { SH } from "@/scan/harness";
 import { Icon } from "@/scan/icons";
 import { useLiveChain } from "@/scan/live";
+import { CHAIN_CONSTANTS, shortGenesis } from "@/lib/citrate/network";
 import { useScan } from "@/scan/context";
 
 // ---- copy button ----
@@ -202,6 +203,9 @@ export function ChainBadge({ rpc }) {
       <span className="k">{rpc ? "reconnecting" : "live"}</span>
       <span className="sep" />
       <span className="k">chain</span><span className="v">{SD.CHAIN.chainId}</span>
+      <span className="sep" />
+      <span className="k">net</span>
+      <span className="v" title={`genesis ${CHAIN_CONSTANTS.genesisHash}`}>{CHAIN_CONSTANTS.network} · {shortGenesis(CHAIN_CONSTANTS.genesisHash)}</span>
       <span className="sep" />
       <span className="k">blue_score</span><span className="v tabular">{bs.toLocaleString()}</span>
     </div>

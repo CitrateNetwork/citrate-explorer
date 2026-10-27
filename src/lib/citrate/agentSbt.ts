@@ -10,7 +10,7 @@
  * book (`src/generated/addresses.json`, `contracts.AgentSBT`), read over live RPC.
  */
 import { keccak256, parseAbi, parseAbiItem, stringToBytes, type Address, type Hex } from "viem";
-import canonicalAddresses from "@/generated/addresses.json";
+import { ADDRESS_BOOK as canonicalAddresses } from "./network";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const WORD_RE = /^0x[0-9a-fA-F]{64}$/;
