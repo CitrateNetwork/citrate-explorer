@@ -297,7 +297,14 @@ export async function reconcileFinality(): Promise<number> {
 export async function resumeHeight(): Promise<number> {
   const db = getDb();
   if (!db) return Number(await harnessClient().getBlockNumber());
-  const [row] = await db.select().from(indexerState).where(eq(indexerState.id, 1)).limit(1);
+  // Only the cursor column: this query must keep working on a database that predates later
+  // indexer_state migrations (e.g. 0005's genesis columns), so the genesis guard, not a crash,
+  // decides what happens next.
+  const [row] = await db
+    .select({ lastHeight: indexerState.lastHeight })
+    .from(indexerState)
+    .where(eq(indexerState.id, 1))
+    .limit(1);
   if (row && row.lastHeight > 0) return row.lastHeight + 1;
   return 0;
 }

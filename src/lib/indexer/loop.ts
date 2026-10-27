@@ -3,7 +3,9 @@
  * wiring between the genesis gate, block ingest and finality reconciliation is unit-tested.
  *
  * A tick: ask the gate; read the head; ingest batches of up to `parallel` heights from `next`,
- * re-asking the gate before every batch; then reconcile finality.
+ * re-asking the gate before every batch; then reconcile finality. If the gate blocks at any point
+ * the tick returns at once and writes nothing more: no further ingest and no reconcileFinality
+ * (an UPDATE on `blocks` whose cutoff comes from the RPC that was just refused).
  *
  * Data sources (Rule 7): the injected functions are the live ones in production
  * (`headHeight`/`ingestBlock`/`reconcileFinality` in ./ingest: live Citrate RPC → Postgres).
@@ -39,7 +41,7 @@ export async function indexerTick(next: number, d: TickDeps): Promise<TickResult
   const head = await d.headHeight();
   while (next <= head) {
     // Re-check before every batch: the RPC can be cut over mid-backfill.
-    if (!(await d.gate.allow())) break;
+    if (!(await d.gate.allow())) return { next, allowed: false };
     // Up to `parallel` heights concurrently. Each ingest is idempotent at every persist site,
     // so a partial batch failure leaves a gap the next tick re-covers.
     const batchEnd = Math.min(next + d.parallel - 1, head);

@@ -40,7 +40,9 @@ export type GenesisRefusalCode =
   /** The RPC's block 0 differs from the genesis recorded in the index. */
   | "genesis_mismatch"
   /** Nothing is recorded and the index holds rows the RPC's chain does not have. */
-  | "index_not_this_chain";
+  | "index_not_this_chain"
+  /** The database predates migration 0005 (no genesis columns): nothing can be recorded or proven. */
+  | "not_migrated";
 
 /** What the guard last decided, persisted for `/api/health`. */
 export interface GenesisStatusRecord {
@@ -66,10 +68,23 @@ export interface GenesisStore {
   markStatus(s: GenesisStatusRecord): Promise<void>;
 }
 
-// RED-COMMIT PLACEHOLDERS (replaced in the next commit).
-export class GenesisNotMigratedError extends Error {}
+/**
+ * The database has no `indexer_state.genesis_*` columns: this build was deployed before
+ * `pnpm db:migrate` ran migration 0005. The guard turns it into a `not_migrated` refusal.
+ */
+export class GenesisNotMigratedError extends Error {
+  constructor() {
+    super("indexer_state has no genesis columns: run `pnpm db:migrate` (migration 0005), then restart the indexer");
+    this.name = "GenesisNotMigratedError";
+  }
+}
+
+/** Postgres `undefined_column` (SQLSTATE 42703), on the error or its `cause` (drizzle wraps it). */
 export function isUndefinedColumn(err: unknown): boolean {
-  void err;
+  for (let e: unknown = err, depth = 0; e && typeof e === "object" && depth < 5; depth++) {
+    if ((e as { code?: unknown }).code === "42703") return true;
+    e = (e as { cause?: unknown }).cause;
+  }
   return false;
 }
 
@@ -103,12 +118,28 @@ async function refuse(
   return { action: "refuse", code, detail, observed, recorded };
 }
 
-/** One genesis check: reads the RPC's block 0, compares, records on first index. */
-export async function checkGenesis({ rpc, store, expected }: GenesisDeps): Promise<GenesisVerdict> {
+/**
+ * One genesis check: reads the RPC's block 0, compares, records on first index. A database
+ * without the genesis columns (deployed before migration 0005) is a `not_migrated` refusal.
+ */
+export async function checkGenesis(deps: GenesisDeps): Promise<GenesisVerdict> {
+  try {
+    return await checkGenesisInner(deps);
+  } catch (err) {
+    if (!(err instanceof GenesisNotMigratedError)) throw err;
+    // Nothing can be stored either (no columns): the refusal is logged by the gate.
+    return { action: "refuse", code: "not_migrated", detail: err.message, observed: null, recorded: null };
+  }
+}
+
+async function checkGenesisInner({ rpc, store, expected }: GenesisDeps): Promise<GenesisVerdict> {
   const observed = normalizeHash(await rpc.blockHashAt(0));
   if (!observed) {
     const detail = "the RPC returned no usable block 0 hash";
-    if (store) await store.markStatus({ status: "unavailable", code: null, observed: null, detail });
+    // A transient "unavailable" never replaces a stored refusal (e.g. after a restart).
+    if (store && (await store.lastStatus()) !== "refused") {
+      await store.markStatus({ status: "unavailable", code: null, observed: null, detail });
+    }
     return { action: "unavailable", detail };
   }
 

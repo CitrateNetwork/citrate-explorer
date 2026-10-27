@@ -131,8 +131,9 @@ fly deploy
 
 Resume is gap-free (the `indexer_state` cursor), so restarts are safe. The indexer
 refuses to write when the RPC's block 0 differs from the genesis recorded in
-`indexer_state` (migration 0005: run `pnpm db:migrate` **before** deploying an indexer
-build that has it, or the guard cannot read its state and the indexer stops writing). Smoke a
+`indexer_state` (migration 0005). Run `pnpm db:migrate` right after this build merges: until
+then the indexer refuses with `not_migrated` and writes nothing, and `/api/health` reports
+`indexer.genesis.status = not_migrated` with head and lag intact. Smoke a
 single pass first: `INDEXER_ONCE=1 pnpm indexer` (ingests the latest block + exits).
 
 ---

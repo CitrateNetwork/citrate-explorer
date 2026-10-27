@@ -2,7 +2,8 @@ import { getChainStatus } from "@/lib/harness/ops";
 import { indexerHead } from "@/lib/indexer/repository";
 import { getDb, isDbEnabled } from "@/lib/db/client";
 import { CHAIN_CONSTANTS } from "@/lib/citrate/network";
-import { genesisHealth, normalizeHash } from "@/lib/indexer/genesisGuard";
+import { normalizeHash } from "@/lib/indexer/genesisGuard";
+import { indexerHealthComponent, type GenesisRead } from "@/lib/indexer/health";
 import { readGenesisState, rpcGenesisSource } from "@/lib/indexer/genesisStore";
 import { isDistributed } from "@/lib/api/ratelimit";
 import { log } from "@/lib/api/log";
@@ -50,11 +51,27 @@ export async function GET(req: Request) {
   let chainHead: number | null = null;
   let rpcGenesis: string | null = null;
   try {
-    const [s, g0] = await Promise.all([getChainStatus(), rpcGenesisSource().blockHashAt(0)]);
+    // The block-0 read is separate: if only it fails, the chain is reachable but its genesis is
+    // unknown (`genesis_unavailable`, degraded), not down.
+    const [s, g0] = await Promise.all([
+      getChainStatus(),
+      rpcGenesisSource()
+        .blockHashAt(0)
+        .catch((err: Error) => {
+          log.error("health.genesis_unavailable", { error: err.message });
+          return null;
+        }),
+    ]);
     chainHead = Number(s.blockNumber);
     rpcGenesis = normalizeHash(g0);
     const status =
-      s.chainId !== CHAIN_ID ? "wrong_chain" : rpcGenesis !== CHAIN_CONSTANTS.genesisHash ? "wrong_genesis" : "ok";
+      s.chainId !== CHAIN_ID
+        ? "wrong_chain"
+        : rpcGenesis === null
+          ? "genesis_unavailable"
+          : rpcGenesis !== CHAIN_CONSTANTS.genesisHash
+            ? "wrong_genesis"
+            : "ok";
     chain = {
       status,
       chainId: s.chainId,
@@ -81,19 +98,17 @@ export async function GET(req: Request) {
       // DB is connected but empty — the worker hasn't ingested a block yet.
       indexer = { status: "empty", note: "DB connected; start the indexer worker to backfill" };
     } else {
-      const lag = chainHead !== null ? Math.max(0, chainHead - head) : null;
-      // Data source: indexer_state.genesis_* (written by the indexer's genesis guard).
-      const g = await readGenesisState(getDb());
-      const genesisIssue = g ? genesisHealth({ status: g.status, recorded: g.recorded, rpcGenesis }) : null;
-      indexer = {
-        status: genesisIssue ?? (lag === null ? "unknown" : lag <= MAX_LAG ? "ok" : "lagging"),
-        head,
-        lagBlocks: lag,
-        maxLag: MAX_LAG,
-        genesis: g
-          ? { recorded: g.recorded, status: g.status, code: g.code, checkedAt: g.checkedAt }
-          : null,
-      };
+      // Data source: indexer_state.genesis_* (written by the indexer's genesis guard). Read on
+      // its own so a database without the 0005 columns (merge deploys before the migration) or a
+      // failed read keeps head/lag in the report.
+      let genesis: GenesisRead;
+      try {
+        genesis = (await readGenesisState(getDb())) ?? { migrated: false };
+      } catch (err) {
+        log.error("health.genesis_read_error", { error: (err as Error).message });
+        genesis = { error: true };
+      }
+      indexer = indexerHealthComponent({ head, chainHead, maxLag: MAX_LAG, rpcGenesis, genesis });
     }
   } catch (err) {
     log.error("health.indexer_error", { error: (err as Error).message });
@@ -103,13 +118,14 @@ export async function GET(req: Request) {
   const limiter = { backend: isDistributed() ? "redis" : "memory" };
   const inference = { mode: process.env.CITRATE_INFERENCE_MODE ?? "gateway" };
 
-  const chainOk = chain.status === "ok";
+  // A reachable chain whose block 0 could not be read still serves (degraded, not down).
+  const chainOk = chain.status === "ok" || chain.status === "genesis_unavailable";
   const indexerDegraded =
     indexer.status === "lagging" ||
     indexer.status === "error" ||
     indexer.status === "genesis_refused" ||
     indexer.status === "genesis_mismatch";
-  const overall = !chainOk ? "down" : indexerDegraded ? "degraded" : "ok";
+  const overall = !chainOk ? "down" : indexerDegraded || chain.status !== "ok" ? "degraded" : "ok";
 
   return Response.json(
     {
