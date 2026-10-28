@@ -48,3 +48,14 @@ export const GENESIS_LABELS = {
   VALIDATOR_STAKER_3_ADDRESS: "Validator staker 3",
   VALIDATOR_STAKER_4_ADDRESS: "Validator staker 4",
 };
+
+/**
+ * Label per base-allocation role in the r1006 ceremony allocation
+ * (citrate-chain core/economics/assets/r1006/alloc.json `baseAllocations[].role`). Funded ceremony
+ * accounts are labelled by their name in the r1006 book instead.
+ */
+export const R1006_ROLE_LABELS = {
+  treasury: "Genesis treasury",
+  faucet: "Testnet faucet",
+  team: "Team / dev",
+};

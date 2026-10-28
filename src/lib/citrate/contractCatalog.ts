@@ -11,7 +11,7 @@
  */
 import type { Address } from "viem";
 import { CONTRACT_ADDRESSES, AA_STACK, knownLabel } from "./addresses";
-import chainConstants from "@/generated/chainConstants.json";
+import { CHAIN_CONSTANTS as chainConstants } from "./network";
 
 export type ContractCategory =
   | "AI / Inference"

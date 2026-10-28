@@ -13,6 +13,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { SD } from "./data";
+import { CHAIN_CONSTANTS } from "@/lib/citrate/network";
 import { deriveAgentView, deriveAgentsView, agentIdsHeldBy } from "./agentView";
 import { agentSbtAddress, isAgentSbt } from "@/lib/citrate/agentSbt";
 
@@ -99,7 +100,8 @@ export function useLiveChainStatus() {
   const mapped =
     data && !data.error
       ? {
-          network: "Citrate testnet",
+          // r1005 and r1006 share chain id 40204; the build's network names which one.
+          network: `Citrate testnet ${CHAIN_CONSTANTS.network}`,
           chainId: 40204,
           blueScore: Number(data.maxBlueScore ?? 0),
           height: Number(data.height ?? 0),
