@@ -4,6 +4,11 @@
 // the head would never be indexed, while /api/health reported zero lag. The worker must index
 // 0..head whatever state an earlier smoke pass (or a failed batch) left behind.
 //
+// A height counts as indexed only once its whole ingest committed: an ingest that dies after the
+// block row was written (crash, smoke pass killed partway; injected here with a Postgres trigger
+// that fails the transactions insert) must leave the height to be re-ingested, never a block row
+// without its transactions that resume would skip for good.
+//
 // The chain is a test double (vi.mock of the RPC layer); the database, the migrations, ingestBlock,
 // the resume plan and the genesis guard are the production code.
 //
@@ -19,6 +24,24 @@ const dbIt = ADMIN ? it : it.skip;
 
 const HEAD = 5;
 const hashAt = (h: number) => `0x${(h + 1).toString(16).padStart(64, "0")}`;
+const TXS_PER_BLOCK = 2;
+const txHashAt = (h: number, i: number) => `0x${"ab"}${(h * 16 + i).toString(16).padStart(62, "0")}`;
+const ADDR = `0x${"12".repeat(20)}`;
+
+function fakeTx(h: number, i: number) {
+  return {
+    hash: txHashAt(h, i),
+    from: ADDR,
+    to: ADDR,
+    value: "0x1",
+    nonce: `0x${(h * 16 + i).toString(16)}`,
+    gas: "0x5208",
+    gasPrice: "0x1",
+    input: "0x",
+    transactionIndex: `0x${i.toString(16)}`,
+    type: "0x0",
+  };
+}
 
 function fakeBlock(h: number) {
   return {
@@ -34,8 +57,8 @@ function fakeBlock(h: number) {
     gasLimit: 30_000_000,
     proposer: null,
     miner: null,
-    txCount: 0,
-    raw: { transactions: [] },
+    txCount: TXS_PER_BLOCK,
+    raw: { transactions: Array.from({ length: TXS_PER_BLOCK }, (_, i) => fakeTx(h, i)) },
   };
 }
 
@@ -52,7 +75,16 @@ vi.mock("@/lib/citrate/rpc", async (importOriginal) => {
 });
 
 vi.mock("@/lib/harness/client", () => ({
-  harnessClient: () => ({ getBlockNumber: async () => BigInt(HEAD) }),
+  harnessClient: () => ({
+    getBlockNumber: async () => BigInt(HEAD),
+    getTransactionReceipt: async () => ({
+      status: "success",
+      gasUsed: 21000n,
+      cumulativeGasUsed: 21000n,
+      contractAddress: null,
+      logs: [],
+    }),
+  }),
 }));
 
 const MIGRATIONS = join(__dirname, "..", "db", "migrations");
@@ -77,6 +109,25 @@ async function sql(text: string, params: unknown[] = []) {
   } finally {
     await c.end();
   }
+}
+
+/** Per live height: [height, stored txs, stored receipts]. */
+async function txCounts(): Promise<number[][]> {
+  const r = await sql(`
+    SELECT b.height, count(t.hash) AS txs, count(r.tx_hash) AS receipts
+    FROM blocks b
+    LEFT JOIN transactions t ON t.block_hash = b.hash
+    LEFT JOIN receipts r ON r.tx_hash = t.hash
+    WHERE NOT b.superseded GROUP BY b.height ORDER BY b.height`);
+  return r.rows.map((x) => [Number(x.height), Number(x.txs), Number(x.receipts)]);
+}
+
+const complete = (from: number, to: number) =>
+  Array.from({ length: to - from + 1 }, (_, i) => [from + i, TXS_PER_BLOCK, TXS_PER_BLOCK]);
+
+/** Makes the next transactions insert for block `h` fail (after its block row was written). */
+async function failTxInsertAt(h: number) {
+  await sql(`INSERT INTO fxexpl_fault (hash) VALUES ($1)`, [txHashAt(h, 0)]);
 }
 
 async function indexedHeights(): Promise<number[]> {
@@ -142,13 +193,24 @@ describe("smoke pass then continuous worker (real Postgres)", () => {
     u.pathname = `/${DB_NAME}`;
     url = u.toString();
     for (const stmt of migrationSql()) await sql(stmt);
+    // Fault injection: a transactions insert carrying a listed hash fails.
+    await sql(`CREATE TABLE fxexpl_fault (hash text PRIMARY KEY)`);
+    await sql(`CREATE FUNCTION fxexpl_fault_fn() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM fxexpl_fault WHERE hash = NEW.hash) THEN
+          RAISE EXCEPTION 'injected fault after the block row';
+        END IF;
+        RETURN NEW;
+      END $$`);
+    await sql(`CREATE TRIGGER fxexpl_fault_trg BEFORE INSERT ON transactions
+      FOR EACH ROW EXECUTE FUNCTION fxexpl_fault_fn()`);
     process.env.DATABASE_URL = url;
     vi.resetModules();
   });
 
   beforeEach(async () => {
     if (!ADMIN) return;
-    await sql(`TRUNCATE blocks, dag_edges, indexer_state`);
+    await sql(`TRUNCATE blocks, dag_edges, indexer_state, transactions, receipts, logs, fxexpl_fault`);
   });
 
   afterAll(async () => {
@@ -176,6 +238,7 @@ describe("smoke pass then continuous worker (real Postgres)", () => {
     expect(plan.next).toBe(0);
     expect(r).toEqual({ next: HEAD + 1, allowed: true });
     expect(await indexedHeights()).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(await txCounts()).toEqual(complete(0, HEAD));
     // The head the smoke pass already wrote is not fetched again.
     expect(h.ingested).toEqual([0, 1, 2, 3, 4]);
   });
@@ -211,5 +274,26 @@ describe("smoke pass then continuous worker (real Postgres)", () => {
     const { plan } = await h.worker();
     expect(plan).toEqual({ next: 0, recoverThrough: -1 });
     expect(await indexedHeights()).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  dbIt("a smoke pass that dies after the block row: the worker re-ingests the head with all its txs", async () => {
+    const h = await harness();
+    await failTxInsertAt(HEAD);
+    await expect(h.smoke()).rejects.toThrow();
+    await sql(`TRUNCATE fxexpl_fault`);
+    await h.worker();
+    expect(await txCounts()).toEqual(complete(0, HEAD));
+    expect(h.ingested).toContain(HEAD);
+  });
+
+  dbIt("a worker ingest that dies after the block row is retried on restart and ends with its txs", async () => {
+    const h = await harness();
+    await failTxInsertAt(2);
+    const first = await h.worker(); // block 2 fails; the tick logs it and moves on
+    expect(first.r).toEqual({ next: HEAD + 1, allowed: true });
+    await sql(`TRUNCATE fxexpl_fault`);
+    const second = await h.worker(); // restart
+    expect(second.plan).toEqual({ next: 2, recoverThrough: HEAD });
+    expect(await txCounts()).toEqual(complete(0, HEAD));
   });
 });
