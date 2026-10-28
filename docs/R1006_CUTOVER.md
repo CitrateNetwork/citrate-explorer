@@ -260,13 +260,30 @@ On the site, the footer, the header chain badge, the home "Chain status" card an
 The r1005 database is untouched apart from being read-only, so the chain side of a rollback is
 env only. **User data is not.** Any API key, setting, watchlist entry or chat thread or message
 created after the web flip exists only in the r1006 database. An env-only rollback leaves it
-behind. Choose one of these before flipping back:
+behind.
+
+**Lifting a freeze.** A connection to a frozen database is read-only by default, so a plain
+`ALTER DATABASE … RESET` over it fails with "cannot execute ALTER DATABASE in a read-only
+transaction". Open an explicit read-write transaction for the RESET, then drop sessions that
+were opened during the freeze so they reconnect writable. For database `$DB` at `$URL`:
+```bash
+psql -v ON_ERROR_STOP=1 "$URL" -c "BEGIN READ WRITE; ALTER DATABASE \"$DB\" RESET default_transaction_read_only; COMMIT;"
+psql -v ON_ERROR_STOP=1 "$URL" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$DB' AND pid <> pg_backend_pid();"
+psql -tA "$URL" -c "SHOW default_transaction_read_only"   # expect: off
+```
+Running the RESET from another database on the cluster (for example `defaultdb`) also works.
+Re-running a lift is harmless. This was rehearsed on a local Postgres: the plain RESET is
+rejected, the `BEGIN READ WRITE` form and the other-database form both lift the freeze, and new
+sessions can write again.
+
+Choose one of these before flipping back:
 - **Carry the writes back.** Freeze r1006 (step 2.4's `ALTER DATABASE … read_only` and session
-  terminate, against the r1006 database). Lift the freeze on r1005
-  (`ALTER DATABASE "$R1005_DB" RESET default_transaction_read_only;`). Then run the step 2.4 copy
-  with the URLs swapped, so r1006's user tables replace r1005's. r1006's tables started as the
-  frozen r1005 copy, so they are a superset.
-- **Accept the loss.** Lift the freeze on r1005 and flip back. Users lose what they wrote on
+  terminate, against the r1006 database). Lift the freeze on r1005 (above, with
+  `DB=$R1005_DB URL=$R1005_URL`). Then run the step 2.4 copy with the URLs swapped, so r1006's
+  user tables replace r1005's. r1006's tables started as the frozen r1005 copy, so they are a
+  superset. r1006 stays frozen as the archive of the rollback. If you later cut over to r1006
+  again, lift its freeze the same way (`DB=<r1006 database> URL=$R1006_URL`).
+- **Accept the loss.** Lift the freeze on r1005 (above) and flip back. Users lose what they wrote on
   r1006. This needs the owner's explicit OK.
 
 Then:
@@ -276,8 +293,9 @@ Then:
    resumes from the r1005 cursor.
 2. Vercel: set the same two values, restore the r1005 env overrides you unset in step 2.5
    (if any were set before), then rebuild and redeploy.
-3. Make sure r1005 is writable again (`ALTER DATABASE "$R1005_DB" RESET
-   default_transaction_read_only;` if you haven't already run it above).
+3. Make sure r1005 is writable again. If you haven't already, run "Lifting a freeze" above with
+   `DB=$R1005_DB URL=$R1005_URL`, and check that `SHOW default_transaction_read_only` returns
+   `off`.
 4. Verify with §3, expecting `0x1dcfc490…75f1`, `network "r1005"`, and no `GuardianCanceller`
    label.
 
