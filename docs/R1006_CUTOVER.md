@@ -71,6 +71,13 @@ The hashes come from citrate-chain `core/consensus/src/hardening.rs` (`RELEASE_G
      crash). Restart it after the migration.
 
    After the migration, the r1005 indexer records `0x1dcf…75f1` on its next start.
+
+   Optional, before that restart: run the §3 completeness query against the r1005 database
+   (the current production `DATABASE_URL`). This build backfills every hole on start, from
+   genesis up (§2 step 3). If `min` is not 0, or `count` is below `max + 1`, the first start
+   walks those heights again. To speed that up, restart with
+   `INDEXER_GENESIS_CHECK_MS=5000 INDEXER_PARALLEL=8`. Unset both again before §2: the cutover
+   needs `INDEXER_PARALLEL=1` and a genesis check before every batch.
 2. Confirm the generated books match citrate-chain `main`. The address-drift workflow does this
    in CI, and you can run it locally:
    `CITRATE_CHAIN_DIR=<citrate-chain@main> bash scripts/check-address-drift.sh`.
@@ -151,6 +158,12 @@ most one block. Raise it again only once §3 passes.
 
    Smoke one pass first: `INDEXER_ONCE=1 pnpm indexer`. Exit code 0 means the genesis was
    recorded and the latest block was ingested; exit code 3 means a refusal (read the log line).
+   Any other exit code (1, with an `[indexer] fatal:` line) means the pass failed before or during
+   the write. The cause is usually the database (wrong `DATABASE_URL`, `DATABASE_CA_CERT`, or
+   `pnpm db:migrate` not run on it) or the RPC. A block's writes are one transaction, so a failed
+   pass leaves no partial block behind. Fix the cause from the log line and re-run the smoke pass
+   until it exits 0. Do not start the always-on worker, or go on to step 4, until it does. If it
+   keeps failing, stop and report.
    The smoke pass does **not** advance the resume cursor (its log line ends
    `(resume cursor not advanced)`), so it cannot make the worker skip history.
    Then run it always-on: `pnpm indexer`. The start log line shows `resuming at height 0`
@@ -223,7 +236,10 @@ curl -s $H/api/health | jq '.status, .components.chain, .components.indexer'
 #   indexer.genesis.recorded == same hash, indexer.genesis.status "ok",
 #   indexer.status "ok" (or "lagging" while it backfills from block 0)
 curl -s $H/api/blocks/0 | jq -r .hash               # 0xa3651a27…cdd4
-# History is contiguous from genesis (run on DGX against the r1006 database once lag is 0):
+# History is contiguous from genesis (run on DGX against the r1006 database once lag is 0).
+# A height counts as indexed when it has a live blocks row. The indexer writes each block with its
+# txs, receipts and logs in one transaction, so a row means the whole block landed. The worker's
+# resume plan uses the same definition.
 psql "$R1006_URL" -tAc "SELECT min(height), max(height), count(DISTINCT height) FROM blocks WHERE NOT superseded"
 #   min 0, and count == max + 1 (a smaller count means holes; restart the indexer to fill them)
 

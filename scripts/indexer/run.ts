@@ -16,8 +16,10 @@
  * Resume (ingest.ts resumePlan): from the `indexer_state` cursor, but never above
  * a hole. If any height in [0, cursor] has no live block (a smoke pass on an older
  * build, a block that failed in a batch), the worker restarts at the lowest hole
- * and skips the heights already indexed up to the cursor. Duplicates are
- * impossible (onConflictDoNothing).
+ * and skips the heights already indexed up to the cursor. Each block is written
+ * in one database transaction, so a live block row means the whole block (txs,
+ * receipts, logs) landed; an ingest that dies partway leaves a hole, not a
+ * half-written height. Duplicates are impossible (onConflictDoNothing).
  *
  * Without DATABASE_URL it runs dry: READS blocks (proving RPC) but persists
  * nothing — validate connectivity before provisioning the database.
