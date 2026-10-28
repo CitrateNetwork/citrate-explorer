@@ -3,7 +3,7 @@ import { indexerHead } from "@/lib/indexer/repository";
 import { getDb, isDbEnabled } from "@/lib/db/client";
 import { CHAIN_CONSTANTS } from "@/lib/citrate/network";
 import { normalizeHash } from "@/lib/indexer/genesisGuard";
-import { indexerHealthComponent, type GenesisRead } from "@/lib/indexer/health";
+import { indexerHealthComponent, isIndexerDegraded, type GenesisRead } from "@/lib/indexer/health";
 import { readGenesisState, rpcGenesisSource } from "@/lib/indexer/genesisStore";
 import { isDistributed } from "@/lib/api/ratelimit";
 import { log } from "@/lib/api/log";
@@ -108,7 +108,14 @@ export async function GET(req: Request) {
         log.error("health.genesis_read_error", { error: (err as Error).message });
         genesis = { error: true };
       }
-      indexer = indexerHealthComponent({ head, chainHead, maxLag: MAX_LAG, rpcGenesis, genesis });
+      indexer = indexerHealthComponent({
+        head,
+        chainHead,
+        maxLag: MAX_LAG,
+        rpcGenesis,
+        expectedGenesis: CHAIN_CONSTANTS.genesisHash,
+        genesis,
+      });
     }
   } catch (err) {
     log.error("health.indexer_error", { error: (err as Error).message });
@@ -120,11 +127,7 @@ export async function GET(req: Request) {
 
   // A reachable chain whose block 0 could not be read still serves (degraded, not down).
   const chainOk = chain.status === "ok" || chain.status === "genesis_unavailable";
-  const indexerDegraded =
-    indexer.status === "lagging" ||
-    indexer.status === "error" ||
-    indexer.status === "genesis_refused" ||
-    indexer.status === "genesis_mismatch";
+  const indexerDegraded = isIndexerDegraded(indexer.status);
   const overall = !chainOk ? "down" : indexerDegraded || chain.status !== "ok" ? "degraded" : "ok";
 
   return Response.json(

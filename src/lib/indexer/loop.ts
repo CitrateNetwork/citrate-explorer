@@ -10,7 +10,7 @@
  * Data sources (Rule 7): the injected functions are the live ones in production
  * (`headHeight`/`ingestBlock`/`reconcileFinality` in ./ingest: live Citrate RPC → Postgres).
  */
-import type { IngestResult } from "./ingest";
+import type { IngestOptions, IngestResult } from "./ingest";
 
 export interface TickGate {
   allow(): Promise<boolean>;
@@ -68,4 +68,34 @@ export async function indexerTick(next: number, d: TickDeps): Promise<TickResult
     if (f) log(`[indexer] finalized ${f} block(s)`);
   }
   return { next, allowed: true };
+}
+
+export interface OnceDeps {
+  gate: TickGate;
+  headHeight(): Promise<number>;
+  ingestBlock(height: number, opts: IngestOptions): Promise<IngestResult>;
+  reconcileFinality(): Promise<number>;
+  dbEnabled: boolean;
+}
+
+export type OnceResult = { allowed: false } | { allowed: true; head: number; result: IngestResult };
+
+/** The smoke pass (`pnpm indexer:once`). Red-phase stub: the old behaviour. */
+export async function indexerOnce(d: OnceDeps): Promise<OnceResult> {
+  if (!(await d.gate.allow())) return { allowed: false };
+  const head = await d.headHeight();
+  const result = await d.ingestBlock(head, {});
+  if (d.dbEnabled) await d.reconcileFinality();
+  return { allowed: true, head, result };
+}
+
+/** Red-phase stub: ingests every height. */
+export function skipIndexedThrough(
+  recoverThrough: number,
+  indexed: (height: number) => Promise<boolean>,
+  ingest: (height: number) => Promise<IngestResult>,
+): (height: number) => Promise<IngestResult> {
+  void recoverThrough;
+  void indexed;
+  return ingest;
 }

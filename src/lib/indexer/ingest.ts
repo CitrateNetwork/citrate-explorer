@@ -43,9 +43,16 @@ export interface IngestResult {
   superseded?: number;
 }
 
+export interface IngestOptions {
+  /** Advance the resume cursor (`indexer_state.last_height`). Default true. */
+  advanceCursor?: boolean;
+}
+
 /** Ingests a single block by height or "latest". Returns what happened. */
 export async function ingestBlock(
   ref: number | "latest",
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _opts: IngestOptions = {},
 ): Promise<IngestResult> {
   const block = await getDagBlock(ref);
   if (!block) return { persisted: false, height: typeof ref === "number" ? ref : -1, txCount: 0 };
@@ -307,6 +314,24 @@ export async function resumeHeight(): Promise<number> {
     .limit(1);
   if (row && row.lastHeight > 0) return row.lastHeight + 1;
   return 0;
+}
+
+export interface ResumePlan {
+  /** The first height the continuous worker ingests. */
+  next: number;
+  /** Heights up to here were reached before; already-indexed ones are skipped. -1 = none. */
+  recoverThrough: number;
+}
+
+/** Where the continuous worker starts (red-phase stub: the old cursor-only resume). */
+export async function resumePlan(): Promise<ResumePlan> {
+  return { next: await resumeHeight(), recoverThrough: -1 };
+}
+
+/** Whether a live block at `height` is in the index (red-phase stub). */
+export async function isIndexed(height: number): Promise<boolean> {
+  void height;
+  return false;
 }
 
 /** Current chain head height. */

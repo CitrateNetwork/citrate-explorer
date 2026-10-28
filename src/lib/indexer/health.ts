@@ -17,11 +17,18 @@ export type GenesisRead =
   /** The genesis read failed for another reason (details in the server log). */
   | { error: true };
 
+/** Whether an indexer status degrades /api/health (red-phase stub: the route's old list). */
+export function isIndexerDegraded(status: unknown): boolean {
+  return status === "lagging" || status === "error" || status === "genesis_refused" || status === "genesis_mismatch";
+}
+
 export function indexerHealthComponent(i: {
   head: number;
   chainHead: number | null;
   maxLag: number;
   rpcGenesis: string | null;
+  /** The build's network genesis (generated chain constants). */
+  expectedGenesis?: string | null;
   genesis: GenesisRead;
 }): Record<string, unknown> {
   const lag = i.chainHead !== null ? Math.max(0, i.chainHead - i.head) : null;

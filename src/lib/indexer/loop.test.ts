@@ -2,8 +2,8 @@
 // reconcileFinality (an UPDATE on blocks, with a cutoff from the refused RPC's DAG stats) must
 // not run after a refusal mid-backfill.
 import { describe, it, expect } from "vitest";
-import { indexerTick, type TickDeps } from "./loop";
-import type { IngestResult } from "./ingest";
+import { indexerOnce, indexerTick, skipIndexedThrough, type OnceDeps, type TickDeps } from "./loop";
+import type { IngestOptions, IngestResult } from "./ingest";
 
 function deps(allowSeq: boolean[], head = 10, parallel = 2) {
   const calls = { allow: 0, ingested: [] as number[], reconciled: 0 };
@@ -62,5 +62,80 @@ describe("indexerTick", () => {
     const { d, calls } = deps([true], 1, 1);
     await indexerTick(0, { ...d, dbEnabled: false });
     expect(calls.reconciled).toBe(0);
+  });
+});
+
+// Smoke pass and resume recovery. A smoke pass (`pnpm indexer:once`) ingests only the head; if it
+// advanced the resume cursor, the continuous worker would start at head+1 and never index genesis
+// or anything below the head, while health reported zero lag.
+describe("indexerOnce (smoke pass)", () => {
+  function onceDeps(allow: boolean) {
+    const calls = { ingested: [] as { h: number; opts: IngestOptions }[], reconciled: 0 };
+    const d: OnceDeps = {
+      gate: { allow: async () => allow },
+      headHeight: async () => 42,
+      async ingestBlock(h, opts) {
+        calls.ingested.push({ h, opts });
+        return { persisted: true, height: h, hash: "0x42", txCount: 0 };
+      },
+      async reconcileFinality() {
+        calls.reconciled++;
+        return 0;
+      },
+      dbEnabled: true,
+    };
+    return { d, calls };
+  }
+
+  it("ingests the head without advancing the resume cursor", async () => {
+    const { d, calls } = onceDeps(true);
+    const r = await indexerOnce(d);
+    expect(r).toMatchObject({ allowed: true, head: 42 });
+    expect(calls.ingested).toEqual([{ h: 42, opts: { advanceCursor: false } }]);
+  });
+
+  it("writes nothing when the gate refuses", async () => {
+    const { d, calls } = onceDeps(false);
+    expect(await indexerOnce(d)).toEqual({ allowed: false });
+    expect(calls.ingested).toEqual([]);
+    expect(calls.reconciled).toBe(0);
+  });
+});
+
+describe("skipIndexedThrough (resume recovery)", () => {
+  it("skips heights already indexed up to recoverThrough, ingests gaps and everything above", async () => {
+    const present = new Set([3, 5]);
+    const ingested: number[] = [];
+    const f = skipIndexedThrough(
+      5,
+      async (h) => present.has(h),
+      async (h) => {
+        ingested.push(h);
+        return { persisted: true, height: h, hash: `0x${h}`, txCount: 0 };
+      },
+    );
+    const results = [];
+    for (let h = 0; h <= 7; h++) results.push(await f(h));
+    expect(ingested).toEqual([0, 1, 2, 4, 6, 7]);
+    expect(results[3]).toEqual({ persisted: false, height: 3, txCount: 0 });
+  });
+
+  it("recoverThrough -1 ingests every height without asking the index", async () => {
+    let asked = 0;
+    const ingested: number[] = [];
+    const f = skipIndexedThrough(
+      -1,
+      async () => {
+        asked++;
+        return true;
+      },
+      async (h) => {
+        ingested.push(h);
+        return { persisted: true, height: h, txCount: 0 };
+      },
+    );
+    for (let h = 0; h <= 2; h++) await f(h);
+    expect(ingested).toEqual([0, 1, 2]);
+    expect(asked).toBe(0);
   });
 });
