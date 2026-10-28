@@ -9,10 +9,15 @@
  *   pnpm indexer        — continuous: backfill the gap from the resume cursor to
  *                         the head, then tail. Reconciles finality each tick.
  *   pnpm indexer:once   — single pass (INDEXER_ONCE=1): ingest the latest block
- *                         and exit. Used as a smoke test / cron tick.
+ *                         and exit. A smoke test: it records the genesis and
+ *                         proves RPC + DB writes, but does NOT advance the
+ *                         resume cursor, so the worker still starts at genesis.
  *
- * Resume: picks up from the `indexer_state` cursor (MAX height committed), so a
- * restart produces zero gaps and zero duplicates (onConflictDoNothing).
+ * Resume (ingest.ts resumePlan): from the `indexer_state` cursor, but never above
+ * a hole. If any height in [0, cursor] has no live block (a smoke pass on an older
+ * build, a block that failed in a batch), the worker restarts at the lowest hole
+ * and skips the heights already indexed up to the cursor. Duplicates are
+ * impossible (onConflictDoNothing).
  *
  * Without DATABASE_URL it runs dry: READS blocks (proving RPC) but persists
  * nothing — validate connectivity before provisioning the database.
@@ -29,14 +34,15 @@
 import {
   ingestBlock,
   reconcileFinality,
-  resumeHeight,
+  resumePlan,
+  isIndexed,
   headHeight,
 } from "@/lib/indexer/ingest";
 import { getDb, isDbEnabled } from "@/lib/db/client";
 import { GenesisGate, type GenesisDeps } from "@/lib/indexer/genesisGuard";
 import { dbGenesisStore, rpcGenesisSource } from "@/lib/indexer/genesisStore";
 import { NETWORK } from "@/lib/citrate/network";
-import { indexerTick } from "@/lib/indexer/loop";
+import { indexerOnce, indexerTick, skipIndexedThrough } from "@/lib/indexer/loop";
 
 const POLL_MS = Number(process.env.INDEXER_POLL_MS ?? 2000);
 const ONCE = process.env.INDEXER_ONCE === "1";
@@ -76,27 +82,35 @@ function genesisGate(): GenesisGate {
 }
 
 async function once() {
-  const gate = genesisGate();
-  if (!(await gate.allow())) {
+  const r = await indexerOnce({
+    gate: genesisGate(),
+    headHeight,
+    ingestBlock,
+    reconcileFinality,
+    dbEnabled: isDbEnabled(),
+  });
+  if (!r.allowed) {
     console.error("[indexer] not indexing: genesis check did not pass (see above)");
     process.exit(3);
   }
-  const head = await headHeight();
-  const res = await ingestBlock(head);
-  if (isDbEnabled()) await reconcileFinality();
+  const res = r.result;
   console.log(
-    `[indexer] head=${head} persisted=${res.persisted} txs=${res.txCount}` +
+    `[indexer] head=${r.head} persisted=${res.persisted} txs=${res.txCount}` +
       (res.persisted
-        ? ` finalized=${res.finalized} superseded=${res.superseded}`
+        ? ` finalized=${res.finalized} superseded=${res.superseded} (resume cursor not advanced)`
         : " (dry: DATABASE_URL unset)"),
   );
 }
 
 async function loop() {
   const gate = genesisGate();
-  let next = await resumeHeight();
+  const plan = await resumePlan();
+  let next = plan.next;
+  const ingest = skipIndexedThrough(plan.recoverThrough, isIndexed, (h) => ingestBlock(h));
+  const recovering =
+    plan.recoverThrough >= 0 ? ` (backfilling holes through ${plan.recoverThrough}, skipping indexed heights)` : "";
   console.log(
-    `[indexer] resuming at height ${next}; network=${NETWORK.id} genesis=${NETWORK.constants.genesisHash}; ` +
+    `[indexer] resuming at height ${next}${recovering}; network=${NETWORK.id} genesis=${NETWORK.constants.genesisHash}; ` +
       `db=${isDbEnabled() ? "postgres" : "dry"}; poll=${POLL_MS}ms parallel=${PARALLEL} genesisCheck=${GENESIS_CHECK_MS}ms`,
   );
   let refusalLoggedAt = 0;
@@ -105,7 +119,7 @@ async function loop() {
       const r = await indexerTick(next, {
         gate,
         headHeight,
-        ingestBlock: (h) => ingestBlock(h),
+        ingestBlock: ingest,
         reconcileFinality,
         dbEnabled: isDbEnabled(),
         parallel: PARALLEL,

@@ -46,10 +46,16 @@ The hashes come from citrate-chain `core/consensus/src/hardening.rs` (`RELEASE_G
   - `components.chain.status = wrong_genesis` (HTTP 503) means the RPC serves a different
     network than this build. `genesis_unavailable` (degraded, HTTP 200) means the chain answers
     but block 0 could not be read.
-  - `components.indexer.status = genesis_refused` or `genesis_mismatch` means the index and the
-    RPC disagree (overall status is `degraded`).
-  - `components.indexer.genesis.status = not_migrated` means the database has no 0005 columns yet.
-    `head` and `lagBlocks` are still reported.
+  - Every `components.indexer.status` that starts with `genesis_` makes the overall status
+    `degraded`, even when `head` is within the lag limit: the indexer is not writing, or is
+    writing an index that is not this build's network. `head` and `lagBlocks` are still reported.
+    - `genesis_refused`: the indexer stored a refusal; `indexer.genesis.code` names it (§5).
+    - `genesis_mismatch`: the recorded genesis is not the RPC's block 0 or not this build's
+      network genesis.
+    - `genesis_not_migrated`: the database has no 0005 columns yet
+      (`indexer.genesis.status = not_migrated`). The indexer refuses to write.
+    - `genesis_unreadable`: the recorded genesis is not a 32-byte hash.
+    - `genesis_unknown`: the genesis read failed (details in the server log).
   - `components.chain.genesis`, `.expectedGenesis` and `.network` show the values that were
     compared.
 
@@ -58,8 +64,9 @@ The hashes come from citrate-chain `core/consensus/src/hardening.rs` (`RELEASE_G
 1. **Run migration 0005 on the r1005 database as soon as this PR merges.** Merging auto-deploys
    `main` to Vercel; it does not migrate. Run `pnpm db:migrate` on DGX against the current
    production `DATABASE_URL`. Until you do:
-   - the web app keeps serving, and `/api/health` reports `indexer.genesis.status = not_migrated`
-     with `head` and lag intact;
+   - the web app keeps serving, and `/api/health` reports `indexer.status = genesis_not_migrated`
+     (overall `degraded`, HTTP 200) with `head` and lag intact. Expect the uptime monitor to show
+     degraded in this window;
    - an indexer started on this build refuses with `not_migrated` and writes nothing (it doesn't
      crash). Restart it after the migration.
 
@@ -144,8 +151,17 @@ most one block. Raise it again only once §3 passes.
 
    Smoke one pass first: `INDEXER_ONCE=1 pnpm indexer`. Exit code 0 means the genesis was
    recorded and the latest block was ingested; exit code 3 means a refusal (read the log line).
-   Then run it always-on: `pnpm indexer`. The start log line shows
-   `network=r1006 genesis=0xa365…`.
+   The smoke pass does **not** advance the resume cursor (its log line ends
+   `(resume cursor not advanced)`), so it cannot make the worker skip history.
+   Then run it always-on: `pnpm indexer`. The start log line shows `resuming at height 0`
+   (after the smoke pass, followed by `(backfilling holes through <head>, skipping indexed
+   heights)`) and `network=r1006 genesis=0xa365…`. It must start at height 0. If it shows any other height on
+   the fresh r1006 database, stop it and report: the index would be missing genesis.
+
+   The worker never resumes above a hole. On start it finds the lowest height in
+   `[0, cursor]` with no live block and restarts there, skipping the heights already indexed.
+   This also repairs a database where an older build's smoke pass advanced the cursor to the
+   head.
 4. **Freeze user writes on r1005, then copy the user tables.** The app has no maintenance mode, so
    make the r1005 database read-only and drop existing sessions. From here until the web flip,
    user writes such as new API keys, settings or chat messages fail visibly instead of landing
@@ -205,8 +221,11 @@ curl -s $H/api/health | jq '.status, .components.chain, .components.indexer'
 #   chain.status "ok", chain.network "r1006",
 #   chain.genesis == chain.expectedGenesis == "0xa3651a27…cdd4",
 #   indexer.genesis.recorded == same hash, indexer.genesis.status "ok",
-#   indexer.status "ok" (or "lagging" while it backfills)
+#   indexer.status "ok" (or "lagging" while it backfills from block 0)
 curl -s $H/api/blocks/0 | jq -r .hash               # 0xa3651a27…cdd4
+# History is contiguous from genesis (run on DGX against the r1006 database once lag is 0):
+psql "$R1006_URL" -tAc "SELECT min(height), max(height), count(DISTINCT height) FROM blocks WHERE NOT superseded"
+#   min 0, and count == max + 1 (a smaller count means holes; restart the indexer to fill them)
 
 # A contract only the r1006 book has: GuardianCanceller.
 curl -s $H/api/contract/0xf84cb95142c876d44df1ea0c817838b440a4256d | jq '.label'
@@ -257,7 +276,9 @@ Never point an r1006-built indexer at the r1005 database, or the reverse. The gu
 | `rpc_not_expected_network` | RPC block 0 ≠ the build's network | The RPC hasn't flipped yet, or `NEXT_PUBLIC_CITRATE_NETWORK` is wrong. Fix the env and restart |
 | `genesis_mismatch` | RPC block 0 ≠ the genesis this database recorded | Wrong `DATABASE_URL` for this network. Point at the right database and restart |
 | `index_not_this_chain` | Nothing recorded, and the database holds another chain's rows | Usually an r1005 database (or an untruncated branch) under an r1006 build. Use the r1006 database |
-| `not_migrated` | The database has no 0005 genesis columns | Run `pnpm db:migrate` against this `DATABASE_URL`, then restart the indexer |
+| `not_migrated` (health: `genesis_not_migrated`) | The database has no 0005 genesis columns | Run `pnpm db:migrate` against this `DATABASE_URL`, then restart the indexer |
+| `genesis_unreadable` (health only) | `indexer_state.genesis_hash` is not a 32-byte hash | Never edit that column by hand. Point at the right database; if it is the right one, escalate |
+| `genesis_unknown` (health only) | The health route could not read the genesis state | Check the server log (`health.genesis_read_error`) and the database connection |
 | `unavailable` (log only) | The RPC returned no block 0 or errored | Transient. The indexer retries each tick and writes nothing until the check passes. It never replaces a stored refusal |
 
 A refusal latches until the indexer restarts, and it is re-logged once a minute.

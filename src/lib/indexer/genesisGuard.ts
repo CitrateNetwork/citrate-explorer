@@ -259,18 +259,25 @@ export class GenesisGate {
 }
 
 /**
- * The index's genesis state as `/api/health` reports it: `genesis_refused` when the indexer
- * stored a refusal, `genesis_mismatch` when the recorded genesis is not the RPC's block 0 (the
- * RPC moved and the indexer has not checked yet), else null (nothing to override).
+ * The index's genesis state as `/api/health` reports it, or null (nothing to override):
+ *  - `genesis_refused`    the indexer stored a refusal (its code is in the report);
+ *  - `genesis_unreadable` a recorded genesis that is not a 32-byte hash;
+ *  - `genesis_mismatch`   the recorded genesis is not the RPC's block 0 (the RPC moved and the
+ *                         indexer has not checked yet), or not this build's network genesis.
  */
 export function genesisHealth(i: {
   status: string | null;
   recorded: string | null;
   rpcGenesis: string | null;
-}): "genesis_refused" | "genesis_mismatch" | null {
+  expectedGenesis?: string | null;
+}): "genesis_refused" | "genesis_unreadable" | "genesis_mismatch" | null {
   if (i.status === "refused") return "genesis_refused";
+  if (i.recorded === null) return null;
   const recorded = normalizeHash(i.recorded);
+  if (!recorded) return "genesis_unreadable";
   const rpc = normalizeHash(i.rpcGenesis);
-  if (recorded && rpc && recorded !== rpc) return "genesis_mismatch";
+  if (rpc && recorded !== rpc) return "genesis_mismatch";
+  const expected = i.expectedGenesis ? normalizeHash(i.expectedGenesis) : null;
+  if (expected && recorded !== expected) return "genesis_mismatch";
   return null;
 }

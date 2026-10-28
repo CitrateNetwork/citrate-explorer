@@ -80,22 +80,31 @@ export interface OnceDeps {
 
 export type OnceResult = { allowed: false } | { allowed: true; head: number; result: IngestResult };
 
-/** The smoke pass (`pnpm indexer:once`). Red-phase stub: the old behaviour. */
+/**
+ * The smoke pass (`pnpm indexer:once`): ask the gate, ingest the head, reconcile finality. It does
+ * NOT advance the resume cursor: it ingested one block, not everything below it, and a cursor at
+ * the head would make the continuous worker start above genesis.
+ */
 export async function indexerOnce(d: OnceDeps): Promise<OnceResult> {
   if (!(await d.gate.allow())) return { allowed: false };
   const head = await d.headHeight();
-  const result = await d.ingestBlock(head, {});
+  const result = await d.ingestBlock(head, { advanceCursor: false });
   if (d.dbEnabled) await d.reconcileFinality();
   return { allowed: true, head, result };
 }
 
-/** Red-phase stub: ingests every height. */
+/**
+ * Wraps ingest for a resume that starts at a hole (ingest.ts resumePlan): heights up to
+ * `recoverThrough` that are already indexed are skipped rather than refetched; holes and every
+ * height above `recoverThrough` are ingested. `recoverThrough` -1 ingests everything.
+ */
 export function skipIndexedThrough(
   recoverThrough: number,
   indexed: (height: number) => Promise<boolean>,
   ingest: (height: number) => Promise<IngestResult>,
 ): (height: number) => Promise<IngestResult> {
-  void recoverThrough;
-  void indexed;
-  return ingest;
+  return async (height) => {
+    if (height <= recoverThrough && (await indexed(height))) return { persisted: false, height, txCount: 0 };
+    return ingest(height);
+  };
 }

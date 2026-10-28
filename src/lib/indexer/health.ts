@@ -17,9 +17,15 @@ export type GenesisRead =
   /** The genesis read failed for another reason (details in the server log). */
   | { error: true };
 
-/** Whether an indexer status degrades /api/health (red-phase stub: the route's old list). */
+/**
+ * Whether an indexer status degrades /api/health. Every `genesis_*` status does, including ones
+ * added later: each means the indexer is not writing, or is writing an index that is not this
+ * build's network.
+ */
 export function isIndexerDegraded(status: unknown): boolean {
-  return status === "lagging" || status === "error" || status === "genesis_refused" || status === "genesis_mismatch";
+  return (
+    status === "lagging" || status === "error" || (typeof status === "string" && status.startsWith("genesis_"))
+  );
 }
 
 export function indexerHealthComponent(i: {
@@ -35,9 +41,16 @@ export function indexerHealthComponent(i: {
   const lagStatus = lag === null ? "unknown" : lag <= i.maxLag ? "ok" : "lagging";
   const base = { head: i.head, lagBlocks: lag, maxLag: i.maxLag };
   const g = i.genesis;
-  if ("error" in g) return { status: lagStatus, ...base, genesis: { status: "error" } };
-  if (!g.migrated) return { status: lagStatus, ...base, genesis: { status: "not_migrated" } };
-  const issue = genesisHealth({ status: g.status, recorded: g.recorded, rpcGenesis: i.rpcGenesis });
+  // The genesis guard refuses to write on a database without the 0005 columns, so a head within
+  // maxLag is a frozen index, not a healthy one. A failed read cannot prove the index is fine.
+  if ("error" in g) return { status: "genesis_unknown", ...base, genesis: { status: "error" } };
+  if (!g.migrated) return { status: "genesis_not_migrated", ...base, genesis: { status: "not_migrated" } };
+  const issue = genesisHealth({
+    status: g.status,
+    recorded: g.recorded,
+    rpcGenesis: i.rpcGenesis,
+    expectedGenesis: i.expectedGenesis ?? null,
+  });
   return {
     status: issue ?? lagStatus,
     ...base,

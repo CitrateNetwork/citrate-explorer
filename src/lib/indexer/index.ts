@@ -1,9 +1,12 @@
 export {
   ingestBlock,
   reconcileFinality,
-  resumeHeight,
+  resumePlan,
+  isIndexed,
   headHeight,
   type IngestResult,
+  type IngestOptions,
+  type ResumePlan,
   type DagBlock,
 } from "./ingest";
 export {

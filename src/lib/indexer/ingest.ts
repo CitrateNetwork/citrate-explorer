@@ -14,7 +14,7 @@
  *
  * Data source (Rule 11): live Citrate RPC; written to Neon tables.
  */
-import { and, eq, ne, lte, inArray } from "drizzle-orm";
+import { and, eq, ne, lte, inArray, sql } from "drizzle-orm";
 import type { Address, Hash } from "viem";
 import { harnessClient } from "@/lib/harness/client";
 import { getDagBlock, dagStats, isFinal, type DagBlock } from "@/lib/citrate/rpc";
@@ -44,15 +44,18 @@ export interface IngestResult {
 }
 
 export interface IngestOptions {
-  /** Advance the resume cursor (`indexer_state.last_height`). Default true. */
+  /**
+   * Advance the resume cursor (`indexer_state.last_height`). Default true. The smoke pass
+   * (`pnpm indexer:once`) sets it false: it ingests only the head, and a cursor at the head would
+   * tell the continuous worker that everything below it is indexed.
+   */
   advanceCursor?: boolean;
 }
 
 /** Ingests a single block by height or "latest". Returns what happened. */
 export async function ingestBlock(
   ref: number | "latest",
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _opts: IngestOptions = {},
+  opts: IngestOptions = {},
 ): Promise<IngestResult> {
   const block = await getDagBlock(ref);
   if (!block) return { persisted: false, height: typeof ref === "number" ? ref : -1, txCount: 0 };
@@ -159,8 +162,8 @@ export async function ingestBlock(
     });
   }
 
-  // 5. Advance the resume cursor (monotonic).
-  await db
+  // 5. Advance the resume cursor (continuous worker only; see IngestOptions).
+  if (opts.advanceCursor !== false) await db
     .insert(indexerState)
     .values({ id: 1, lastHeight: block.height, lastBlueScore: block.blueScore })
     .onConflictDoUpdate({
@@ -300,38 +303,71 @@ export async function reconcileFinality(): Promise<number> {
   return updated.length;
 }
 
-/** The height to resume backfill from on restart (cursor + 1, or chain head). */
-export async function resumeHeight(): Promise<number> {
+export interface ResumePlan {
+  /** The first height the continuous worker ingests. */
+  next: number;
+  /**
+   * When `next` is a hole below heights already reached: the highest reached height. Heights up to
+   * here that are already indexed are skipped, not refetched (loop.ts skipIndexedThrough).
+   * -1 when there is nothing to recover.
+   */
+  recoverThrough: number;
+}
+
+/**
+ * Where the continuous worker starts. Never above a hole: the lowest height in [0, reached] with
+ * no live block, where `reached` is the higher of the cursor and the highest live block. Without
+ * this, a cursor advanced past missing heights (a smoke pass on an older build ingested only the
+ * head; a failed block in a batch) would skip them for good while health reported zero lag. With
+ * no hole, resume at reached + 1.
+ *
+ * Reads only `indexer_state.last_height` and `blocks`, so it works on a database that predates
+ * later indexer_state migrations (e.g. 0005's genesis columns): the genesis guard, not a crash,
+ * decides what happens next. The hole query scans the live block heights once, at start-up.
+ */
+export async function resumePlan(): Promise<ResumePlan> {
   const db = getDb();
-  if (!db) return Number(await harnessClient().getBlockNumber());
-  // Only the cursor column: this query must keep working on a database that predates later
-  // indexer_state migrations (e.g. 0005's genesis columns), so the genesis guard, not a crash,
-  // decides what happens next.
-  const [row] = await db
+  if (!db) return { next: await headHeight(), recoverThrough: -1 };
+  const [cursor] = await db
     .select({ lastHeight: indexerState.lastHeight })
     .from(indexerState)
     .where(eq(indexerState.id, 1))
     .limit(1);
-  if (row && row.lastHeight > 0) return row.lastHeight + 1;
-  return 0;
+  const [top] = await db
+    .select({ h: sql<string | null>`max(${blocks.height})` })
+    .from(blocks)
+    .where(eq(blocks.superseded, false));
+  // last_height defaults to 0, so 0 cannot tell "block 0 indexed" from "nothing yet": only a
+  // positive cursor counts; block 0 itself is covered by max(blocks.height).
+  const reached = Math.max(
+    cursor && cursor.lastHeight > 0 ? cursor.lastHeight : -1,
+    top?.h != null ? Number(top.h) : -1,
+  );
+  if (reached < 0) return { next: 0, recoverThrough: -1 };
+  const res = await db.execute<{ hole: string | null }>(sql`
+    SELECT CASE
+      WHEN NOT EXISTS (SELECT 1 FROM ${blocks} WHERE ${blocks.height} = 0 AND ${blocks.superseded} = false) THEN 0
+      ELSE (
+        SELECT min(b.height) + 1 FROM ${blocks} b
+        WHERE b.superseded = false AND b.height < ${reached}
+          AND NOT EXISTS (SELECT 1 FROM ${blocks} c WHERE c.height = b.height + 1 AND c.superseded = false)
+      )
+    END AS hole`);
+  const hole = res.rows[0]?.hole;
+  if (hole == null) return { next: reached + 1, recoverThrough: -1 };
+  return { next: Number(hole), recoverThrough: reached };
 }
 
-export interface ResumePlan {
-  /** The first height the continuous worker ingests. */
-  next: number;
-  /** Heights up to here were reached before; already-indexed ones are skipped. -1 = none. */
-  recoverThrough: number;
-}
-
-/** Where the continuous worker starts (red-phase stub: the old cursor-only resume). */
-export async function resumePlan(): Promise<ResumePlan> {
-  return { next: await resumeHeight(), recoverThrough: -1 };
-}
-
-/** Whether a live block at `height` is in the index (red-phase stub). */
+/** Whether the index holds a live (non-superseded) block at `height`. */
 export async function isIndexed(height: number): Promise<boolean> {
-  void height;
-  return false;
+  const db = getDb();
+  if (!db) return false;
+  const rows = await db
+    .select({ h: blocks.height })
+    .from(blocks)
+    .where(and(eq(blocks.height, height), eq(blocks.superseded, false)))
+    .limit(1);
+  return rows.length > 0;
 }
 
 /** Current chain head height. */

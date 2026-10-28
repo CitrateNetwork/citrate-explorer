@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ingestBlock, resumeHeight, headHeight } from "./ingest";
+import { ingestBlock, resumePlan, headHeight } from "./ingest";
 
 const live = process.env.LIVE_RPC === "1";
 const liveIt = live ? it : it.skip;
@@ -18,8 +18,9 @@ describe("indexer dry-mode (WP-1.3, live RPC, no DB)", () => {
     expect(res.height).toBe(head);
   });
 
-  liveIt("resumeHeight falls back to the chain head when no DB", async () => {
-    const h = await resumeHeight();
-    expect(h).toBeGreaterThan(0);
+  liveIt("resumePlan falls back to the chain head when no DB", async () => {
+    const p = await resumePlan();
+    expect(p.next).toBeGreaterThan(0);
+    expect(p.recoverThrough).toBe(-1);
   });
 });

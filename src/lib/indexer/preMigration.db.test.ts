@@ -1,6 +1,6 @@
 // Deploy-order safety against a REAL Postgres at the pre-0005 schema (migrations 0000-0004 only),
 // the state production is in between merge (auto-deploy) and `pnpm db:migrate`:
-//  - the indexer's resume query still works (it reads only last_height);
+//  - the indexer's resume plan still works (it reads only last_height and blocks);
 //  - the genesis guard refuses with `not_migrated` instead of crashing;
 //  - /api/health's genesis read reports "not migrated" instead of throwing;
 //  - after 0005, the same index records its genesis.
@@ -66,9 +66,9 @@ describe("pre-0005 schema (real Postgres)", () => {
     delete process.env.DATABASE_URL;
   });
 
-  dbIt("the indexer resumes from the cursor without the genesis columns", async () => {
-    const { resumeHeight } = await import("./ingest");
-    await expect(resumeHeight()).resolves.toBe(2);
+  dbIt("the indexer resume plan works without the genesis columns", async () => {
+    const { resumePlan } = await import("./ingest");
+    await expect(resumePlan()).resolves.toEqual({ next: 2, recoverThrough: -1 });
   });
 
   dbIt("the genesis guard refuses with not_migrated (no crash)", async () => {
