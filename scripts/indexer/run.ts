@@ -14,6 +14,14 @@
  * Resume: picks up from the `indexer_state` cursor (MAX height committed), so a
  * restart produces zero gaps and zero duplicates (onConflictDoNothing).
  *
+ * Genesis guard (EXP-S0): before writing, and every INDEXER_GENESIS_CHECK_MS
+ * (default 60 s) while running, the RPC's block 0 hash is compared with
+ * `indexer_state.genesis_hash`. On a mismatch the indexer logs why and exits 3
+ * without writing (`RestartPreventExitStatus=3` keeps systemd from looping).
+ * Recovery after a deliberate reroll: `pnpm indexer:reset --genesis <hash> --confirm`.
+ * The indexer also holds a Postgres advisory lock (src/lib/indexer/lock.ts), so a
+ * second indexer, or a reset, cannot run against the same index at the same time.
+ *
  * Without DATABASE_URL it runs dry: READS blocks (proving RPC) but persists
  * nothing — validate connectivity before provisioning Neon.
  *
@@ -25,7 +33,14 @@ import {
   resumeHeight,
   headHeight,
 } from "@/lib/indexer/ingest";
-import { isDbEnabled } from "@/lib/db/client";
+import { getDb, isDbEnabled } from "@/lib/db/client";
+import {
+  checkGenesis,
+  genesisRefusalMessage,
+  liveGenesisRpc,
+  GENESIS_REFUSED_EXIT,
+} from "@/lib/indexer/genesis";
+import { acquireIndexerLock } from "@/lib/indexer/lock";
 
 const POLL_MS = Number(process.env.INDEXER_POLL_MS ?? 2000);
 const ONCE = process.env.INDEXER_ONCE === "1";
@@ -47,9 +62,55 @@ const PARALLEL = Math.max(
   Math.min(32, Number(process.env.INDEXER_PARALLEL ?? 1)),
 );
 
+const GENESIS_CHECK_MS = Math.max(5_000, Number(process.env.INDEXER_GENESIS_CHECK_MS ?? 60_000));
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Exits the process (code 3) if the RPC serves another chain than the index.
+ * Throws on RPC/DB errors, which the caller treats as retryable.
+ */
+async function guardGenesis(): Promise<void> {
+  const rpc = liveGenesisRpc();
+  const db = getDb();
+  if (!db) {
+    console.log(`[indexer] RPC genesis ${await rpc.blockHashAt(0)} (dry: not recorded)`);
+    return;
+  }
+  const v = await checkGenesis(db, rpc);
+  if (!v.ok) {
+    console.error(`[indexer] ${genesisRefusalMessage(v)}`);
+    process.exit(GENESIS_REFUSED_EXIT);
+  }
+  if (v.action !== "matched") console.log(`[indexer] genesis ${v.genesis} ${v.action} in indexer_state`);
+}
+
+/** The startup guard: retry RPC/DB errors with bounded backoff; never write before it passes. */
+async function guardGenesisAtStart(): Promise<void> {
+  for (let delay = 1_000; ; delay = Math.min(delay * 2, 30_000)) {
+    try {
+      return await guardGenesis();
+    } catch (err) {
+      console.error(`[indexer] genesis check failed (retrying in ${delay} ms): ${(err as Error).message}`);
+      if (ONCE) throw err;
+      await sleep(delay);
+    }
+  }
+}
+
+/** Takes the indexer lock or exits: never two writers on one index. */
+async function lockOrExit(): Promise<void> {
+  if (!isDbEnabled()) return;
+  const lock = await acquireIndexerLock();
+  if (!lock) {
+    console.error("[indexer] another indexer (or an indexer:reset) holds the indexer lock; exiting");
+    process.exit(1);
+  }
+}
+
 async function once() {
+  await lockOrExit();
+  await guardGenesisAtStart();
   const head = await headHeight();
   const res = await ingestBlock(head);
   if (isDbEnabled()) await reconcileFinality();
@@ -62,12 +123,19 @@ async function once() {
 }
 
 async function loop() {
+  await lockOrExit();
+  await guardGenesisAtStart();
+  let lastGenesisCheck = Date.now();
   let next = await resumeHeight();
   console.log(
     `[indexer] resuming at height ${next}; db=${isDbEnabled() ? "neon" : "dry"}; poll=${POLL_MS}ms parallel=${PARALLEL}`,
   );
   for (;;) {
     try {
+      if (Date.now() - lastGenesisCheck >= GENESIS_CHECK_MS) {
+        await guardGenesis();
+        lastGenesisCheck = Date.now();
+      }
       const head = await headHeight();
       while (next <= head) {
         // Process up to PARALLEL heights concurrently. Each call is

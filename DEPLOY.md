@@ -48,6 +48,7 @@ committed. Full list + how-to-generate in `.env.example`.
 | `CITRATE_INFERENCE_MODE` | server | `gateway` (or `local`) |
 | `CITRATE_GATEWAY_URL` / `_API_KEY` | server | `https://infer.citrate.ai/v1` + key |
 | `CITRATE_INDEXER_MAX_LAG` | server | health "lagging" threshold (default 50 blocks) |
+| `INDEXER_GENESIS_CHECK_MS` | indexer | how often the running indexer re-checks the RPC's block 0 (default 60000, min 5000). See §4a |
 
 > The CSP allowlist in `next.config.ts` derives `connect-src`/`frame-src` from the
 > `NEXT_PUBLIC_*` RPC/OIDC/Privy vars at build time — set them before the prod
@@ -129,6 +130,49 @@ fly deploy
 
 Resume is gap-free (the `indexer_state` cursor), so restarts are safe. Smoke a
 single pass first: `INDEXER_ONCE=1 pnpm indexer` (ingests the latest block + exits).
+
+### 4a. Genesis guard and reset
+
+Chain id 40204 survives a reroll, so the index is tied to block 0's hash instead.
+
+- **The guard.** `indexer_state.genesis_hash` (migration `0005_indexer_genesis_hash`) records the
+  chain's block 0 hash. Before writing, and every `INDEXER_GENESIS_CHECK_MS` (default 60 s) while it
+  runs, the indexer compares it with the RPC's block 0.
+  - **First run on an empty index:** it records the RPC's genesis.
+  - **First run on an index built before the guard:** it records the genesis only if the lowest live
+    indexed block is on the RPC's chain; otherwise it refuses with `index_not_this_chain`.
+  - **Mismatch:** it logs `GENESIS REFUSED (genesis_mismatch): RPC block 0 is …, index genesis is …`,
+    writes nothing and exits with code **3**. Add `RestartPreventExitStatus=3` to the systemd unit so
+    a refusal is not restarted in a loop.
+  - RPC or database errors at start are retried with backoff (1 s doubling to 30 s); they never let
+    the indexer write unchecked.
+- **The indexer lock.** The indexer holds a Postgres advisory lock for its whole life. A second
+  indexer on the same database exits at start, and the reset below refuses while the lock is held.
+- **Order.** Run `pnpm db:migrate` before deploying a build with the guard.
+
+**Reset after a deliberate reroll.** Only when the chain was rerolled on purpose and the old index
+should be discarded:
+
+```bash
+sudo systemctl stop citratescan-indexer.service      # the reset refuses while the indexer runs
+G=$(curl -s -X POST -H 'content-type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["0x0",false]}' \
+  "$NEXT_PUBLIC_CITRATE_RPC_URL" | jq -r .result.hash)
+pnpm indexer:reset --genesis "$G"            # dry run: prints row counts, deletes nothing
+pnpm indexer:reset --genesis "$G" --confirm  # empties the chain tables, records $G
+sudo systemctl start citratescan-indexer.service     # backfills from height 0
+```
+
+- **What it empties,** in one transaction (all or nothing): `blocks`, `dag_edges`, `transactions`,
+  `receipts`, `logs`, `token_transfers`, `tokens`, `accounts`, `contracts`, `indexer_state`. It then
+  seeds `indexer_state` with cursor 0 and the new genesis.
+- **What it keeps:** user tables (settings, API keys, provider keys, watchlist, threads, messages,
+  audit log) and `contract_verifications`.
+- **Checks:** it refuses (exit 4, nothing deleted) when the RPC's block 0 is not `--genesis`, or when
+  the RPC cannot be read. For a reset made before the RPC flips, pass `--skip-rpc-check`.
+- **Exit codes:** 0 done or dry run; 2 bad arguments or `DATABASE_URL` unset; 4 refused.
+- **Before you run it,** take a database backup (DO Managed Postgres: a manual backup or a fork).
+  The reset cannot be undone.
 
 ---
 

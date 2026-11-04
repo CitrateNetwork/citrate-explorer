@@ -4,7 +4,7 @@
  * two chains in one index). Runs against real SQL (PGlite with the repo's
  * migrations) and an in-test RPC that serves a fixed chain.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { migratedPglite } from "@/lib/db/tests/pglite";
 import { blocks, indexerState } from "@/lib/db/schema";
@@ -25,10 +25,13 @@ function chain(byHeight: Record<number, string>): GenesisRpc {
 
 type Ctx = Awaited<ReturnType<typeof migratedPglite>>;
 let ctx: Ctx;
-beforeEach(async () => {
+beforeAll(async () => {
   ctx = await migratedPglite();
+}, 60_000);
+beforeEach(async () => {
+  await ctx.truncateAll();
 });
-afterEach(async () => {
+afterAll(async () => {
   await ctx.close();
 });
 

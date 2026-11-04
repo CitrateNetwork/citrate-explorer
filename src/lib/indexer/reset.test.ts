@@ -4,7 +4,7 @@
  * Nothing is deleted without `--confirm`. User tables are never touched.
  * Real SQL via PGlite with the repo's migrations.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { migratedPglite } from "@/lib/db/tests/pglite";
 import {
   blocks,
@@ -32,8 +32,11 @@ const rpcWithGenesis = (g: string | null): GenesisRpc => ({
 
 type Ctx = Awaited<ReturnType<typeof migratedPglite>>;
 let ctx: Ctx;
-beforeEach(async () => {
+beforeAll(async () => {
   ctx = await migratedPglite();
+}, 60_000);
+beforeEach(async () => {
+  await ctx.truncateAll();
   // An index of the old chain, plus user rows that must survive.
   await ctx.db.insert(blocks).values({ hash: G_OLD, height: 0, blueScore: 0, timestamp: 1 });
   await ctx.db.insert(dagEdges).values({ childHash: G_OLD, parentHash: "0x00", kind: "selected_parent" });
@@ -46,7 +49,7 @@ beforeEach(async () => {
   await ctx.db.insert(watchlist).values({ subject: "sub-1", userAddress: "0xaa", target: "ciphertext" });
   await ctx.db.insert(contractVerifications).values({ guid: "g-1", address: "0xbb" });
 });
-afterEach(async () => {
+afterAll(async () => {
   await ctx.close();
 });
 
@@ -86,7 +89,7 @@ describe("resetChainIndex", () => {
     await resetChainIndex(ctx.db, G_NEW);
 
     const after = await chainIndexCounts(ctx.db);
-    for (const t of CHAIN_TABLE_NAMES) expect(after[t], t).toBe(0);
+    for (const t of CHAIN_TABLE_NAMES) expect(after[t], t).toBe(t === "indexer_state" ? 1 : 0);
     const [state] = await ctx.db.select().from(indexerState);
     expect(state).toMatchObject({ id: 1, lastHeight: 0, lastBlueScore: 0, genesisHash: G_NEW });
     expect(await ctx.db.select().from(watchlist)).toHaveLength(1);
