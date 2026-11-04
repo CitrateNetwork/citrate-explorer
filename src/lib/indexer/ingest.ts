@@ -31,8 +31,12 @@ import {
 } from "@/lib/db/schema";
 import { decodeTransferLog, type RawLog } from "./transferDecode";
 import { getToken } from "@/lib/harness/ops";
+import { makeDagStatsCache } from "./dagStatsCache";
 
 const big = (h?: string): string => (h ? BigInt(h).toString() : "0");
+
+/** Per-block finality labels read DAG stats at most once per window (see dagStatsCache). */
+const ingestDagStats = makeDagStatsCache(() => dagStats(), 5_000);
 
 export interface IngestResult {
   persisted: boolean;
@@ -57,7 +61,7 @@ export async function ingestBlock(
 
   let finalized = false;
   try {
-    finalized = isFinal(block.blueScore, await dagStats());
+    finalized = isFinal(block.blueScore, await ingestDagStats());
   } catch {
     // DAG stats unavailable → leave finalized=false (don't fabricate).
   }
