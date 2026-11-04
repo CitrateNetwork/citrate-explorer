@@ -14,17 +14,37 @@ const FALLBACK = process.env.CITRATE_RPC_FALLBACK;
 
 const TRANSPORT_OPTS = { retryCount: 2, retryDelay: 700, timeout: HARNESS_TIMEOUT_MS };
 
+export interface HarnessClientOptions {
+  primary?: string;
+  fallback?: string;
+  /**
+   * JSON-RPC batching: calls issued in the same tick go out as one batch POST
+   * of at most this many calls. The Citrate node accepts batches of up to 100
+   * (core/api/src/rpc_limits.rs MAX_BATCH_SIZE). Unset or 1 = no batching.
+   */
+  batchSize?: number;
+}
+
+/** Builds a read-only client. `harnessClient()` is this with the env config. */
+export function buildHarnessClient(o: HarnessClientOptions = {}): PublicClient {
+  const primary = o.primary ?? PRIMARY;
+  const fallbackUrl = o.primary === undefined ? FALLBACK : o.fallback;
+  const batch = o.batchSize && o.batchSize > 1 ? { batchSize: Math.min(100, o.batchSize), wait: 0 } : false;
+  const opts = { ...TRANSPORT_OPTS, batch };
+  const transport = fallbackUrl
+    ? fallback([http(primary, opts), http(fallbackUrl, opts)], {
+        retryCount: 1,
+        rank: false,
+      })
+    : http(primary, opts);
+  return createPublicClient({ chain: citrate, transport });
+}
+
 /**
  * The harness's read-only client. No account, no signer — structurally incapable
  * of writing. With a configured fallback it tries the fronted domain first, then
  * the raw node. RPC host is fixed server-side config (no SSRF). SERVER-ONLY.
  */
 export function harnessClient(): PublicClient {
-  const transport = FALLBACK
-    ? fallback([http(PRIMARY, TRANSPORT_OPTS), http(FALLBACK, TRANSPORT_OPTS)], {
-        retryCount: 1,
-        rank: false,
-      })
-    : http(PRIMARY, TRANSPORT_OPTS);
-  return createPublicClient({ chain: citrate, transport });
+  return buildHarnessClient();
 }

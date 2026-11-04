@@ -1,4 +1,5 @@
-import { getDagBlock, dagStats } from "@/lib/citrate/rpc";
+import { getDagBlock } from "@/lib/citrate/rpc";
+import { sharedDagStats } from "@/lib/citrate/sharedDagStats";
 import { harnessClient } from "@/lib/harness/client";
 import { clientIp } from "@/lib/api/keys";
 import { checkRateLimit } from "@/lib/api/ratelimit";
@@ -18,7 +19,8 @@ import { publicMessage } from "@/lib/api/errors";
  * Each vertex carries the GHOSTDAG fields the renderer needs: blue_score, the
  * selected parent, and merge parents (now that the node exposes them).
  *
- * Data source (Rule 11): live `eth_getBlockByNumber` + `citrate_getDagStats`.
+ * Data source (Rule 11): live `eth_getBlockByNumber` + `citrate_getDagStats` (the
+ * instance-wide shared snapshot, src/lib/citrate/sharedDagStats.ts).
  */
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -63,7 +65,7 @@ function toVertex(b: NonNullable<Awaited<ReturnType<typeof getDagBlock>>>): Vert
 
 async function safeStats() {
   try {
-    const s = await dagStats();
+    const s = await sharedDagStats(); // one snapshot per instance, shared by every stream
     return {
       maxBlueScore: s.maxBlueScore,
       tipsCount: s.tipsCount,

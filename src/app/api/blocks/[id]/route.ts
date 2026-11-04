@@ -1,5 +1,6 @@
 import type { Hex } from "viem";
-import { getDagBlock, dagStats, isFinal } from "@/lib/citrate/rpc";
+import { getDagBlock, isFinal } from "@/lib/citrate/rpc";
+import { sharedDagStats } from "@/lib/citrate/sharedDagStats";
 import { publicMessage } from "@/lib/api/errors";
 import { limitPublicRead } from "@/lib/api/publicRead";
 
@@ -31,7 +32,7 @@ export async function GET(
     let depth = 0;
     if (block.blueScore > 0) {
       try {
-        const stats = await dagStats();
+        const stats = await sharedDagStats();
         finalized = isFinal(block.blueScore, stats);
         depth = stats.maxBlueScore - block.blueScore;
       } catch {

@@ -23,8 +23,8 @@
  * Data source (Rule 11): live Citrate RPC; written to Neon tables.
  */
 import { and, eq, ne, lte, inArray, sql } from "drizzle-orm";
-import type { Address, Hash } from "viem";
-import { harnessClient } from "@/lib/harness/client";
+import type { Address, Hash, PublicClient } from "viem";
+import { buildHarnessClient, harnessClient } from "@/lib/harness/client";
 import { getDagBlock, dagStats, isFinal, type DagBlock } from "@/lib/citrate/rpc";
 import type { DagStats } from "@/lib/citrate/dag";
 import { getDb } from "@/lib/db/client";
@@ -75,19 +75,45 @@ export interface TokenMeta {
 
 /** Every chain read ingest makes. */
 export interface ChainSource {
+  /** How many receipt reads ingest issues at once (1 = one after another). */
+  receiptBatchSize?: number;
   block(ref: number | "latest"): Promise<DagBlock | null>;
   finalityStats(): Promise<DagStats>;
   receipt(hash: Hash): Promise<IngestReceipt>;
   tokenMeta(address: Address): Promise<TokenMeta>;
 }
 
-/** The live Citrate RPC (data source, Rule 7: `eth_getBlockByNumber`, `eth_getTransactionReceipt`, `citrate_getDagStats`, ERC-20/721 views). */
-export function liveChainSource(): ChainSource {
-  const client = harnessClient();
+/**
+ * JSON-RPC batch size for the indexer's reads (INDEXER_RPC_BATCH, default 50).
+ * Clamped to [1, 100]: the node refuses batches over 100 calls
+ * (core/api/src/rpc_limits.rs MAX_BATCH_SIZE) and charges each call against
+ * the client's rate bucket. 1 disables batching.
+ */
+export function rpcBatchSize(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.INDEXER_RPC_BATCH;
+  if (raw === undefined || raw === "") return 50;
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n)) return 50;
+  return Math.max(1, Math.min(100, n));
+}
+
+/**
+ * The live Citrate RPC (data source, Rule 7: `eth_getBlockByNumber`,
+ * `eth_getTransactionReceipt`, `citrate_getDagStats`, ERC-20/721 views). Receipt
+ * reads for one block are issued `batchSize` at a time on a batching client, so
+ * they reach the node as JSON-RPC batch POSTs instead of one POST per tx.
+ */
+export function liveChainSource(
+  explicitClient?: PublicClient,
+  batchSize: number = rpcBatchSize(),
+): ChainSource {
+  const client = explicitClient ?? buildHarnessClient({ batchSize: rpcBatchSize() });
   return {
+    receiptBatchSize: batchSize,
     block: (ref) => getDagBlock(ref, client),
-    // Shared 5 s window (#41): the live source is built per block, so the cache is module-level.
-    finalityStats: () => ingestDagStats(),
+    // The default source is built per block, so it reads finality stats through the
+    // module-level 5 s window (#41). A source on an explicit client reads that client.
+    finalityStats: explicitClient ? () => dagStats(explicitClient) : () => ingestDagStats(),
     async receipt(hash) {
       const r = await client.getTransactionReceipt({ hash });
       return {
@@ -140,18 +166,23 @@ export async function ingestBlock(ref: number | "latest", opts: IngestOptions = 
   // Reads first: a receipt error fails the whole height (explorer#40 item 1).
   const txs = block.raw.transactions ?? [];
   const fetched: FetchedTx[] = [];
-  for (const t of txs) {
-    const r = await source.receipt(t.hash as Hash);
-    fetched.push({
-      hash: t.hash,
-      receipt: r,
-      logs: r.logs.map((l) => ({
-        txHash: t.hash,
-        address: l.address.toLowerCase(),
-        topics: l.topics,
-        data: l.data,
-        logIndex: Number(l.logIndex ?? 0),
-      })),
+  const chunk = Math.max(1, source.receiptBatchSize ?? 1);
+  for (let i = 0; i < txs.length; i += chunk) {
+    const part = txs.slice(i, i + chunk);
+    const rs = await Promise.all(part.map((t) => source.receipt(t.hash as Hash)));
+    part.forEach((t, j) => {
+      const r = rs[j];
+      fetched.push({
+        hash: t.hash,
+        receipt: r,
+        logs: r.logs.map((l) => ({
+          txHash: t.hash,
+          address: l.address.toLowerCase(),
+          topics: l.topics,
+          data: l.data,
+          logIndex: Number(l.logIndex ?? 0),
+        })),
+      });
     });
   }
   const transferRows = fetched.flatMap((f) =>

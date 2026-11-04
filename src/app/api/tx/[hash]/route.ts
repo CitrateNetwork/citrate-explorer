@@ -1,6 +1,7 @@
 import type { Hex } from "viem";
 import { getTransaction } from "@/lib/harness/ops";
-import { getDagBlock, dagStats, isFinal } from "@/lib/citrate/rpc";
+import { getDagBlock, isFinal } from "@/lib/citrate/rpc";
+import { sharedDagStats } from "@/lib/citrate/sharedDagStats";
 import { publicMessage } from "@/lib/api/errors";
 import { limitPublicRead } from "@/lib/api/publicRead";
 
@@ -33,7 +34,7 @@ export async function GET(
         if (block) {
           timestamp = block.timestamp;
           blueScore = block.blueScore;
-          const stats = await dagStats();
+          const stats = await sharedDagStats();
           finalized = isFinal(block.blueScore, stats);
         }
       } catch {
