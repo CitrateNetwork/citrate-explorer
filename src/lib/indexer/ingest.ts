@@ -41,8 +41,12 @@ import {
 import { decodeTransferLog, type RawLog } from "./transferDecode";
 import { getToken } from "@/lib/harness/ops";
 import type { ChainDb } from "./types";
+import { makeDagStatsCache } from "./dagStatsCache";
 
 const big = (h?: string): string => (h ? BigInt(h).toString() : "0");
+
+/** Per-block finality labels read DAG stats at most once per window (see dagStatsCache). */
+const ingestDagStats = makeDagStatsCache(() => dagStats(), 5_000);
 
 export interface IngestResult {
   persisted: boolean;
@@ -82,7 +86,8 @@ export function liveChainSource(): ChainSource {
   const client = harnessClient();
   return {
     block: (ref) => getDagBlock(ref, client),
-    finalityStats: () => dagStats(client),
+    // Shared 5 s window (#41): the live source is built per block, so the cache is module-level.
+    finalityStats: () => ingestDagStats(),
     async receipt(hash) {
       const r = await client.getTransactionReceipt({ hash });
       return {

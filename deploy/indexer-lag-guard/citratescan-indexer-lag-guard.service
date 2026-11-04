@@ -1,0 +1,24 @@
+# CitrateScan indexer lag guard: one check per run (see README.md in this directory).
+# Stops citratescan-indexer.service after 5 consecutive minutes with the local
+# node's head more than 60 s old. Never starts, restarts or stops the node.
+[Unit]
+Description=CitrateScan indexer lag guard (stops the indexer while the local node lags)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Override these in a drop-in (systemctl edit citratescan-indexer-lag-guard.service).
+Environment=LAG_GUARD_RPC_URL=http://127.0.0.1:8545
+Environment=LAG_GUARD_MAX_AGE_SEC=60
+Environment=LAG_GUARD_CONSECUTIVE=5
+Environment=LAG_GUARD_UNIT=citratescan-indexer.service
+Environment=LAG_GUARD_STATE_FILE=/var/lib/citratescan-lag-guard/state.json
+StateDirectory=citratescan-lag-guard
+# Node >= 18. If node is not on systemd's PATH (e.g. nvm), put its absolute path here.
+ExecStart=/usr/bin/env node /opt/citratescan/lag-guard/lag-guard.mjs
+# Runs as root so it can `systemctl stop` the indexer unit; it touches nothing else.
+NoNewPrivileges=true
+ProtectHome=read-only
+PrivateTmp=true
+TimeoutStartSec=30

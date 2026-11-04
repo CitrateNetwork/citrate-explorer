@@ -133,7 +133,12 @@ fly deploy
 Resume is gap-free: the `indexer_state` cursor is the highest height below which every height
 landed, each block is written in one transaction, and a failed height is retried with backoff
 instead of skipped (look for `block N failed (attempt k, retry in … ms)` in the log). Restarts are
-safe. Smoke a
+safe.
+
+**Lag guard (systemd hosts).** Run the indexer behind `deploy/indexer-lag-guard/`: a one-minute
+timer that stops `citratescan-indexer.service` after 5 consecutive checks with the local node's
+head more than 60 s old. It never touches the node, and it never restarts the indexer. Install and
+operate steps are in [`deploy/indexer-lag-guard/README.md`](deploy/indexer-lag-guard/README.md). Smoke a
 single pass first: `INDEXER_ONCE=1 pnpm indexer` (ingests the latest block + exits).
 
 ### 4a. Genesis guard and reset
