@@ -48,6 +48,8 @@ committed. Full list + how-to-generate in `.env.example`.
 | `CITRATE_INFERENCE_MODE` | server | `gateway` (or `local`) |
 | `CITRATE_GATEWAY_URL` / `_API_KEY` | server | `https://infer.citrate.ai/v1` + key |
 | `CITRATE_INDEXER_MAX_LAG` | server | health "lagging" threshold (default 50 blocks) |
+| `INDEXER_PARALLEL` | indexer | heights ingested concurrently while catching up (default 1, max 32) |
+| `INDEXER_RETRY_BASE_MS` / `INDEXER_RETRY_MAX_MS` | indexer | backoff for a failed height (default 1000 doubling to 60000). A failed height is retried until it lands; the resume cursor stays below it |
 | `INDEXER_GENESIS_CHECK_MS` | indexer | how often the running indexer re-checks the RPC's block 0 (default 60000, min 5000). See §4a |
 
 > The CSP allowlist in `next.config.ts` derives `connect-src`/`frame-src` from the
@@ -128,7 +130,10 @@ fly secrets set DATABASE_URL=… NEXT_PUBLIC_CITRATE_RPC_URL=https://rpc.citrate
 fly deploy
 ```
 
-Resume is gap-free (the `indexer_state` cursor), so restarts are safe.
+Resume is gap-free: the `indexer_state` cursor is the highest height below which every height
+landed, each block is written in one transaction, and a failed height is retried with backoff
+instead of skipped (look for `block N failed (attempt k, retry in … ms)` in the log). Restarts are
+safe.
 
 **Lag guard (systemd hosts).** Run the indexer behind `deploy/indexer-lag-guard/`: a one-minute
 timer that stops `citratescan-indexer.service` after 5 consecutive checks with the local node's
