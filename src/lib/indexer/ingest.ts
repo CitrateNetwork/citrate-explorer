@@ -41,8 +41,12 @@ import {
 import { decodeTransferLog, type RawLog } from "./transferDecode";
 import { getToken } from "@/lib/harness/ops";
 import type { ChainDb } from "./types";
+import { makeDagStatsCache } from "./dagStatsCache";
 
 const big = (h?: string): string => (h ? BigInt(h).toString() : "0");
+
+/** Per-block finality labels read DAG stats at most once per window (see dagStatsCache). */
+const ingestDagStats = makeDagStatsCache(() => dagStats(), 5_000);
 
 export interface IngestResult {
   persisted: boolean;
@@ -100,13 +104,16 @@ export function rpcBatchSize(env: Record<string, string | undefined> = process.e
  * they reach the node as JSON-RPC batch POSTs instead of one POST per tx.
  */
 export function liveChainSource(
-  client: PublicClient = buildHarnessClient({ batchSize: rpcBatchSize() }),
+  explicitClient?: PublicClient,
   batchSize: number = rpcBatchSize(),
 ): ChainSource {
+  const client = explicitClient ?? buildHarnessClient({ batchSize: rpcBatchSize() });
   return {
     receiptBatchSize: batchSize,
     block: (ref) => getDagBlock(ref, client),
-    finalityStats: () => dagStats(client),
+    // The default source is built per block, so it reads finality stats through the
+    // module-level 5 s window (#41). A source on an explicit client reads that client.
+    finalityStats: explicitClient ? () => dagStats(explicitClient) : () => ingestDagStats(),
     async receipt(hash) {
       const r = await client.getTransactionReceipt({ hash });
       return {
