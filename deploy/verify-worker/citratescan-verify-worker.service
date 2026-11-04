@@ -1,0 +1,31 @@
+# CitrateScan verify worker (EXP-S2): compiles verification jobs in capped child
+# processes. Runs on the indexer host, never on Vercel. See docs/VERIFY.md.
+[Unit]
+Description=CitrateScan verify worker (source verification queue)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/citratescan/app
+# DATABASE_URL, DATABASE_CA_CERT, NEXT_PUBLIC_CITRATE_RPC_URL, CITRATE_VERIFY_* (see DEPLOY.md §4b).
+EnvironmentFile=/etc/citratescan/verify-worker.env
+Environment=NODE_ENV=production
+Environment=CITRATE_SOLC_CACHE_DIR=/var/cache/citratescan-solc
+CacheDirectory=citratescan-solc
+# If node/pnpm are not on systemd's PATH (e.g. nvm), use absolute paths.
+ExecStart=/usr/bin/env pnpm verify:worker
+Restart=always
+RestartSec=5
+# Outer cap for the worker and its compile children together. Each child is also
+# capped by CITRATE_VERIFY_COMPILE_MEMORY_MB and _TIMEOUT_MS; keep MemoryMax above that.
+MemoryMax=3G
+TasksMax=64
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/cache/citratescan-solc
+
+[Install]
+WantedBy=multi-user.target

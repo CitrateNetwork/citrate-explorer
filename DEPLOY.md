@@ -18,6 +18,7 @@ your DNS provider). Each step says exactly what to run.
 | Web app | **Vercel** (Fluid Compute) | UI, `/api/*` reads, AI chat, MCP, verify orchestration |
 | Index DB | **Neon** Postgres | blocks/txns/logs/dag_edges + user tables |
 | Indexer worker | **Railway / Fly / VM** (NOT Vercel) | tails `wss://rpc.citrate.ai` → Neon (`Dockerfile.indexer`) |
+| Verify worker | **indexer host** (NOT Vercel) | `pnpm verify:worker`: compiles verification jobs in capped child processes (§4b) |
 | Rate-limit store | **Upstash Redis** (optional) | cross-instance limiter; falls back to in-memory |
 | Chain | `rpc.citrate.ai` | live reads + the DAG stream source |
 
@@ -53,6 +54,12 @@ committed. Full list + how-to-generate in `.env.example`.
 | `INDEXER_RPC_BATCH` | indexer | receipts per JSON-RPC batch POST (default 50, clamped to the node's 100-call limit; 1 = no batching) |
 | `CITRATE_DAGSTATS_TTL_MS` | server | how long one instance-wide `citrate_getDagStats` snapshot is shared by SSE streams, `/api/dag`, block/tx routes and harness tools (default 3000) |
 | `INDEXER_GENESIS_CHECK_MS` | indexer | how often the running indexer re-checks the RPC's block 0 (default 60000, min 5000). See §4a |
+| `CITRATE_VERIFY_MAX_SOURCE` | server + verify worker | verification source cap in bytes (default 2 MiB) |
+| `CITRATE_VERIFY_MAX_PENDING` | server | open verification jobs before submissions are refused (default 200) |
+| `CITRATE_VERIFY_SYNC_WAIT_MS` | server | how long `POST /api/verify` waits for the worker before answering 202 (default 20000) |
+| `CITRATE_VERIFY_COMPILE_TIMEOUT_MS` / `_MEMORY_MB` / `_MAX_OUTPUT_MB` | verify worker | per-compile caps (defaults 120000 ms, 2048 MB resident, 64 MB output). See §4b |
+| `CITRATE_SOLC_CACHE_DIR` | verify worker | cache for keccak256-verified soljson builds (default: OS temp dir) |
+| `CITRATE_VERIFY_SIMILAR_SCAN` | verify worker | newest indexed creations checked for a similar match after each new record (default 200) |
 
 > The CSP allowlist in `next.config.ts` derives `connect-src`/`frame-src` from the
 > `NEXT_PUBLIC_*` RPC/OIDC/Privy vars at build time — set them before the prod
@@ -179,12 +186,47 @@ sudo systemctl start citratescan-indexer.service     # backfills from height 0
   `receipts`, `logs`, `token_transfers`, `tokens`, `accounts`, `contracts`, `indexer_state`. It then
   seeds `indexer_state` with cursor 0 and the new genesis.
 - **What it keeps:** user tables (settings, API keys, provider keys, watchlist, threads, messages,
-  audit log) and `contract_verifications`.
+  audit log), `contract_verifications`, and the verification v2 tables (`verified_contracts`,
+  `verification_jobs`, `contract_proxies`, `verification_state`). Verified records are keyed by the
+  genesis hash, so records for the old chain stay but no longer apply.
 - **Checks:** it refuses (exit 4, nothing deleted) when the RPC's block 0 is not `--genesis`, or when
   the RPC cannot be read. For a reset made before the RPC flips, pass `--skip-rpc-check`.
 - **Exit codes:** 0 done or dry run; 2 bad arguments or `DATABASE_URL` unset; 4 refused.
 - **Before you run it,** take a database backup (DO Managed Postgres: a manual backup or a fork).
   The reset cannot be undone.
+
+### 4b. Verify worker (contract verification, EXP-S2)
+
+The web routes (`/api` Etherscan-compatible, `/v2/...` Sourcify-compatible, `/api/verify`) only
+validate and enqueue into `verification_jobs`. The verify worker claims jobs, compiles each in a
+fresh child process (wall-clock timeout, resident-memory cap, output cap, solc build re-checked
+against `list.json`'s keccak256), matches the result against the chain, and appends to
+`verified_contracts`. Usage for developers is in [`docs/VERIFY.md`](docs/VERIFY.md).
+
+- **Order.** Run `pnpm db:migrate` (migration `0006_verification_v2`) **before** promoting the web
+  build. The migration creates the new tables, makes `verified_contracts` and `contract_proxies`
+  append-only (a trigger rejects UPDATE and DELETE), and copies `contract_verifications` forward:
+  every old guid becomes a finished job, every passing row a legacy record. The old table is left
+  in place.
+- **Run it** on the indexer host, next to the indexer, with the same `DATABASE_URL`,
+  `DATABASE_CA_CERT` and `NEXT_PUBLIC_CITRATE_RPC_URL`:
+
+  ```bash
+  pnpm verify:worker --once          # smoke: process at most one job, then exit
+  sudo install -m 0644 deploy/verify-worker/citratescan-verify-worker.service /etc/systemd/system/
+  sudo install -d -m 0750 /etc/citratescan   # put the env in /etc/citratescan/verify-worker.env (0600)
+  sudo systemctl daemon-reload && sudo systemctl enable --now citratescan-verify-worker.service
+  ```
+
+  The unit sets `MemoryMax=3G` for the worker plus its children. Keep it above
+  `CITRATE_VERIFY_COMPILE_MEMORY_MB`. One worker is enough; more can share the queue
+  (`FOR UPDATE SKIP LOCKED`). A job whose worker died is reclaimed after 10 minutes, and a job is
+  failed after 3 attempts.
+- **Legacy records.** Rows copied from `contract_verifications` have no genesis or code hash, so they
+  are shown only for addresses with no v2 record. `pnpm verify:worker --requeue-legacy` queues every
+  legacy record with standard JSON source for re-verification against the current chain.
+- **Without the worker** submissions stay "Pending in queue". `POST /api/verify` answers 202 with
+  the guid after `CITRATE_VERIFY_SYNC_WAIT_MS`.
 
 ---
 
@@ -219,6 +261,7 @@ drain. Wire Sentry at the app boundary when a DSN is available (deferred from P-
 - [ ] All env from the matrix set in Vercel (prod) **and** the indexer host; secrets generated fresh, not reused from dev.
 - [ ] `NEXT_PUBLIC_DEMO=0` in production.
 - [ ] `pnpm db:migrate` applied; `/api/health` shows `indexer` provisioned + lag within threshold.
+- [ ] Verify worker running on the indexer host (§4b); `forge verify-contract --verifier custom --verifier-url https://explorer.citrate.ai/api` on a test contract ends in `Pass - Verified`.
 - [ ] `explorer.citrate.ai` resolves with valid TLS; `vercel --prod` green.
 - [ ] Security headers verified: `curl -sI https://explorer.citrate.ai | grep -i 'content-security-policy\|strict-transport'`.
 - [ ] `robots.txt` + `sitemap.xml` + `/opengraph-image` serve; canonical URL correct.
