@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "indexer": "tsx scripts/indexer/run.ts",
     "indexer:once": "INDEXER_ONCE=1 tsx scripts/indexer/run.ts",
+    "indexer:reset": "tsx scripts/indexer/reset.ts",
     "beacon": "tsx scripts/beacon/run.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file=.env.local scripts/db-migrate.mjs",
@@ -44,6 +45,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.15",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pg": "^8.15.5",

@@ -223,6 +223,13 @@ export const indexerState = pgTable("indexer_state", {
   id: integer("id").primaryKey().default(1),
   lastHeight: bigint("last_height", { mode: "number" }).notNull().default(0),
   lastBlueScore: bigint("last_blue_score", { mode: "number" }).notNull().default(0),
+  /**
+   * Block 0 hash of the chain this index holds (EXP-S0 genesis guard). Written
+   * once by the indexer (or by `pnpm indexer:reset`); the indexer refuses to run
+   * against an RPC whose block 0 differs. Null only on an index created before
+   * the guard, until the first guarded run proves the index matches the RPC.
+   */
+  genesisHash: text("genesis_hash"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
