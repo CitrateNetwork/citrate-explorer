@@ -1,0 +1,12 @@
+# Runs the indexer lag guard once a minute (see README.md in this directory).
+[Unit]
+Description=Run the CitrateScan indexer lag guard every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Unit=citratescan-indexer-lag-guard.service
+
+[Install]
+WantedBy=timers.target
