@@ -1,29 +1,37 @@
 #!/usr/bin/env node
 /**
- * Sync the explorer's 40204 chain data from one citrate-chain checkout. Two generated files:
+ * Sync the explorer's 40204 chain data from one citrate-chain checkout, for each network the
+ * explorer can be built for. r1005 and r1006 share chain id 40204; NEXT_PUBLIC_CITRATE_NETWORK
+ * picks one at build time (src/lib/citrate/network.ts). Two generated files per network:
  *
- *   src/generated/addresses.json       verbatim copy of contracts/addresses/40204.json (the book)
- *   src/generated/chainConstants.json  precompile catalog + genesis SALT allocations, built from
- *                                      the book's `precompiles`, core/execution/src/precompiles/mod.rs
- *                                      (PURE_PRECOMPILE_ADDRESSES, AGENT_FORK_PRECOMPILE_ADDRESSES)
- *                                      and core/economics/src/genesis.rs (testnet_beta)
+ *   r1005 (live until the r1006 cutover)          r1006
+ *   src/generated/addresses.json                  src/generated/r1006/addresses.json
+ *   src/generated/chainConstants.json             src/generated/r1006/chainConstants.json
+ *
+ *   addresses.json       verbatim copy of the network's book (contracts/addresses/40204.json for
+ *                        r1005, contracts/addresses/r1006/40204.json for r1006)
+ *   chainConstants.json  network name + block-0 hash (core/consensus/src/hardening.rs), the
+ *                        precompile catalog (the book's `precompiles` + core/execution/src/precompiles/mod.rs)
+ *                        and the genesis SALT allocations (r1005: core/economics/src/genesis.rs
+ *                        testnet_beta; r1006: core/economics/assets/r1006/alloc.json)
  *
  * Usage:
- *   pnpm sync-addresses [--chain <citrate-chain dir>] [--only book|constants] [--check]
+ *   pnpm sync-addresses [--chain <citrate-chain dir>] [--book r1005|r1006|all] [--only book|constants] [--check]
  *
  *   --chain   the citrate-chain checkout (default: ../citrate-chain, or CITRATE_CHAIN_DIR)
+ *   --book    which network's files to sync (default: all, or CITRATE_ADDRESS_BOOK)
  *   --only    sync just one output (default: both)
  *   --check   write nothing; exit 1 if a committed file differs from what the inputs generate
  *
- * Fails closed: a malformed book, an unparsable chain source, a chain precompile with no catalog
- * description, or a genesis account with no label (scripts/lib/chainLabels.mjs) is an error, and
- * nothing is written.
+ * Fails closed: a malformed book, an unparsable chain source, a missing genesis pin, a placeholder
+ * r1006 allocation, a chain precompile with no catalog description, or a genesis account with no
+ * label (scripts/lib/chainLabels.mjs) is an error, and nothing is written.
  */
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildChainConstants, serializeChainConstants } from "./lib/chainSync.mjs";
-import { PRECOMPILE_DESCRIPTIONS, GENESIS_LABELS } from "./lib/chainLabels.mjs";
+import { buildChainConstants, serializeChainConstants, NETWORKS } from "./lib/chainSync.mjs";
+import { PRECOMPILE_DESCRIPTIONS, GENESIS_LABELS, R1006_ROLE_LABELS } from "./lib/chainLabels.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
@@ -37,16 +45,25 @@ if (ONLY !== undefined && ONLY !== "book" && ONLY !== "constants") {
   console.error("[sync-addresses] --only takes `book` or `constants`");
   process.exit(2);
 }
+const BOOK_ARG = argValue("--book") ?? process.env.CITRATE_ADDRESS_BOOK ?? "all";
+if (BOOK_ARG !== "all" && !(BOOK_ARG in NETWORKS)) {
+  console.error(`[sync-addresses] --book takes ${Object.keys(NETWORKS).join(", ")} or all`);
+  process.exit(2);
+}
+const SELECTED = BOOK_ARG === "all" ? Object.keys(NETWORKS) : [BOOK_ARG];
 const CHAIN = resolve(argValue("--chain") ?? process.env.CITRATE_CHAIN_DIR ?? resolve(REPO_ROOT, "..", "citrate-chain"));
 
-const INPUTS = {
-  book: resolve(CHAIN, "contracts", "addresses", "40204.json"),
-  precompiles: resolve(CHAIN, "core", "execution", "src", "precompiles", "mod.rs"),
-  genesis: resolve(CHAIN, "core", "economics", "src", "genesis.rs"),
+/** Where each network's generated files live. r1005 keeps the original paths. */
+const OUT_DIR = {
+  r1005: resolve(REPO_ROOT, "src", "generated"),
+  r1006: resolve(REPO_ROOT, "src", "generated", "r1006"),
 };
-const OUTPUTS = {
-  book: resolve(REPO_ROOT, "src", "generated", "addresses.json"),
-  constants: resolve(REPO_ROOT, "src", "generated", "chainConstants.json"),
+
+const SHARED_INPUTS = {
+  precompiles: resolve(CHAIN, "core", "execution", "src", "precompiles", "mod.rs"),
+  hardening: resolve(CHAIN, "core", "consensus", "src", "hardening.rs"),
+  genesis: resolve(CHAIN, "core", "economics", "src", "genesis.rs"),
+  r1006Alloc: resolve(CHAIN, "core", "economics", "assets", "r1006", "alloc.json"),
 };
 
 const fail = (msg) => {
@@ -58,61 +75,82 @@ const read = (p) => {
   return readFileSync(p, "utf8");
 };
 
-const canonical = JSON.parse(read(INPUTS.book));
-
-// Minimum-shape gate: a malformed book must NOT pollute the vendored copy.
-for (const k of ["chainId", "contracts", "aaStack"]) {
-  if (!(k in canonical)) fail(`canonical is missing required key: ${k}`);
-}
-if (canonical.chainId !== 40204) fail(`canonical chainId is ${canonical.chainId}, expected 40204`);
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
-for (const [name, addr] of [
-  ...Object.entries(canonical.contracts ?? {}),
-  ...Object.entries(canonical.aaStack ?? {}),
-  ...Object.entries(canonical.genesis ?? {}),
-  ...Object.entries(canonical.precompiles ?? {}),
-]) {
-  if (typeof addr !== "string" || !ADDRESS_RE.test(addr)) fail(`address for ${name} is not a 20-byte hex: ${addr}`);
+
+/** Generate { book?, constants? } text for one network. */
+function generate(network) {
+  const canonical = JSON.parse(read(resolve(CHAIN, NETWORKS[network].book)));
+
+  // Minimum-shape gate: a malformed book must NOT pollute the vendored copy.
+  for (const k of ["chainId", "contracts", "aaStack"]) {
+    if (!(k in canonical)) fail(`${network} book is missing required key: ${k}`);
+  }
+  if (canonical.chainId !== 40204) fail(`${network} book chainId is ${canonical.chainId}, expected 40204`);
+  for (const [name, addr] of [
+    ...Object.entries(canonical.contracts ?? {}),
+    ...Object.entries(canonical.aaStack ?? {}),
+    ...Object.entries(canonical.genesis ?? {}),
+    ...Object.entries(canonical.precompiles ?? {}),
+  ]) {
+    if (typeof addr !== "string" || !ADDRESS_RE.test(addr)) fail(`${network}: address for ${name} is not a 20-byte hex: ${addr}`);
+  }
+
+  const out = {};
+  if (ONLY !== "constants") out.book = JSON.stringify(canonical, null, 2) + "\n";
+  if (ONLY !== "book") {
+    const fromAlloc = NETWORKS[network].allocations === "allocJson";
+    try {
+      out.constants = serializeChainConstants(
+        buildChainConstants({
+          network,
+          book: canonical,
+          precompileRs: read(SHARED_INPUTS.precompiles),
+          hardeningRs: read(SHARED_INPUTS.hardening),
+          genesisRs: fromAlloc ? undefined : read(SHARED_INPUTS.genesis),
+          genesisLabels: GENESIS_LABELS,
+          allocJson: fromAlloc ? JSON.parse(read(SHARED_INPUTS.r1006Alloc)) : undefined,
+          roleLabels: R1006_ROLE_LABELS,
+          descriptions: PRECOMPILE_DESCRIPTIONS,
+        }),
+      );
+    } catch (err) {
+      fail(`${network}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return out;
 }
 
-const outputs = {};
-if (ONLY !== "constants") outputs.book = JSON.stringify(canonical, null, 2) + "\n";
-if (ONLY !== "book") {
-  try {
-    outputs.constants = serializeChainConstants(
-      buildChainConstants({
-        book: canonical,
-        precompileRs: read(INPUTS.precompiles),
-        genesisRs: read(INPUTS.genesis),
-        descriptions: PRECOMPILE_DESCRIPTIONS,
-        genesisLabels: GENESIS_LABELS,
-      }),
-    );
-  } catch (err) {
-    fail(err instanceof Error ? err.message : String(err));
+// Generate everything first so a failure in any network writes nothing.
+const plan = [];
+for (const network of SELECTED) {
+  const out = generate(network);
+  for (const [k, text] of Object.entries(out)) {
+    const file = resolve(OUT_DIR[network], k === "book" ? "addresses.json" : "chainConstants.json");
+    plan.push({ network, k, file, text });
   }
 }
 
 if (CHECK_MODE) {
   let drift = false;
-  for (const [k, text] of Object.entries(outputs)) {
-    const committed = existsSync(OUTPUTS[k]) ? readFileSync(OUTPUTS[k], "utf8") : null;
+  for (const { network, k, file, text } of plan) {
+    const committed = existsSync(file) ? readFileSync(file, "utf8") : null;
     if (committed !== text) {
       drift = true;
-      console.error(`[sync-addresses] ${OUTPUTS[k]} is OUT OF SYNC with ${CHAIN}.`);
+      console.error(`[sync-addresses] ${network} ${k}: ${file} is OUT OF SYNC with ${CHAIN}.`);
     } else {
-      console.log(`[sync-addresses] ${k}: matches ${CHAIN}`);
+      console.log(`[sync-addresses] ${network} ${k}: matches ${CHAIN}`);
     }
   }
   if (drift) fail("run `pnpm sync-addresses --chain <citrate-chain>` and commit the diff.");
   process.exit(0);
 }
 
-for (const [k, text] of Object.entries(outputs)) {
-  writeFileSync(OUTPUTS[k], text);
-  console.log(`[sync-addresses] wrote ${OUTPUTS[k]}`);
-}
-if (outputs.constants) {
-  const c = JSON.parse(outputs.constants);
-  console.log(`  precompiles: ${c.precompiles.length}, genesis allocations: ${c.genesisAllocations.length}`);
+for (const { network, k, file, text } of plan) {
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, text);
+  console.log(`[sync-addresses] ${network}: wrote ${file}`);
+  if (k === "constants") {
+    const c = JSON.parse(text);
+    console.log(`  genesis ${c.genesisHash}; precompiles: ${c.precompiles.length}, genesis allocations: ${c.genesisAllocations.length}`);
+  }
 }

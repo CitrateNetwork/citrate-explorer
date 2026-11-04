@@ -76,7 +76,7 @@ does not run on Vercel). Run it only when you want persisted/indexed data:
 ```bash
 pnpm db:migrate            # needs DATABASE_URL (Neon/Postgres)
 pnpm indexer               # WS newHeads → backfill → Postgres  (scripts/indexer/run.ts)
-pnpm indexer:once          # single backfill pass then exit
+pnpm indexer:once          # smoke: ingest the head once (resume cursor untouched), exit
 ```
 
 ## Connect it locally  ← the differentiator

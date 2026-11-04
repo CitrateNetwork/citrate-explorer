@@ -35,4 +35,11 @@ describe("buildSystemPrompt", () => {
     expect(p).toContain("blue_score");
     expect(p).toContain("40204");
   });
+
+  it("names the 40204 network and its genesis (r1005 and r1006 share the chain id)", async () => {
+    const { CHAIN_CONSTANTS } = await import("@/lib/citrate/network");
+    const p = buildSystemPrompt();
+    expect(p).toContain(`network ${CHAIN_CONSTANTS.network}`);
+    expect(p).toContain(CHAIN_CONSTANTS.genesisHash);
+  });
 });

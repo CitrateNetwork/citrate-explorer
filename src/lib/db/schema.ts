@@ -218,12 +218,27 @@ export const contractVerifications = pgTable(
   (t) => [index("contract_verifications_address_idx").on(t.address)],
 );
 
-/** Singleton indexer cursor — lets the worker resume with zero gaps/duplicates. */
+/**
+ * Singleton indexer cursor — lets the worker resume with zero gaps/duplicates.
+ *
+ * Genesis guard (r1006 cutover, migration 0005): `genesis_hash` is block 0's hash of the chain
+ * this index was built from, recorded once on first index and never overwritten. r1005 and
+ * r1006 share chain id 40204, so the indexer compares the RPC's block 0 with it and refuses to
+ * write on a mismatch (src/lib/indexer/genesisGuard.ts). `genesis_status` / `_code` /
+ * `_observed` / `_detail` / `_checked_at` hold the last check for /api/health.
+ */
 export const indexerState = pgTable("indexer_state", {
   id: integer("id").primaryKey().default(1),
   lastHeight: bigint("last_height", { mode: "number" }).notNull().default(0),
   lastBlueScore: bigint("last_blue_score", { mode: "number" }).notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  genesisHash: text("genesis_hash"),
+  genesisRecordedAt: timestamp("genesis_recorded_at", { withTimezone: true }),
+  genesisStatus: text("genesis_status"),
+  genesisCode: text("genesis_code"),
+  genesisObserved: text("genesis_observed"),
+  genesisDetail: text("genesis_detail"),
+  genesisCheckedAt: timestamp("genesis_checked_at", { withTimezone: true }),
 });
 
 // --- User tables ------------------------------------------------------------

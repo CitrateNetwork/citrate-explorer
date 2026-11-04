@@ -5,6 +5,7 @@ import "../scan/scan.css";
 import "../scan/scan-ui.css";
 import { ConsentProvider } from "@/lib/consent/client";
 import { ConsentBanner } from "@/components/consent-banner";
+import { CHAIN_CONSTANTS, networkTag } from "@/lib/citrate/network";
 
 // Brand type system, self-hosted via next/font (no external request — keeps the
 // CSP tight and kills FOUT). Space Grotesk = display/titles, Geist Mono = data,
@@ -102,7 +103,7 @@ export default async function RootLayout({
             <h1>CitrateScan — AI-native block explorer for the Citrate Network</h1>
             <p>{DESCRIPTION}</p>
             <p>
-              Citrate is a GHOSTDAG BlockDAG (chain 40204, native SALT) built for AI: on-chain
+              Citrate is a GHOSTDAG BlockDAG (chain 40204, network {networkTag(CHAIN_CONSTANTS)}, native SALT) built for AI: on-chain
               models, LoRA adapters, federated learning, autonomous agents, x402 payments, and
               DePIN compute. EVM-compatible and gasless, in the orbit of Ethereum, Solana, Akash,
               Render, and Bittensor.

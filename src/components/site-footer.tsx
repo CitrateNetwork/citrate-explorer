@@ -7,6 +7,7 @@
  */
 import Link from "next/link";
 import { useConsent } from "@/lib/consent/client";
+import { CHAIN_CONSTANTS, networkTag } from "@/lib/citrate/network";
 
 const COMMIT = (process.env.NEXT_PUBLIC_COMMIT_SHA || "dev").slice(0, 7);
 const VERSION = process.env.NEXT_PUBLIC_APP_VERSION || "0.1.0";
@@ -19,8 +20,9 @@ export function SiteFooter() {
         <div style={brandCol}>
           <div style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>CitrateScan</div>
           <div style={muted}>The AI-native explorer for the Citrate Network.</div>
-          <div style={{ ...mono, marginTop: 8 }}>
-            Citrate testnet · chain 40204 · SALT
+          {/* r1005 and r1006 share chain id 40204: name the network and its genesis. */}
+          <div style={{ ...mono, marginTop: 8 }} title={`genesis ${CHAIN_CONSTANTS.genesisHash}`}>
+            Citrate testnet · chain 40204 · {networkTag(CHAIN_CONSTANTS)} · SALT
           </div>
           <div style={{ ...mono, color: "var(--text-3)" }}>
             v{VERSION} · {COMMIT}

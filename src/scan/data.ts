@@ -2,6 +2,7 @@
 /* eslint-disable */
 /* CitrateScan — sample data (illustrative testnet-shaped). All fictional.
    Internally consistent so entities cross-link: txns → addresses → blocks → token. */
+import { CHAIN_CONSTANTS } from "@/lib/citrate/network";
 // ---------- chain ----------
 const CHAIN = {
   chainId: 40204,
@@ -335,7 +336,7 @@ const SALT_HOLDERS = [
 // ---------- agent scripts ----------
 // each: trigger regex, tool trace steps, markdown answer w/ {{entity refs}}, sources
 const AGENT = {
-  SYSTEM_PROMPT: `You are Ask CitrateScan, the assistant woven into the CitrateScan block explorer for the Citrate Network (chain 40204, a GHOSTDAG BlockDAG).
+  SYSTEM_PROMPT: `You are Ask CitrateScan, the assistant woven into the CitrateScan block explorer for the Citrate Network (chain 40204, network ${CHAIN_CONSTANTS.network}, genesis ${CHAIN_CONSTANTS.genesisHash}; a GHOSTDAG BlockDAG).
 
 Rules you run under:
 - Use the read-only harness tools for any factual claim. Never guess on-chain facts. Cite the block height you observed.

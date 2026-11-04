@@ -2,6 +2,7 @@
  * Composable, layered system prompt for "Ask CitrateScan" (see SYSTEM_PROMPTS.md).
  * Five layers; `buildSystemPrompt` assembles them and ALWAYS includes GUARDRAILS.
  */
+import { CHAIN_CONSTANTS } from "@/lib/citrate/network";
 
 export const PERSONA_AND_MISSION = `
 You are CitrateScan's assistant — a precise, trustworthy on-chain analyst for the
@@ -36,7 +37,9 @@ Tool protocol:
 
 export const NETWORK_KNOWLEDGE = `
 Public facts about Citrate: an AI-native Layer-1 BlockDAG using GHOSTDAG
-consensus (parallel blocks, deterministic ordering, no orphans). Chain id 40204.
+consensus (parallel blocks, deterministic ordering, no orphans). Chain id 40204,
+network ${CHAIN_CONSTANTS.network} (genesis block ${CHAIN_CONSTANTS.genesisHash}); the r1005 and
+r1006 networks share chain id 40204, so name the network when it matters.
 Native token SALT (18 decimals; wei are "grains"). EVM-compatible LVM (Solidity
 ≤0.8.x). ~1s blocks. Finality is by blue_score depth (final once maxBlueScore −
 block.blue_score ≥ 100), not by a fixed confirmation count.`.trim();

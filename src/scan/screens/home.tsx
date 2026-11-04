@@ -10,6 +10,7 @@ import { EntityChip, ActionChip, StatusDot, FinalityBadge } from "@/scan/compone
 import { useScan } from "@/scan/context";
 import { DagMiniStrip } from "@/scan/screens/dag";
 import { useLiveChainStatus, useLiveLatest, DEMO } from "@/scan/live";
+import { CHAIN_CONSTANTS, shortGenesis } from "@/lib/citrate/network";
 
 // scan-home.jsx — landing: big omni-search hero, live DAG mini, chain stats, latest blocks/txns
 export function Home({ tweaks }) {
@@ -53,6 +54,7 @@ export function Home({ tweaks }) {
               <div className="stat-rows">
                 <div className="stat-row"><span className="k">Network</span><span className="v" style={{ fontSize: 15 }}>{status.network}</span></div>
                 <div className="stat-row"><span className="k">Chain ID</span><span className="v">{status.chainId}</span></div>
+                <div className="stat-row"><span className="k">Genesis</span><span className="v mono" title={CHAIN_CONSTANTS.genesisHash}>{CHAIN_CONSTANTS.network} · {shortGenesis(CHAIN_CONSTANTS.genesisHash)}</span></div>
                 <div className="stat-row"><span className="k">blue_score</span><span className="v green">{status.blueScore.toLocaleString()}</span></div>
                 <div className="stat-row"><span className="k">Height</span><span className="v">{status.height.toLocaleString()}</span></div>
                 <div className="stat-row"><span className="k">Finality depth</span><span className="v">{SD.CHAIN.finalityDepth}</span></div>

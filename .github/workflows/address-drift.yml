@@ -17,6 +17,7 @@ on:
     paths:
       - 'src/generated/addresses.json'
       - 'src/generated/chainConstants.json'
+      - 'src/generated/r1006/**'
       - 'scripts/sync-addresses.mjs'
       - 'scripts/lib/chainSync.mjs'
       - 'scripts/lib/chainLabels.mjs'
@@ -60,6 +61,8 @@ jobs:
             packages/chain-config/
             core/execution/src/precompiles/mod.rs
             core/economics/src/genesis.rs
+            core/economics/assets/r1006/alloc.json
+            core/consensus/src/hardening.rs
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: env.CHAIN_TOKEN != ''
         with:
@@ -70,7 +73,11 @@ jobs:
           node citrate-chain/packages/chain-config/bin/check.mjs \
             check "consumer/src/generated/addresses.json" \
             --canonical citrate-chain/contracts/addresses/40204.json
+          node citrate-chain/packages/chain-config/bin/check.mjs \
+            check "consumer/src/generated/r1006/addresses.json" \
+            --canonical citrate-chain/contracts/addresses/r1006/40204.json
       - name: Generated chain constants drift check (blocking)
         if: env.CHAIN_TOKEN != ''
-        # Precompile catalog + genesis allocations, regenerated from the same chain checkout.
-        run: node consumer/scripts/sync-addresses.mjs --chain citrate-chain --only constants --check
+        # Network + genesis hash, precompile catalog and genesis allocations for every 40204
+        # network (r1005, r1006), regenerated from the same chain checkout.
+        run: node consumer/scripts/sync-addresses.mjs --chain citrate-chain --book all --only constants --check
