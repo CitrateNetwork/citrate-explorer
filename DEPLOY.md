@@ -50,6 +50,8 @@ committed. Full list + how-to-generate in `.env.example`.
 | `CITRATE_INDEXER_MAX_LAG` | server | health "lagging" threshold (default 50 blocks) |
 | `INDEXER_PARALLEL` | indexer | heights ingested concurrently while catching up (default 1, max 32) |
 | `INDEXER_RETRY_BASE_MS` / `INDEXER_RETRY_MAX_MS` | indexer | backoff for a failed height (default 1000 doubling to 60000). A failed height is retried until it lands; the resume cursor stays below it |
+| `INDEXER_RPC_BATCH` | indexer | receipts per JSON-RPC batch POST (default 50, clamped to the node's 100-call limit; 1 = no batching) |
+| `CITRATE_DAGSTATS_TTL_MS` | server | how long one instance-wide `citrate_getDagStats` snapshot is shared by SSE streams, `/api/dag`, block/tx routes and harness tools (default 3000) |
 | `INDEXER_GENESIS_CHECK_MS` | indexer | how often the running indexer re-checks the RPC's block 0 (default 60000, min 5000). See §4a |
 
 > The CSP allowlist in `next.config.ts` derives `connect-src`/`frame-src` from the

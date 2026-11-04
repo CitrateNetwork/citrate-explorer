@@ -10,8 +10,9 @@ import { formatEther, formatGwei, keccak256, parseAbiItem, type Abi, type Addres
 import { harnessClient } from "./client";
 import { PublicError } from "@/lib/api/errors";
 import { assertLogRange, MAX_LOG_BLOCK_RANGE, MAX_LOG_CHUNK, MAX_LOG_RESULTS } from "./logBounds";
-import { getDagStats, isFinalized, type DagStats } from "@/lib/citrate/dag";
-import { getDagBlock, dagStats as liveDagStats, isFinal } from "@/lib/citrate/rpc";
+import { isFinalized, type DagStats } from "@/lib/citrate/dag";
+import { sharedDagStats } from "@/lib/citrate/sharedDagStats";
+import { getDagBlock, isFinal } from "@/lib/citrate/rpc";
 import { erc20Abi } from "@/lib/citrate/abi";
 import { GENESIS_ALLOCATIONS, knownLabel } from "@/lib/citrate/addresses";
 
@@ -340,7 +341,7 @@ export interface DagView extends DagStats {
 
 /** Convenience: is a block (by blue score) finalized right now? */
 export async function checkFinalized(blueScore: number): Promise<boolean> {
-  const stats = await getDagStats(harnessClient());
+  const stats = await sharedDagStats();
   return isFinalized(blueScore, stats.maxBlueScore, stats.ghostdagParams.finalityDepth);
 }
 
@@ -363,7 +364,7 @@ export interface DagWalk {
 export async function exploreDag(blockHash: Hex, depth = 10): Promise<DagWalk> {
   const head = await getDagBlock(blockHash);
   if (!head) throw new PublicError(`block ${blockHash} not found`);
-  const stats = await liveDagStats();
+  const stats = await sharedDagStats();
 
   const chain: string[] = [];
   let cursor: string | null = head.selectedParent;
@@ -387,7 +388,7 @@ export async function exploreDag(blockHash: Hex, depth = 10): Promise<DagWalk> {
 
 /** Overview snapshot (no block arg) — tips, blue/red, finality params. */
 export async function dagOverview(): Promise<DagView> {
-  const stats = await getDagStats(harnessClient());
+  const stats = await sharedDagStats();
   const depth = stats.ghostdagParams.finalityDepth;
   return {
     ...stats,
