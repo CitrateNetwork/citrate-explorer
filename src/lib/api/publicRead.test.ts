@@ -55,6 +55,23 @@ describe("public read routes are rate-limited per IP (PBA-L3c-019)", () => {
   }
 });
 
+describe("verification read routes share the same per-IP budget (EXP-S2)", () => {
+  it("/api?module=contract read actions answer Etherscan's 'Max rate limit reached' once it is spent", async () => {
+    const { GET } = await import("@/app/api/route");
+    const ip = await exhausted();
+    const res = await GET(r(`http://x/api?module=contract&action=getabi&address=${ADDR}`, ip));
+    expect(await res.json()).toEqual({ status: "0", message: "NOTOK", result: "Max rate limit reached" });
+  });
+
+  it("/v2/verify/[id] and /v2/contract/[chainId]/[address] answer 429 once it is spent", async () => {
+    const job = (await import("@/app/v2/verify/[id]/route")).GET;
+    const contract = (await import("@/app/v2/contract/[chainId]/[address]/route")).GET;
+    const ip = await exhausted();
+    expect((await job(r("http://x", ip), params({ id: "g" }))).status).toBe(429);
+    expect((await contract(r("http://x", ip), params({ chainId: "40204", address: ADDR }))).status).toBe(429);
+  });
+});
+
 describe("source tripwire: every RPC/DB-backed public GET calls limitPublicRead", () => {
   it("no unguarded GET that reaches the harness, indexer or DB", () => {
     const API = join(__dirname, "..", "..", "app", "api");
@@ -82,7 +99,9 @@ describe("source tripwire: every RPC/DB-backed public GET calls limitPublicRead"
       const src = readFileSync(f, "utf8");
       if (!/export (async )?function GET/.test(src)) continue;
       if (/requireOwner\(|verifySession\(/.test(src)) continue; // authenticated, per-owner data
-      if (!/limitPublicRead\(req/.test(src)) offenders.push(rel);
+      // allowRead(req) (src/lib/verify/http.ts) spends the same publicReadBucket budget,
+      // answering in the Etherscan envelope instead of a bare 429 (tested above).
+      if (!/limitPublicRead\(req|allowRead\(req/.test(src)) offenders.push(rel);
     }
     expect(offenders).toEqual([]);
   });
