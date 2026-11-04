@@ -1,13 +1,9 @@
 /**
- * solc-js compile layer (WS-2b). Loads the EXACT requested compiler version on
- * demand (the official soljson WASM builds) and compiles a standard-JSON input —
- * the same engine Sourcify/Hardhat use. Runs in the Node serverless runtime
- * (maxDuration is bumped on the verify route).
- *
- * Safety envelope: callers bound the source size + run under the route timeout.
- * Compiling Solidity is pure translation (no host access), but a hardened
- * production deployment would move this into a Vercel Sandbox microVM — noted as
- * the next isolation step in the WS-2b plan.
+ * solc-js compiler resolution (WS-2b, EXP-S2). Resolves the EXACT requested
+ * compiler version through the official release list and fetches the soljson
+ * WASM build, verified against the list's keccak256. Compilation itself runs in
+ * the verify worker's sandbox child (scripts/verify/compile-child.mjs, spawned by
+ * ./sandbox.ts) under a timeout and memory cap; no web function compiles.
  *
  * EX-B-011 / CIT-EXP-02 (RM-Q remediation, 2026-09-07) — supply-chain hardening
  * of the fetched compiler:
@@ -24,19 +20,11 @@
  *   3. ALLOWLIST (optional): `CITRATE_VERIFY_ALLOWED_COMPILERS` (comma-separated
  *      semvers) pins the set of acceptable versions; fail-closed parsing.
  */
-import { createRequire } from "module";
+import { mkdir, readFile, rename, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { keccak256 } from "viem";
 import { PublicError } from "@/lib/api/errors";
-
-const require = createRequire(import.meta.url);
-// solc ships a `wrapper` that adapts a raw soljson (Emscripten) module into the
-// { compile } surface. We load the soljson OURSELVES (with an integrity check)
-// rather than via solc.loadRemoteVersion, which fetches + evals with no check.
-const solcWrap = require("solc/wrapper") as (soljson: unknown) => SolcSnapshot;
-
-interface SolcSnapshot {
-  compile: (input: string) => string;
-}
 
 interface SolcListBuild {
   path: string;
@@ -50,15 +38,30 @@ interface SolcList {
   builds?: SolcListBuild[];
 }
 
+type Spans = Array<{ start: number; length: number }>;
+
+/** The per-contract solc output the worker requests (see OUTPUT_SELECTION in ./job.ts). */
 export interface CompiledContract {
   abi: unknown[];
-  evm: { deployedBytecode: { object: string; immutableReferences?: Record<string, Array<{ start: number; length: number }>> } };
+  metadata?: string;
+  storageLayout?: unknown;
+  evm: {
+    bytecode?: { object: string; sourceMap?: string; linkReferences?: Record<string, Record<string, Spans>> };
+    deployedBytecode: {
+      object: string;
+      sourceMap?: string;
+      linkReferences?: Record<string, Record<string, Spans>>;
+      immutableReferences?: Record<string, Spans>;
+    };
+  };
 }
 export interface CompileOutput {
   errors?: Array<{ severity: "error" | "warning"; formattedMessage?: string; message?: string }>;
   contracts?: Record<string, Record<string, CompiledContract>>;
   /** The full build name we actually used. */
   compiler: string;
+  /** solc's long version, e.g. 0.8.26+commit.8a97fa7a. */
+  longVersion?: string;
 }
 
 const SOLC_LIST = "https://binaries.soliditylang.org/bin/list.json";
@@ -145,36 +148,50 @@ export async function resolveCompilerVersion(version: string): Promise<string> {
 }
 
 /**
- * Download the soljson build, verify its keccak256 against the release list, and
- * ONLY THEN evaluate it in-process. A digest mismatch aborts before the untrusted
- * bytes are executed.
+ * Where verified soljson builds are cached on the worker host. Every load
+ * re-checks the file's keccak256 against the release list, so the cache is a
+ * speed-up only, never a trust anchor.
  */
-async function loadVerified(build: string, expectedKeccak: string): Promise<SolcSnapshot> {
-  const url = `${SOLC_BIN}/soljson-${build}.js`;
-  const res = await fetch(url);
+export function solcCacheDir(): string {
+  return process.env.CITRATE_SOLC_CACHE_DIR || join(tmpdir(), "citrate-solc-cache");
+}
+
+export interface VerifiedBinary {
+  /** Path of a soljson file whose keccak256 matched the release list. */
+  path: string;
+  keccak256: string;
+  /** e.g. v0.8.26+commit.8a97fa7a */
+  build: string;
+  /** e.g. 0.8.26+commit.8a97fa7a */
+  longVersion: string;
+}
+
+/**
+ * Resolve the version through the release list, then return a local soljson
+ * file verified against the list's keccak256: the cached copy when it still
+ * matches, else a fresh download (checked BEFORE it is written to the cache).
+ * Nothing here executes the compiler; the sandbox child does that.
+ */
+export async function ensureVerifiedBinary(version: string, cacheDir = solcCacheDir()): Promise<VerifiedBinary> {
+  const { build, keccak256: digest } = await resolveVerifiedBuild(version);
+  const file = join(cacheDir, `soljson-${build}.js`);
+  const result = { path: file, keccak256: digest, build, longVersion: build.replace(/^v/, "") };
+  try {
+    const cached = new Uint8Array(await readFile(file));
+    if (keccak256(cached).toLowerCase() === digest.toLowerCase()) return result;
+  } catch {
+    // not cached yet
+  }
+  const res = await fetch(`${SOLC_BIN}/soljson-${build}.js`);
   if (!res.ok) throw new Error(`could not download solc build "${build}" (${res.status})`);
   const bytes = new Uint8Array(await res.arrayBuffer());
   const got = keccak256(bytes);
-  if (got.toLowerCase() !== expectedKeccak.toLowerCase()) {
-    throw new Error(
-      `solc integrity check failed for "${build}": expected ${expectedKeccak}, got ${got}`,
-    );
+  if (got.toLowerCase() !== digest.toLowerCase()) {
+    throw new Error(`solc integrity check failed for "${build}": expected ${digest}, got ${got}`);
   }
-  const code = new TextDecoder().decode(bytes);
-  const mod = { exports: {} as Record<string, unknown> };
-  // The verified soljson is a CommonJS/Emscripten module. It is executed only
-  // AFTER the keccak256 digest matched the signed release list.
-  new Function("module", "exports", code)(mod, mod.exports);
-  return solcWrap(mod.exports);
-}
-
-/** Compile a Solidity standard-JSON input with the given version. */
-export async function compileSolidity(
-  version: string,
-  input: object,
-): Promise<CompileOutput> {
-  const { build, keccak256: digest } = await resolveVerifiedBuild(version);
-  const snap = await loadVerified(build, digest);
-  const out = JSON.parse(snap.compile(JSON.stringify(input))) as Omit<CompileOutput, "compiler">;
-  return { ...out, compiler: build };
+  await mkdir(cacheDir, { recursive: true });
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tmp, bytes);
+  await rename(tmp, file);
+  return result;
 }

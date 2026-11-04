@@ -72,14 +72,18 @@ export async function GET(
             verifiedAt: matched.verifiedAt,
             ...(badge.verified
               ? {}
-              : {
-                  note: "Partial match only: the recompiled runtime bytecode matches after stripping CBOR metadata, but the metadata hash (which commits to the exact source + compiler settings) does NOT match. Source shown for reference; this is NOT a verified match.",
-                }),
+              : badge.status === "similar-match"
+                ? {
+                    note: "Similar match: this address runs runtime code identical to a contract verified at another address. Source shown for reference; it was not verified at this address.",
+                  }
+                : {
+                    note: "Partial match only: the recompiled runtime bytecode matches after stripping CBOR metadata, but the metadata hash (which commits to the exact source + compiler settings) does NOT match. Source shown for reference; this is NOT a verified match.",
+                  }),
           }
         : {
             verified: false,
             status: "unverified",
-            note: "Not verified. Submit source at POST /api/verify (recompile-and-diff). Bytecode + read calls are available now.",
+            note: "Not verified. Verify with forge/hardhat (Etherscan API at /api, Sourcify API at /v2) or POST /api/verify. Bytecode + read calls are available now.",
           },
     });
   } catch (err) {

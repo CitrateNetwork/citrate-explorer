@@ -7,20 +7,22 @@
  *   - GET /api/contract/[addr]/source (the lean REST lookup citrate-core calls),
  *   - (the contract page keeps its own richer route, /api/contract/[addr]).
  *
- * Data source (Rule 11): the `contract_verifications` table in Neon, written only by
- * the recompile-and-diff engine (engine.ts). Nothing here compiles, fetches RPC, or
- * guesses source for an unverified contract.
+ * Data source (Rule 11): the `verified_contracts` table (verification v2, EXP-S2),
+ * written only by the verify worker after a recompile matched, read through
+ * engine.ts for the address's current code (genesis + runtime code hash from the
+ * RPC). Nothing here compiles or guesses source for an unverified contract.
  *
  * Honest statuses (the trust decision is `verificationBadge`, FWA-C12-05):
  *   - "verified"       a full match (metadata included). The only status with verified=true.
  *   - "partial-match"  equal only after stripping metadata. Source shown, NOT verified.
+ *   - "similar-match"  identical code verified at another address. Source shown, NOT verified here.
  *   - "unverified"     no passing record for this address.
  *   - "unavailable"    the verification store is not provisioned or could not be read.
  *                      Never reported as "unverified": we do not know.
  */
 import { verificationBadge } from "./badge";
 
-export type VerifiedSourceStatus = "verified" | "partial-match" | "unverified" | "unavailable";
+export type VerifiedSourceStatus = "verified" | "partial-match" | "similar-match" | "unverified" | "unavailable";
 
 /** The persisted columns this lookup reads (a subset of a contract_verifications row). */
 export interface VerifiedRow {
@@ -39,7 +41,7 @@ export interface VerifiedSource {
   status: VerifiedSourceStatus;
   /** True only for a full match. */
   verified: boolean;
-  matchType: "full" | "partial" | null;
+  matchType: "full" | "partial" | "similar" | null;
   contractName: string | null;
   /** The solc version the match was made with (e.g. v0.8.26+commit.8a97fa7a). */
   compilerVersion: string | null;
@@ -124,8 +126,7 @@ export function shapeVerifiedSource(
     );
   }
   const badge = verificationBadge(row.matchType);
-  const status: VerifiedSourceStatus =
-    badge.status === "verified" ? "verified" : badge.status === "partial-match" ? "partial-match" : "unverified";
+  const status: VerifiedSourceStatus = badge.status;
   const full = row.source ?? "";
   const cap = clampChars(maxSourceChars);
   const truncated = full.length > cap;
@@ -134,12 +135,14 @@ export function shapeVerifiedSource(
       ? "Verified: the recompiled bytecode matches the deployed code exactly, metadata included."
       : status === "partial-match"
         ? "Partial match: the code matches only after stripping metadata, so the shown source may differ from what was deployed. This is not a verified match."
-        : "Not verified: the recorded match is not a full match.";
+        : status === "similar-match"
+          ? "Similar match: this address runs code identical to a contract verified at another address; the source shown is that contract's. Not verified at this address."
+          : "Not verified: the recorded match is not a full match.";
   return {
     address: addr,
     status,
     verified: badge.verified,
-    matchType: row.matchType === "full" || row.matchType === "partial" ? row.matchType : null,
+    matchType: row.matchType === "full" || row.matchType === "partial" || row.matchType === "similar" ? row.matchType : null,
     contractName: row.contractName,
     compilerVersion: row.compilerVersion,
     sourceHash: row.sourceHash,

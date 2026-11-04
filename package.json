@@ -16,6 +16,8 @@
     "indexer": "tsx scripts/indexer/run.ts",
     "indexer:once": "INDEXER_ONCE=1 tsx scripts/indexer/run.ts",
     "indexer:reset": "tsx scripts/indexer/reset.ts",
+    "verify:worker": "tsx scripts/verify/worker.ts",
+    "verify:capture-fixtures": "node scripts/verify/capture-tool-fixtures.mjs",
     "beacon": "tsx scripts/beacon/run.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file=.env.local scripts/db-migrate.mjs",

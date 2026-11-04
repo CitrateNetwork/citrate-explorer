@@ -218,6 +218,130 @@ export const contractVerifications = pgTable(
   (t) => [index("contract_verifications_address_idx").on(t.address)],
 );
 
+/**
+ * Verification store v2 (EXP-S2). One row per passing match, appended and never
+ * changed: a BEFORE UPDATE OR DELETE trigger (migration 0006) rejects edits, so a
+ * passing record cannot be replaced by a later submission. Ids are random UUIDs.
+ *
+ * Keyed by (genesis_hash, address, runtime_code_hash): the same address on a
+ * rerolled chain, or after its code changed, is a different contract. Legacy rows
+ * copied from `contract_verifications` carry `legacy_guid` and null genesis/code
+ * hash until the worker re-verifies them (`pnpm verify:worker --requeue-legacy`).
+ *
+ * Data source (Rule 7): written only by the verify worker (src/lib/verify/job.ts)
+ * after a recompile matched on-chain code read from the Citrate RPC.
+ */
+export const verifiedContracts = pgTable(
+  "verified_contracts",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id"),
+    chainId: integer("chain_id").notNull(),
+    genesisHash: text("genesis_hash"),
+    address: text("address").notNull(),
+    runtimeCodeHash: text("runtime_code_hash"),
+    /** keccak256 of the on-chain runtime with immutables and library self-address zeroed. */
+    runtimeMaskedHash: text("runtime_masked_hash"),
+    runtimeCodeLength: integer("runtime_code_length"),
+    /** full | partial | similar */
+    matchType: text("match_type").notNull(),
+    /** full | partial: how the runtime matched. */
+    runtimeMatch: text("runtime_match").notNull(),
+    /** full | partial, or null when no creation transaction could be compared. */
+    creationMatch: text("creation_match"),
+    /** For a similar match: the verified_contracts row whose source was applied. */
+    similarTo: text("similar_to"),
+    sourceFormat: text("source_format").notNull(),
+    contractName: text("contract_name"),
+    fullyQualifiedName: text("fully_qualified_name"),
+    compilerVersion: text("compiler_version"),
+    solcLongVersion: text("solc_long_version"),
+    stdJsonInput: text("std_json_input"),
+    metadata: text("metadata"),
+    abi: text("abi"),
+    storageLayout: text("storage_layout"),
+    deployedSourceMap: text("deployed_source_map"),
+    creationSourceMap: text("creation_source_map"),
+    immutableReferences: text("immutable_references"),
+    constructorArgs: text("constructor_args"),
+    libraries: text("libraries"),
+    creationTxHash: text("creation_tx_hash"),
+    deployer: text("deployer"),
+    sourceHash: text("source_hash"),
+    legacyGuid: text("legacy_guid"),
+    legacySource: text("legacy_source"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("verified_contracts_key_idx").on(t.genesisHash, t.address, t.runtimeCodeHash),
+    index("verified_contracts_address_idx").on(t.address),
+    index("verified_contracts_length_idx").on(t.genesisHash, t.runtimeCodeLength),
+  ],
+);
+
+/**
+ * Verification job queue (EXP-S2). The web routes only validate and enqueue; the
+ * worker (`pnpm verify:worker`, on the indexer host) claims jobs with
+ * FOR UPDATE SKIP LOCKED and compiles in a separate, time- and memory-capped
+ * process. `id` is the guid / verificationId clients poll, a random UUID.
+ */
+export const verificationJobs = pgTable(
+  "verification_jobs",
+  {
+    id: text("id").primaryKey(),
+    /** verify | proxy */
+    kind: text("kind").notNull().default("verify"),
+    /** pending | running | pass | fail */
+    status: text("status").notNull().default("pending"),
+    /** etherscan | sourcify | api | legacy */
+    origin: text("origin").notNull(),
+    chainId: integer("chain_id").notNull(),
+    genesisHash: text("genesis_hash"),
+    address: text("address").notNull(),
+    /** The normalized request as JSON (see src/lib/verify/request.ts). */
+    request: text("request").notNull(),
+    sourceHash: text("source_hash"),
+    attempts: integer("attempts").notNull().default(0),
+    workerId: text("worker_id"),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    resultCode: text("result_code"),
+    resultMessage: text("result_message"),
+    matchType: text("match_type"),
+    verifiedContractId: text("verified_contract_id"),
+  },
+  (t) => [
+    index("verification_jobs_status_idx").on(t.status, t.createdAt),
+    index("verification_jobs_address_idx").on(t.address),
+  ],
+);
+
+/** Proxy -> implementation links recorded by verifyproxycontract (append-only, newest wins). */
+export const contractProxies = pgTable(
+  "contract_proxies",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id"),
+    chainId: integer("chain_id").notNull(),
+    genesisHash: text("genesis_hash").notNull(),
+    address: text("address").notNull(),
+    implementation: text("implementation").notNull(),
+    /** eip1967 | eip1967-beacon | eip1822 | eip1167 */
+    proxyType: text("proxy_type").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("contract_proxies_key_idx").on(t.genesisHash, t.address)],
+);
+
+/** Small key/value state for the verify worker (the similar-match sweep cursor). */
+export const verificationState = pgTable("verification_state", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
 /** Singleton indexer cursor — lets the worker resume with zero gaps/duplicates. */
 export const indexerState = pgTable("indexer_state", {
   id: integer("id").primaryKey().default(1),
