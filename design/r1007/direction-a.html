@@ -1,0 +1,1333 @@
+<meta charset="utf-8">
+<title>CitrateScan Evolved</title>
+<meta name="description" content="Direction A for the r1007 CitrateScan redesign: the current warm-paper and evergreen tokens, made AA-safe, with a live GhostDAG lane.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Cormorant:ital,wght@1,500&display=swap">
+<style>
+/* Direction A: CitrateScan, evolved. Warm paper and deep evergreen, citrate green kept for proof.
+   Changes from src/scan/scan.css: AA-safe tertiary text, accent text darkened, tokens on :root with
+   prefers-color-scheme + data-theme, a DAG palette, and a status palette for blue/red/chain/pending. */
+:root {
+  color-scheme: light;
+  --font-display: "Space Grotesk", "Geist", system-ui, sans-serif;
+  --font-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: "Cormorant", "Cormorant Garamond", Georgia, serif;
+  --r-1: 6px; --r-2: 9px; --r-3: 14px; --r-pill: 999px;
+  --maxw: 1240px;
+  --ease: cubic-bezier(.2,0,0,1);
+
+  --canvas: #f1eee6;
+  --surface: #faf8f3;
+  --surface-2: #ffffff;
+  --surface-sunk: #e9e7df;
+  --border: #d6d7d0;
+  --border-2: #e4e3dc;
+  --border-strong: #b9bab3;
+  --text-1: #0e0f0c;
+  --text-2: #4b4e47;
+  --text-3: #60635b;
+  --accent: #8ecc09;
+  --accent-ink: #0e0f0c;
+  --accent-text: #446304;
+  --accent-tint: #e8f3c6;
+  --danger: #a72414;
+  --danger-text: #9a2112;
+  --danger-bg: #f6e1de;
+  --warning: #b07b00;
+  --warning-text: #6e5100;
+  --warning-bg: #fff1c4;
+  --info: #1b4965;
+  --info-bg: #dbe7ef;
+  --header-bg: #0f2a1a;
+  --header-fg: #f1eee6;
+  --header-fg-2: #a9c2b1;
+  --header-border: rgba(205,231,214,.14);
+  --header-field: rgba(255,255,255,.07);
+  --shadow-pop: 0 10px 30px -12px rgba(14,15,12,.22), 0 0 0 1px var(--border);
+
+  /* DAG palette */
+  --dag-chain: #8ecc09;
+  --dag-chain-stroke: #3a5503;
+  --dag-blue: #c6e47a;
+  --dag-blue-stroke: #4a6b04;
+  --dag-red: #a72414;
+  --dag-red-fill: #f6e1de;
+  --dag-pending: #60635b;
+  --dag-edge: #9a9c94;
+  --dag-spine: #5a8205;
+  --dag-final: rgba(142,204,9,.12);
+  --dag-vote: rgba(255,189,16,.16);
+  --dag-change: #b07b00;
+  --dag-grid: #e2e1da;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --canvas: #0c2216; --surface: #11301f; --surface-2: #163a26; --surface-sunk: #0a1c12;
+    --border: rgba(205,231,214,.16); --border-2: rgba(205,231,214,.09); --border-strong: rgba(205,231,214,.30);
+    --text-1: #edf3ea; --text-2: #b8c9ba; --text-3: #94ae9b;
+    --accent: #9ad60c; --accent-ink: #0c2216; --accent-text: #b2e43a; --accent-tint: rgba(142,204,9,.16);
+    --danger: #ef8273; --danger-text: #f39a8d; --danger-bg: rgba(167,36,20,.26);
+    --warning: #ffbd10; --warning-text: #ffcf52; --warning-bg: rgba(255,189,16,.14);
+    --info: #9cc6e0; --info-bg: rgba(27,73,101,.34);
+    --header-bg: #081a10; --header-fg: #edf3ea; --header-fg-2: #94ae9b; --header-border: rgba(205,231,214,.10); --header-field: rgba(255,255,255,.05);
+    --shadow-pop: 0 12px 32px -12px rgba(0,0,0,.5), 0 0 0 1px var(--border);
+    --dag-chain: #9ad60c; --dag-chain-stroke: #d6f28a; --dag-blue: #4f7a17; --dag-blue-stroke: #b2e43a;
+    --dag-red: #ef8273; --dag-red-fill: rgba(167,36,20,.30); --dag-pending: #94ae9b; --dag-edge: #5f7f69; --dag-spine: #b2e43a;
+    --dag-final: rgba(154,214,12,.10); --dag-vote: rgba(255,189,16,.12); --dag-change: #ffcf52; --dag-grid: rgba(205,231,214,.08);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0c2216; --surface: #11301f; --surface-2: #163a26; --surface-sunk: #0a1c12;
+  --border: rgba(205,231,214,.16); --border-2: rgba(205,231,214,.09); --border-strong: rgba(205,231,214,.30);
+  --text-1: #edf3ea; --text-2: #b8c9ba; --text-3: #94ae9b;
+  --accent: #9ad60c; --accent-ink: #0c2216; --accent-text: #b2e43a; --accent-tint: rgba(142,204,9,.16);
+  --danger: #ef8273; --danger-text: #f39a8d; --danger-bg: rgba(167,36,20,.26);
+  --warning: #ffbd10; --warning-text: #ffcf52; --warning-bg: rgba(255,189,16,.14);
+  --info: #9cc6e0; --info-bg: rgba(27,73,101,.34);
+  --header-bg: #081a10; --header-fg: #edf3ea; --header-fg-2: #94ae9b; --header-border: rgba(205,231,214,.10); --header-field: rgba(255,255,255,.05);
+  --shadow-pop: 0 12px 32px -12px rgba(0,0,0,.5), 0 0 0 1px var(--border);
+  --dag-chain: #9ad60c; --dag-chain-stroke: #d6f28a; --dag-blue: #4f7a17; --dag-blue-stroke: #b2e43a;
+  --dag-red: #ef8273; --dag-red-fill: rgba(167,36,20,.30); --dag-pending: #94ae9b; --dag-edge: #5f7f69; --dag-spine: #b2e43a;
+  --dag-final: rgba(154,214,12,.10); --dag-vote: rgba(255,189,16,.12); --dag-change: #ffcf52; --dag-grid: rgba(205,231,214,.08);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--canvas); color: var(--text-1); font: 14px/1.5 var(--font-sans); -webkit-font-smoothing: antialiased; font-feature-settings: "tnum", "lnum"; }
+a { color: inherit; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 3px; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.small { font-size: 12px; }
+.muted { color: var(--text-2); }
+.brk { word-break: break-all; }
+.r { text-align: right; }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 500; letter-spacing: -.015em; margin: 0; text-wrap: balance; }
+.eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); }
+.lnk { color: var(--accent-text); text-decoration: none; border-bottom: 1px solid transparent; }
+.lnk:hover { border-bottom-color: currentColor; }
+.addr-l { font-size: 12px; color: var(--text-2); }
+
+/* ---------- shell ---------- */
+.hdr { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 50; background: var(--header-bg); color: var(--header-fg); border-bottom: 1px solid var(--header-border); }
+.hdr-in { max-width: var(--maxw); margin: 0 auto; padding: 10px 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.logo { display: flex; align-items: center; gap: 9px; text-decoration: none; }
+.logo-w { font-family: var(--font-display); font-weight: 500; font-size: 18px; letter-spacing: -.01em; }
+.logo-p { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dag-chain); padding: 1px 7px; border: 1px solid rgba(142,204,9,.4); border-radius: var(--r-pill); }
+.search { flex: 1 1 260px; position: relative; max-width: 560px; }
+.search input { width: 100%; height: 38px; border-radius: var(--r-1); border: 1px solid var(--header-border); background: var(--header-field); color: var(--header-fg); padding: 0 12px; font-size: 14px; }
+.search input::placeholder { color: var(--header-fg-2); }
+.search-msg { position: absolute; left: 0; top: 42px; font-size: 12px; background: var(--surface-2); color: var(--text-1); border-radius: var(--r-1); box-shadow: var(--shadow-pop); padding: 6px 10px; }
+.nav { display: flex; gap: 2px; flex-wrap: wrap; }
+.nav a { color: var(--header-fg-2); text-decoration: none; padding: 7px 10px; border-radius: var(--r-1); font-size: 13.5px; }
+.nav a:hover { color: var(--header-fg); background: var(--header-field); }
+.nav a[aria-current="page"] { color: var(--header-fg); background: rgba(142,204,9,.14); }
+.thm { margin-left: auto; background: transparent; border: 1px solid var(--header-border); color: var(--header-fg-2); border-radius: var(--r-pill); padding: 5px 11px; font-size: 12px; cursor: pointer; }
+.sbar { background: var(--warning-bg); color: var(--warning-text); border-bottom: 1px solid var(--border); }
+.sbar-in { max-width: var(--maxw); margin: 0 auto; padding: 6px 20px; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 12.5px; }
+.sbar strong { font-family: var(--font-mono); letter-spacing: .1em; text-transform: uppercase; font-size: 11px; }
+.live { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warning-text); }
+.live-on .live-dot { animation: pulse 1.6s var(--ease) infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+.sbtn { background: transparent; border: 1px solid currentColor; color: inherit; border-radius: var(--r-pill); font-size: 11.5px; padding: 1px 9px; cursor: pointer; }
+main { max-width: var(--maxw); margin: 0 auto; padding-inline: 20px; padding-block: 22px 60px; }
+@media (max-width: 560px) { .hdr-in, .sbar-in { padding-inline: 16px; } main { padding-inline: 16px; } .thm { margin-left: 0; } }
+
+/* ---------- page primitives ---------- */
+.pg-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-bottom: 14px; }
+.pg-h h1 { font-size: clamp(24px, 4vw, 32px); }
+.pg-sub { font-family: var(--font-mono); font-size: 13px; color: var(--text-2); word-break: break-all; }
+.lede { font-family: var(--font-serif); font-style: italic; font-weight: 500; font-size: 21px; color: var(--text-2); margin: 0 0 16px; max-width: 60ch; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-3); padding: 16px 18px; min-width: 0; }
+.sec { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-3); padding: 14px 18px; margin-bottom: 14px; min-width: 0; }
+.sec-h { font-size: 15px; margin-bottom: 8px; }
+.srow { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.tag { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 11.5px; padding: 2px 9px; border-radius: var(--r-pill); background: var(--surface-sunk); color: var(--text-2); border: 1px solid var(--border-2); white-space: nowrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 2px 9px 2px 7px; border-radius: var(--r-pill); white-space: nowrap; }
+.chip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.chip-chain { background: var(--accent-tint); color: var(--accent-text); } .chip-chain i { background: var(--dag-chain); box-shadow: 0 0 0 1.5px var(--dag-chain-stroke); }
+.chip-blue { background: var(--accent-tint); color: var(--accent-text); } .chip-blue i { background: var(--dag-blue); box-shadow: 0 0 0 1.5px var(--dag-blue-stroke); }
+.chip-red { background: var(--danger-bg); color: var(--danger-text); } .chip-red i { background: var(--dag-red-fill); box-shadow: 0 0 0 1.5px var(--dag-red); }
+.chip-pending { background: var(--surface-sunk); color: var(--text-2); } .chip-pending i { background: transparent; box-shadow: 0 0 0 1.5px var(--dag-pending); }
+.chip-sm { padding: 0 7px 0 5px; font-size: 11px; }
+.st-ok { background: var(--accent-tint); color: var(--accent-text); }
+.st-bad { background: var(--danger-bg); color: var(--danger-text); }
+.st-skip { background: var(--warning-bg); color: var(--warning-text); }
+.fin-final { background: var(--accent-tint); color: var(--accent-text); }
+.fin-vote { background: var(--warning-bg); color: var(--warning-text); }
+.fin-tip { background: var(--info-bg); color: var(--info); }
+.meth { font-family: var(--font-mono); font-size: 11.5px; padding: 1px 7px; border-radius: var(--r-1); background: var(--surface-sunk); border: 1px solid var(--border-2); }
+.kv { margin: 0; }
+.kv-r { display: grid; grid-template-columns: minmax(130px, 210px) 1fr; gap: 4px 16px; padding: 9px 0; border-top: 1px solid var(--border-2); }
+.kv-r:first-child { border-top: 0; }
+.kv dt { color: var(--text-2); font-size: 13px; }
+.kv-h { display: block; font-size: 11.5px; color: var(--text-3); }
+.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.kv-tight .kv-r { padding: 4px 0; grid-template-columns: 70px 1fr; }
+@media (max-width: 560px) { .kv-r { grid-template-columns: 1fr; } }
+.copy { background: transparent; border: 1px solid var(--border); border-radius: var(--r-1); font-size: 11px; padding: 1px 7px; color: var(--text-2); cursor: pointer; vertical-align: 1px; }
+.copy:hover { border-color: var(--border-strong); color: var(--text-1); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-2); padding: 10px 14px; }
+.stat-k { font-size: 12px; color: var(--text-2); }
+.stat-v { font-family: var(--font-display); font-size: 19px; font-variant-numeric: tabular-nums; }
+.tbl-wrap { overflow-x: auto; margin: 0 -4px; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tbl th { text-align: left; font-weight: 500; color: var(--text-2); font-size: 12px; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.tbl td { padding: 8px 10px; border-bottom: 1px solid var(--border-2); white-space: nowrap; vertical-align: middle; }
+.tbl tr:last-child td { border-bottom: 0; }
+.tbl tbody tr:hover { background: var(--surface-sunk); }
+.note { background: var(--info-bg); color: var(--text-1); border-radius: var(--r-2); padding: 10px 12px; margin: 10px 0 0; font-size: 13px; }
+.banner { display: block; border-radius: var(--r-2); padding: 10px 14px; margin-bottom: 14px; font-size: 13.5px; border: 1px solid var(--border); }
+.banner-proxy { background: var(--info-bg); }
+.banner-info { background: var(--surface-sunk); }
+.banner-ok { background: var(--accent-tint); }
+.banner-warn { background: var(--warning-bg); color: var(--text-1); }
+.hist { margin-top: 6px; } .hist summary { cursor: pointer; color: var(--text-2); font-size: 12.5px; }
+.hist-l { margin: 6px 0 0; padding-left: 18px; }
+.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
+.flow-s { flex: 1 1 220px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-2); padding: 10px 14px; display: grid; gap: 4px; }
+.flow-a { align-self: center; color: var(--text-3); font-family: var(--font-mono); }
+.flow-k { font-size: 12px; color: var(--text-2); }
+.flow-v { font-family: var(--font-display); font-size: 20px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.log { border: 1px solid var(--border-2); border-radius: var(--r-2); padding: 10px 12px; margin-bottom: 8px; background: var(--surface-2); }
+.log-h { margin-bottom: 4px; font-size: 13px; }
+.code-inline { font-family: var(--font-mono); font-size: 12px; margin: 0; white-space: pre-wrap; word-break: break-all; background: var(--surface-sunk); border-radius: var(--r-1); padding: 6px 8px; max-height: 160px; overflow: auto; }
+.code-block { font-size: 12.5px; line-height: 1.55; margin: 0; padding: 12px 14px; background: var(--surface-sunk); border-radius: var(--r-2); overflow-x: auto; white-space: pre; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+
+/* tabs */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 14px; overflow-x: auto; }
+.tabs a { text-decoration: none; padding: 9px 14px; font-size: 13.5px; color: var(--text-2); border-bottom: 2px solid transparent; white-space: nowrap; margin-bottom: -1px; }
+.tabs a[aria-selected="true"] { color: var(--text-1); border-bottom-color: var(--dag-chain); font-weight: 500; }
+
+/* code pane */
+.codegrid { display: grid; grid-template-columns: 200px minmax(0, 1.3fr) minmax(0, 1fr); gap: 12px; }
+@media (max-width: 1000px) { .codegrid { grid-template-columns: minmax(0, 1fr); } }
+.ftree { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-2); padding: 10px; display: grid; gap: 2px; align-content: start; }
+.ftree-h { font-size: 11px; font-family: var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); margin: 8px 4px 4px; }
+.ftree-h:first-child { margin-top: 0; }
+.ftree-i { text-align: left; background: transparent; border: 0; border-radius: var(--r-1); padding: 5px 8px; font-family: var(--font-mono); font-size: 12.5px; cursor: pointer; overflow-wrap: anywhere; }
+.ftree-i[aria-pressed="true"] { background: var(--accent-tint); color: var(--accent-text); }
+.ftree-d { display: block; font-size: 11px; color: var(--text-3); }
+.ftree-m { padding: 0 8px; color: var(--text-2); }
+.src-pane, .op-pane { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-2); min-width: 0; display: flex; flex-direction: column; }
+.pane-h { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; padding: 8px 12px; border-bottom: 1px solid var(--border-2); }
+.pane-t { font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; overflow-wrap: anywhere; }
+.src { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6; max-height: 520px; overflow: auto; padding: 6px 0; }
+.sl { display: grid; grid-template-columns: 40px 1fr; white-space: pre; }
+.sl-n { color: var(--text-3); text-align: right; padding-right: 12px; user-select: none; }
+.sl-t { padding-right: 12px; }
+.sl-op { cursor: pointer; } .sl-op:hover { background: var(--surface-sunk); }
+.sl-hl { background: var(--accent-tint); }
+.sl-hl0 { box-shadow: inset 3px 0 0 var(--dag-chain); }
+.tk-k { color: var(--info); font-weight: 500; } .tk-t { color: var(--accent-text); } .tk-c { color: var(--text-3); font-style: italic; }
+.ops { font-family: var(--font-mono); font-size: 12px; max-height: 520px; overflow: auto; padding: 4px 0; display: flex; flex-direction: column; }
+.ops-wide { max-height: 620px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-2); }
+.op { display: grid; grid-template-columns: 44px 84px minmax(0,1fr) auto; gap: 8px; text-align: left; border: 0; background: transparent; padding: 1px 12px; cursor: pointer; font-family: var(--font-mono); font-size: 12px; }
+.op-static { cursor: default; }
+.op:hover:not(.op-static) { background: var(--surface-sunk); }
+.op-pc { color: var(--text-3); } .op-a { color: var(--text-2); overflow-wrap: anywhere; }
+.op-gen .op-n { color: var(--text-3); }
+.op-on { background: var(--accent-tint) !important; box-shadow: inset 3px 0 0 var(--dag-chain); }
+.op-lbl { padding: 8px 12px 2px; color: var(--accent-text); font-weight: 500; border-top: 1px solid var(--border-2); }
+.rawhex { padding: 8px 12px; border-top: 1px solid var(--border-2); } .rawhex summary { cursor: pointer; color: var(--text-2); font-size: 12.5px; }
+
+/* forms */
+.fnlist { display: grid; gap: 10px; }
+.fn { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-2); padding: 12px 14px; display: grid; gap: 8px; }
+.fn-h { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-weight: 500; }
+.field { display: grid; gap: 4px; }
+.field label, .field-row label { font-size: 12.5px; color: var(--text-2); }
+.field-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+input, select { height: 36px; border: 1px solid var(--border-strong); background: var(--surface-2); border-radius: var(--r-1); padding: 0 10px; min-width: 0; max-width: 100%; }
+input[type="file"] { height: auto; padding: 6px; }
+input[aria-invalid="true"] { border-color: var(--danger); }
+.err { color: var(--danger-text); font-size: 12px; }
+.fn-a { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.res { font-size: 12.5px; overflow-wrap: anywhere; }
+.btn { background: var(--dag-chain); color: #0e0f0c; border: 1px solid var(--dag-chain-stroke); border-radius: var(--r-1); padding: 7px 14px; font-weight: 500; cursor: pointer; font-size: 13px; }
+.btn:hover { filter: brightness(.95); }
+.btn-dis { background: var(--surface-sunk); color: var(--text-2); border-color: var(--border); }
+.btn-q { background: transparent; color: var(--text-1); border-color: var(--border-strong); padding: 3px 10px; margin-left: 6px; }
+.preview { background: var(--surface-sunk); border-radius: var(--r-2); padding: 10px 12px; display: grid; gap: 6px; }
+.vform { display: grid; gap: 12px; }
+.cmds { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 12px; }
+.cmd { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-2); min-width: 0; }
+.cmd-h { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; font-weight: 500; font-size: 13px; border-bottom: 1px solid var(--border-2); }
+.cmd .code-block { border-radius: 0 0 var(--r-2) var(--r-2); }
+
+/* ---------- home ---------- */
+.home-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px; }
+.span-12 { grid-column: span 12; } .span-8 { grid-column: span 8; } .span-7 { grid-column: span 7; } .span-6 { grid-column: span 6; } .span-5 { grid-column: span 5; } .span-4 { grid-column: span 4; } .span-3 { grid-column: span 3; }
+@media (max-width: 980px) { .span-8, .span-7, .span-6, .span-5, .span-4 { grid-column: span 12; } .span-3 { grid-column: span 6; } }
+@media (max-width: 520px) { .span-3 { grid-column: span 12; } }
+.tile { display: grid; gap: 4px; }
+.tile-k { font-size: 12.5px; color: var(--text-2); display: flex; justify-content: space-between; gap: 8px; }
+.tile-v { font-family: var(--font-display); font-size: 30px; line-height: 1.1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.tile-v small { font-size: 15px; color: var(--text-2); margin-left: 3px; letter-spacing: 0; }
+.tile-s { font-size: 12px; color: var(--text-2); }
+.spark { width: 100%; height: 34px; display: block; margin-top: 4px; }
+.card-h { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.card-h h2 { font-size: 16px; }
+.fband { display: grid; gap: 8px; }
+.fband-svg { width: 100%; height: 66px; display: block; }
+.fband-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12.5px; color: var(--text-2); }
+.fband-legend b { font-family: var(--font-mono); font-weight: 500; color: var(--text-1); }
+.share { display: grid; gap: 7px; }
+.share-r { display: grid; grid-template-columns: 82px 1fr 48px; gap: 10px; align-items: center; font-size: 12.5px; }
+.share-b { height: 10px; background: var(--surface-sunk); border-radius: var(--r-pill); overflow: hidden; }
+.share-b i { display: block; height: 100%; background: var(--dag-spine); border-radius: var(--r-pill); }
+.share-r .mono { text-align: right; }
+.feed { list-style: none; margin: 0; padding: 0; }
+.feed li { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 12px; align-items: center; padding: 9px 0; border-top: 1px solid var(--border-2); font-size: 13px; }
+.feed li:first-child { border-top: 0; }
+.feed-m { display: grid; gap: 1px; min-width: 0; }
+.feed-m > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed-r { text-align: right; font-size: 12px; color: var(--text-2); display: grid; gap: 2px; justify-items: end; }
+.badge-h { font-family: var(--font-mono); font-size: 12px; background: var(--surface-sunk); border-radius: var(--r-1); padding: 4px 7px; text-decoration: none; }
+.new-row { animation: rowin .7s var(--ease); }
+@keyframes rowin { from { background: var(--accent-tint); } to { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .new-row, .live-on .live-dot { animation: none; } }
+
+/* ---------- DAG ---------- */
+.dag-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 10px; }
+.ctrls { display: flex; gap: 6px; flex-wrap: wrap; }
+.cbtn { background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--r-pill); padding: 5px 13px; font-size: 12.5px; cursor: pointer; }
+.cbtn[aria-pressed="true"] { background: var(--accent-tint); border-color: var(--dag-spine); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--text-2); align-items: center; }
+.legend svg { vertical-align: -3px; }
+.dag-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; }
+@media (max-width: 1000px) { .dag-layout { grid-template-columns: minmax(0, 1fr); } }
+.dag-wrap { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-3); overflow-x: auto; overflow-y: hidden; position: relative; }
+.dag-svg { display: block; }
+.dag-svg text { font-family: var(--font-mono); font-size: 10.5px; fill: var(--text-3); }
+.dag-svg .lbl-strong { fill: var(--text-2); }
+.e-merge { fill: none; stroke: var(--dag-edge); stroke-width: 1.1; opacity: .75; }
+.e-sel { fill: none; stroke: var(--dag-edge); stroke-width: 1.8; }
+.e-spine { fill: none; stroke: var(--dag-spine); stroke-width: 4; stroke-linecap: round; }
+.e-red { stroke: var(--dag-red); stroke-dasharray: 3 3; opacity: .9; }
+.n { cursor: pointer; }
+.n circle.body { stroke-width: 1.8; transition: opacity .2s; }
+.n-chain circle.body { fill: var(--dag-chain); stroke: var(--dag-chain-stroke); }
+.n-blue circle.body { fill: var(--dag-blue); stroke: var(--dag-blue-stroke); }
+.n-red circle.body { fill: var(--dag-red-fill); stroke: var(--dag-red); stroke-dasharray: 2.5 2; }
+.n-red path.x { stroke: var(--dag-red); stroke-width: 1.6; }
+.n-pending circle.body { fill: var(--surface-2); stroke: var(--dag-pending); stroke-dasharray: 2 2.5; }
+.n .halo { fill: none; stroke: var(--dag-spine); stroke-width: 1.2; opacity: .6; }
+.n:focus-visible { outline: none; } .n:focus-visible circle.body { stroke: var(--text-1); stroke-width: 3; }
+.n .selring { fill: none; stroke: var(--text-1); stroke-width: 2; }
+.has-sel .n { opacity: .4; } .has-sel .e-merge, .has-sel .e-sel { opacity: .18; }
+.has-sel .n.is-sel, .has-sel .n.in-ms, .has-sel .n.in-ac { opacity: 1; }
+.has-sel .n.in-past { opacity: .72; }
+.has-sel .e-ms { opacity: 1; stroke: var(--text-1); stroke-width: 1.6; }
+.n.in-ac circle.body { stroke: var(--dag-change); stroke-width: 2.6; stroke-dasharray: none; }
+.chg-line { stroke: var(--dag-change); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.chg-lbl { fill: var(--warning-text) !important; font-weight: 500; }
+.fin-rect { fill: var(--dag-final); } .vote-rect { fill: var(--dag-vote); }
+.grid-l { stroke: var(--dag-grid); stroke-width: 1; }
+.dag-foot { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 8px 14px; border-top: 1px solid var(--border-2); font-size: 12px; color: var(--text-2); position: sticky; left: 0; }
+.insp { position: sticky; top: 120px; }
+.insp h2 { font-size: 18px; margin-bottom: 2px; }
+.insp-g { display: grid; gap: 12px; }
+.ms-h { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; color: var(--text-2); margin-bottom: 4px; }
+.ms-l { display: flex; flex-wrap: wrap; gap: 4px; }
+.ms-i { font-family: var(--font-mono); font-size: 11.5px; border-radius: var(--r-1); padding: 2px 6px; text-decoration: none; border: 1px solid var(--border); background: var(--surface-2); }
+.ms-i.blue { border-color: var(--dag-blue-stroke); }
+.ms-i.red { border-color: var(--dag-red); color: var(--danger-text); }
+.ms-i.ac { border-color: var(--dag-change); }
+.tl { list-style: none; margin: 0; padding: 0; }
+.tl li { display: grid; grid-template-columns: 92px 1fr; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border-2); font-size: 13px; }
+.tl li:first-child { border-top: 0; }
+.mini-dag { overflow: hidden; border-radius: var(--r-2); background: var(--surface-2); border: 1px solid var(--border-2); }
+
+.fb { display: grid; gap: 6px; padding-top: 6px; }
+.fb-track { position: relative; height: 16px; border-radius: var(--r-pill); background: var(--surface-sunk); }
+.fb-fin { position: absolute; left: 0; top: 0; bottom: 0; background: var(--dag-chain); border-radius: var(--r-pill) 0 0 var(--r-pill); }
+.fb-vote { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, var(--warning-bg) 0 5px, var(--dag-vote) 5px 10px); box-shadow: inset 0 0 0 1px var(--warning); }
+.fb-cp { position: absolute; top: -5px; bottom: -5px; width: 0; border-left: 2px dashed var(--warning-text); }
+.fb-tip { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--surface-2); border: 2px solid var(--text-1); }
+.fb-ax { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); }
+@media (max-width: 560px) { .nav { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; } }
+
+.op-ln { color: var(--text-3); font-size: 11px; }
+.hsuf { font-size: .78em; color: var(--text-3); }
+
+.field { min-width: 0; }
+.field input, .field select { width: 100%; }
+.vform, .fn, .fnlist { grid-template-columns: minmax(0, 1fr); }
+
+</style>
+<div id="shell"><header class="hdr">
+  <div class="hdr-in">
+    <a class="logo" href="#home" aria-label="CitrateScan home">
+      <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><path d="M5 13 L13 6 M5 13 L13 20 M13 6 L21 13 M13 20 L21 13 M13 6 L13 20" stroke="#a9c2b1" stroke-width="1.4" fill="none"></path><circle cx="5" cy="13" r="2.6" fill="#8ecc09"></circle><circle cx="13" cy="6" r="2.6" fill="#8ecc09"></circle><circle cx="13" cy="20" r="2.6" fill="none" stroke="#e26a58" stroke-width="1.4"></circle><circle cx="21" cy="13" r="3.2" fill="#8ecc09"></circle></svg>
+      <span class="logo-w">CitrateScan</span><span class="logo-p">40204</span>
+    </a>
+    <form class="search" id="srch" role="search"><label for="q" class="sr" hidden>Search</label><input id="q" placeholder="Search block, tx, address or height" autocomplete="off" aria-label="Search block, transaction, address or height"><div class="search-msg" role="status" hidden></div></form>
+    <nav class="nav" aria-label="Main">
+      <a href="#home">Home</a><a href="#dag">DAG</a><a href="#contract-__PROXY__">Contract</a><a href="#contract-__GUEST__">Unverified</a><a href="#verify">Verify</a>
+    </nav>
+    <button class="thm" type="button" data-theme-toggle aria-label="Switch theme"><span data-theme-label>Theme</span></button>
+  </div>
+</header>
+<div class="sbar" role="note"><div class="sbar-in"><strong>Sample data</strong><span>Design prototype, direction A. Blocks, transactions and addresses are generated in the browser. Nothing here reads the chain.</span><span id="live" class="live"></span><button class="sbtn" id="live-btn" type="button" data-stream="toggle">Pause</button></div></div>
+<main id="main" tabindex="-1"></main>
+</div>
+<script>
+/* CitrateScan r1007 design prototype: shared core.
+   Everything here is SAMPLE DATA generated in the browser from a fixed seed.
+   The DAG is simulated, then colored with the GhostDAG rule (k = 18), so blue/red,
+   blue score, blue work, mergesets and selected-chain changes are internally consistent.
+   The contract code, ABI, opcodes and source map come from a real solc 0.8.28 compile. */
+"use strict";
+const CONTRACT = {"files":[{"path":"src/NameRegistry.sol","text":"// SPDX-License-Identifier: Apache-2.0\npragma solidity 0.8.28;\n\nimport {INameRegistry} from \"./interfaces/INameRegistry.sol\";\nimport {Owned} from \"./lib/Owned.sol\";\n\n/// @title NameRegistry\n/// @notice Maps human-readable names to addresses on chain 40204.\ncontract NameRegistry is INameRegistry, Owned {\n    uint256 public fee;\n    mapping(bytes32 => address) public ownerOf;\n\n    error NameTaken(bytes32 node);\n    error FeeRequired(uint256 required, uint256 sent);\n    error NotNameOwner(bytes32 node);\n\n    constructor(address initialOwner, uint256 initialFee) Owned(initialOwner) {\n        fee = initialFee;\n    }\n\n    function register(string calldata name) external payable {\n        if (msg.value < fee) revert FeeRequired(fee, msg.value);\n        bytes32 node = keccak256(bytes(name));\n        if (ownerOf[node] != address(0)) revert NameTaken(node);\n        ownerOf[node] = msg.sender;\n        emit NameRegistered(node, name, msg.sender);\n    }\n\n    function resolve(string calldata name) external view returns (address) {\n        return ownerOf[keccak256(bytes(name))];\n    }\n\n    function transferName(string calldata name, address to) external {\n        bytes32 node = keccak256(bytes(name));\n        if (ownerOf[node] != msg.sender) revert NotNameOwner(node);\n        ownerOf[node] = to;\n        emit NameTransferred(node, msg.sender, to);\n    }\n\n    function setFee(uint256 newFee) external onlyOwner {\n        fee = newFee;\n    }\n}\n"},{"path":"src/interfaces/INameRegistry.sol","text":"// SPDX-License-Identifier: Apache-2.0\npragma solidity 0.8.28;\n\ninterface INameRegistry {\n    event NameRegistered(bytes32 indexed node, string name, address indexed owner);\n    event NameTransferred(bytes32 indexed node, address indexed from, address indexed to);\n\n    function register(string calldata name) external payable;\n    function resolve(string calldata name) external view returns (address);\n    function transferName(string calldata name, address to) external;\n}\n"},{"path":"src/lib/Owned.sol","text":"// SPDX-License-Identifier: Apache-2.0\npragma solidity 0.8.28;\n\nabstract contract Owned {\n    address public owner;\n\n    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);\n\n    error NotOwner();\n\n    constructor(address initialOwner) {\n        owner = initialOwner;\n        emit OwnershipTransferred(address(0), initialOwner);\n    }\n\n    modifier onlyOwner() {\n        if (msg.sender != owner) revert NotOwner();\n        _;\n    }\n\n    function transferOwnership(address newOwner) external onlyOwner {\n        emit OwnershipTransferred(owner, newOwner);\n        owner = newOwner;\n    }\n}\n"}],"ins":[[0,"PUSH1","80",-1,0,0],[2,"PUSH1","40",-1,0,0],[4,"MSTORE","",-1,0,0],[5,"PUSH1","04",-1,0,0],[7,"CALLDATASIZE","",-1,0,0],[8,"LT","",-1,0,0],[9,"PUSH2","0079",-1,0,0],[12,"JUMPI","",-1,0,0],[13,"PUSH0","",-1,0,0],[14,"CALLDATALOAD","",-1,0,0],[15,"PUSH1","e0",-1,0,0],[17,"SHR","",-1,0,0],[18,"DUP1","",-1,0,0],[19,"PUSH4","8da5cb5b",-1,0,0],[24,"GT","",-1,0,0],[25,"PUSH2","004c",-1,0,0],[28,"JUMPI","",-1,0,0],[29,"DUP1","",-1,0,0],[30,"PUSH4","8da5cb5b",-1,0,0],[35,"EQ","",-1,0,0],[36,"PUSH2","012d",-1,0,0],[39,"JUMPI","",-1,0,0],[40,"DUP1","",-1,0,0],[41,"PUSH4","ddca3f43",-1,0,0],[46,"EQ","",-1,0,0],[47,"PUSH2","014b",-1,0,0],[50,"JUMPI","",-1,0,0],[51,"DUP1","",-1,0,0],[52,"PUSH4","f2c298be",-1,0,0],[57,"EQ","",-1,0,0],[58,"PUSH2","016e",-1,0,0],[61,"JUMPI","",-1,0,0],[62,"DUP1","",-1,0,0],[63,"PUSH4","f2fde38b",-1,0,0],[68,"EQ","",-1,0,0],[69,"PUSH2","0181",-1,0,0],[72,"JUMPI","",-1,0,0],[73,"PUSH0","",-1,0,0],[74,"PUSH0","",-1,0,0],[75,"REVERT","",-1,0,0],[76,"JUMPDEST","",-1,0,0],[77,"DUP1","",-1,0,0],[78,"PUSH4","37194d1e",-1,0,0],[83,"EQ","",-1,0,0],[84,"PUSH2","007d",-1,0,0],[87,"JUMPI","",-1,0,0],[88,"DUP1","",-1,0,0],[89,"PUSH4","461a4478",-1,0,0],[94,"EQ","",-1,0,0],[95,"PUSH2","009e",-1,0,0],[98,"JUMPI","",-1,0,0],[99,"DUP1","",-1,0,0],[100,"PUSH4","69fe0e2d",-1,0,0],[105,"EQ","",-1,0,0],[106,"PUSH2","00da",-1,0,0],[109,"JUMPI","",-1,0,0],[110,"DUP1","",-1,0,0],[111,"PUSH4","7dd56411",-1,0,0],[116,"EQ","",-1,0,0],[117,"PUSH2","00f9",-1,0,0],[120,"JUMPI","",-1,0,0],[121,"JUMPDEST","",-1,0,0],[122,"PUSH0","",-1,0,0],[123,"PUSH0","",-1,0,0],[124,"REVERT","",-1,0,0],[125,"JUMPDEST","",-1,0,0],[126,"CALLVALUE","",-1,0,0],[127,"DUP1","",-1,0,0],[128,"ISZERO","",-1,0,0],[129,"PUSH2","0088",-1,0,0],[132,"JUMPI","",-1,0,0],[133,"PUSH0","",-1,0,0],[134,"PUSH0","",-1,0,0],[135,"REVERT","",-1,0,0],[136,"JUMPDEST","",-1,0,0],[137,"POP","",-1,0,0],[138,"PUSH2","009c",-1,0,0],[141,"PUSH2","0097",-1,0,0],[144,"CALLDATASIZE","",-1,0,0],[145,"PUSH1","04",-1,0,0],[147,"PUSH2","0490",-1,0,0],[150,"JUMP","",-1,0,0],[151,"JUMPDEST","",-1,0,0],[152,"PUSH2","01a0",-1,0,0],[155,"JUMP","",-1,0,0],[156,"JUMPDEST","",-1,0,0],[157,"STOP","",-1,0,0],[158,"JUMPDEST","",-1,0,0],[159,"CALLVALUE","",-1,0,0],[160,"DUP1","",-1,0,0],[161,"ISZERO","",-1,0,0],[162,"PUSH2","00a9",-1,0,0],[165,"JUMPI","",-1,0,0],[166,"PUSH0","",-1,0,0],[167,"PUSH0","",-1,0,0],[168,"REVERT","",-1,0,0],[169,"JUMPDEST","",-1,0,0],[170,"POP","",-1,0,0],[171,"PUSH2","00bd",-1,0,0],[174,"PUSH2","00b8",-1,0,0],[177,"CALLDATASIZE","",-1,0,0],[178,"PUSH1","04",-1,0,0],[180,"PUSH2","04e0",-1,0,0],[183,"JUMP","",-1,0,0],[184,"JUMPDEST","",-1,0,0],[185,"PUSH2","0258",-1,0,0],[188,"JUMP","",-1,0,0],[189,"JUMPDEST","",-1,0,0],[190,"PUSH1","40",-1,0,0],[192,"MLOAD","",-1,0,0],[193,"PUSH1","01",-1,0,0],[195,"PUSH1","01",-1,0,0],[197,"PUSH1","a0",-1,0,0],[199,"SHL","",-1,0,0],[200,"SUB","",-1,0,0],[201,"SWAP1","",-1,0,0],[202,"SWAP2","",-1,0,0],[203,"AND","",-1,0,0],[204,"DUP2","",-1,0,0],[205,"MSTORE","",-1,0,0],[206,"PUSH1","20",-1,0,0],[208,"ADD","",-1,0,0],[209,"JUMPDEST","",-1,0,0],[210,"PUSH1","40",-1,0,0],[212,"MLOAD","",-1,0,0],[213,"DUP1","",-1,0,0],[214,"SWAP2","",-1,0,0],[215,"SUB","",-1,0,0],[216,"SWAP1","",-1,0,0],[217,"RETURN","",-1,0,0],[218,"JUMPDEST","",-1,0,0],[219,"CALLVALUE","",-1,0,0],[220,"DUP1","",-1,0,0],[221,"ISZERO","",-1,0,0],[222,"PUSH2","00e5",-1,0,0],[225,"JUMPI","",-1,0,0],[226,"PUSH0","",-1,0,0],[227,"PUSH0","",-1,0,0],[228,"REVERT","",-1,0,0],[229,"JUMPDEST","",-1,0,0],[230,"POP","",-1,0,0],[231,"PUSH2","009c",-1,0,0],[234,"PUSH2","00f4",-1,0,0],[237,"CALLDATASIZE","",-1,0,0],[238,"PUSH1","04",-1,0,0],[240,"PUSH2","051f",-1,0,0],[243,"JUMP","",-1,0,0],[244,"JUMPDEST","",-1,0,0],[245,"PUSH2","0295",-1,0,0],[248,"JUMP","",-1,0,0],[249,"JUMPDEST","",-1,0,0],[250,"CALLVALUE","",-1,0,0],[251,"DUP1","",-1,0,0],[252,"ISZERO","",-1,0,0],[253,"PUSH2","0104",-1,0,0],[256,"JUMPI","",-1,0,0],[257,"PUSH0","",-1,0,0],[258,"PUSH0","",-1,0,0],[259,"REVERT","",-1,0,0],[260,"JUMPDEST","",-1,0,0],[261,"POP","",-1,0,0],[262,"PUSH2","00bd",-1,0,0],[265,"PUSH2","0113",-1,0,0],[268,"CALLDATASIZE","",-1,0,0],[269,"PUSH1","04",-1,0,0],[271,"PUSH2","051f",-1,0,0],[274,"JUMP","",-1,0,0],[275,"JUMPDEST","",-1,0,0],[276,"PUSH1","02",-1,0,0],[278,"PUSH1","20",-1,0,0],[280,"MSTORE","",-1,0,0],[281,"PUSH0","",-1,0,0],[282,"SWAP1","",-1,0,0],[283,"DUP2","",-1,0,0],[284,"MSTORE","",-1,0,0],[285,"PUSH1","40",-1,0,0],[287,"SWAP1","",-1,0,0],[288,"KECCAK256","",-1,0,0],[289,"SLOAD","",-1,0,0],[290,"PUSH1","01",-1,0,0],[292,"PUSH1","01",-1,0,0],[294,"PUSH1","a0",-1,0,0],[296,"SHL","",-1,0,0],[297,"SUB","",-1,0,0],[298,"AND","",-1,0,0],[299,"DUP2","",-1,0,0],[300,"JUMP","",-1,0,0],[301,"JUMPDEST","",-1,0,0],[302,"CALLVALUE","",-1,0,0],[303,"DUP1","",-1,0,0],[304,"ISZERO","",-1,0,0],[305,"PUSH2","0138",-1,0,0],[308,"JUMPI","",-1,0,0],[309,"PUSH0","",-1,0,0],[310,"PUSH0","",-1,0,0],[311,"REVERT","",-1,0,0],[312,"JUMPDEST","",-1,0,0],[313,"POP","",-1,0,0],[314,"PUSH0","",-1,0,0],[315,"SLOAD","",-1,0,0],[316,"PUSH2","00bd",-1,0,0],[319,"SWAP1","",-1,0,0],[320,"PUSH1","01",-1,0,0],[322,"PUSH1","01",-1,0,0],[324,"PUSH1","a0",-1,0,0],[326,"SHL","",-1,0,0],[327,"SUB","",-1,0,0],[328,"AND","",-1,0,0],[329,"DUP2","",-1,0,0],[330,"JUMP","",-1,0,0],[331,"JUMPDEST","",-1,0,0],[332,"CALLVALUE","",-1,0,0],[333,"DUP1","",-1,0,0],[334,"ISZERO","",-1,0,0],[335,"PUSH2","0156",-1,0,0],[338,"JUMPI","",-1,0,0],[339,"PUSH0","",-1,0,0],[340,"PUSH0","",-1,0,0],[341,"REVERT","",-1,0,0],[342,"JUMPDEST","",-1,0,0],[343,"POP","",-1,0,0],[344,"PUSH2","0160",-1,0,0],[347,"PUSH1","01",-1,0,0],[349,"SLOAD","",-1,0,0],[350,"DUP2","",-1,0,0],[351,"JUMP","",-1,0,0],[352,"JUMPDEST","",-1,0,0],[353,"PUSH1","40",-1,0,0],[355,"MLOAD","",-1,0,0],[356,"SWAP1","",-1,0,0],[357,"DUP2","",-1,0,0],[358,"MSTORE","",-1,0,0],[359,"PUSH1","20",-1,0,0],[361,"ADD","",-1,0,0],[362,"PUSH2","00d1",-1,0,0],[365,"JUMP","",-1,0,0],[366,"JUMPDEST","",-1,0,0],[367,"PUSH2","009c",-1,0,0],[370,"PUSH2","017c",-1,0,0],[373,"CALLDATASIZE","",-1,0,0],[374,"PUSH1","04",-1,0,0],[376,"PUSH2","04e0",-1,0,0],[379,"JUMP","",-1,0,0],[380,"JUMPDEST","",-1,0,0],[381,"PUSH2","02c4",-1,0,0],[384,"JUMP","",-1,0,0],[385,"JUMPDEST","",-1,0,0],[386,"CALLVALUE","",-1,0,0],[387,"DUP1","",-1,0,0],[388,"ISZERO","",-1,0,0],[389,"PUSH2","018c",-1,0,0],[392,"JUMPI","",-1,0,0],[393,"PUSH0","",-1,0,0],[394,"PUSH0","",-1,0,0],[395,"REVERT","",-1,0,0],[396,"JUMPDEST","",-1,0,0],[397,"POP","",-1,0,0],[398,"PUSH2","009c",-1,0,0],[401,"PUSH2","019b",-1,0,0],[404,"CALLDATASIZE","",-1,0,0],[405,"PUSH1","04",-1,0,0],[407,"PUSH2","0536",-1,0,0],[410,"JUMP","",-1,0,0],[411,"JUMPDEST","",-1,0,0],[412,"PUSH2","03ad",-1,0,0],[415,"JUMP","",-1,0,0],[416,"JUMPDEST","",-1,0,0],[417,"PUSH0","",-1,0,0],[418,"DUP4","",-1,0,0],[419,"DUP4","",-1,0,0],[420,"PUSH1","40",-1,0,0],[422,"MLOAD","",-1,0,0],[423,"PUSH2","01b1",-1,0,0],[426,"SWAP3","",-1,0,0],[427,"SWAP2","",-1,0,0],[428,"SWAP1","",-1,0,0],[429,"PUSH2","0556",-1,0,0],[432,"JUMP","",-1,0,0],[433,"JUMPDEST","",-1,0,0],[434,"PUSH1","40",-1,0,0],[436,"DUP1","",-1,0,0],[437,"MLOAD","",-1,0,0],[438,"SWAP2","",-1,0,0],[439,"DUP3","",-1,0,0],[440,"SWAP1","",-1,0,0],[441,"SUB","",-1,0,0],[442,"SWAP1","",-1,0,0],[443,"SWAP2","",-1,0,0],[444,"KECCAK256","",-1,0,0],[445,"PUSH0","",-1,0,0],[446,"DUP2","",-1,0,0],[447,"DUP2","",-1,0,0],[448,"MSTORE","",-1,0,0],[449,"PUSH1","02",-1,0,0],[451,"PUSH1","20",-1,0,0],[453,"MSTORE","",-1,0,0],[454,"SWAP2","",-1,0,0],[455,"SWAP1","",-1,0,0],[456,"SWAP2","",-1,0,0],[457,"KECCAK256","",-1,0,0],[458,"SLOAD","",-1,0,0],[459,"SWAP1","",-1,0,0],[460,"SWAP2","",-1,0,0],[461,"POP","",-1,0,0],[462,"PUSH1","01",-1,0,0],[464,"PUSH1","01",-1,0,0],[466,"PUSH1","a0",-1,0,0],[468,"SHL","",-1,0,0],[469,"SUB","",-1,0,0],[470,"AND","",-1,0,0],[471,"CALLER","",-1,0,0],[472,"EQ","",-1,0,0],[473,"PUSH2","01fd",-1,0,0],[476,"JUMPI","",-1,0,0],[477,"PUSH1","40",-1,0,0],[479,"MLOAD","",-1,0,0],[480,"PUSH4","42c27e2f",-1,0,0],[485,"PUSH1","e1",-1,0,0],[487,"SHL","",-1,0,0],[488,"DUP2","",-1,0,0],[489,"MSTORE","",-1,0,0],[490,"PUSH1","04",-1,0,0],[492,"DUP2","",-1,0,0],[493,"ADD","",-1,0,0],[494,"DUP3","",-1,0,0],[495,"SWAP1","",-1,0,0],[496,"MSTORE","",-1,0,0],[497,"PUSH1","24",-1,0,0],[499,"ADD","",-1,0,0],[500,"JUMPDEST","",-1,0,0],[501,"PUSH1","40",-1,0,0],[503,"MLOAD","",-1,0,0],[504,"DUP1","",-1,0,0],[505,"SWAP2","",-1,0,0],[506,"SUB","",-1,0,0],[507,"SWAP1","",-1,0,0],[508,"REVERT","",-1,0,0],[509,"JUMPDEST","",-1,0,0],[510,"PUSH0","",-1,0,0],[511,"DUP2","",-1,0,0],[512,"DUP2","",-1,0,0],[513,"MSTORE","",-1,0,0],[514,"PUSH1","02",-1,0,0],[516,"PUSH1","20",-1,0,0],[518,"MSTORE","",-1,0,0],[519,"PUSH1","40",-1,0,0],[521,"DUP1","",-1,0,0],[522,"DUP3","",-1,0,0],[523,"KECCAK256","",-1,0,0],[524,"DUP1","",-1,0,0],[525,"SLOAD","",-1,0,0],[526,"PUSH1","01",-1,0,0],[528,"PUSH1","01",-1,0,0],[530,"PUSH1","a0",-1,0,0],[532,"SHL","",-1,0,0],[533,"SUB","",-1,0,0],[534,"NOT","",-1,0,0],[535,"AND","",-1,0,0],[536,"PUSH1","01",-1,0,0],[538,"PUSH1","01",-1,0,0],[540,"PUSH1","a0",-1,0,0],[542,"SHL","",-1,0,0],[543,"SUB","",-1,0,0],[544,"DUP7","",-1,0,0],[545,"AND","",-1,0,0],[546,"SWAP1","",-1,0,0],[547,"DUP2","",-1,0,0],[548,"OR","",-1,0,0],[549,"SWAP1","",-1,0,0],[550,"SWAP2","",-1,0,0],[551,"SSTORE","",-1,0,0],[552,"SWAP1","",-1,0,0],[553,"MLOAD","",-1,0,0],[554,"SWAP1","",-1,0,0],[555,"SWAP2","",-1,0,0],[556,"CALLER","",-1,0,0],[557,"SWAP2","",-1,0,0],[558,"DUP5","",-1,0,0],[559,"SWAP2","",-1,0,0],[560,"PUSH32","ee3ae35c0d0799fb196f821efc8d30111345552cd23192da6bab51e7f664b6ba",-1,0,0],[593,"SWAP2","",-1,0,0],[594,"LOG4","",-1,0,0],[595,"POP","",-1,0,0],[596,"POP","",-1,0,0],[597,"POP","",-1,0,0],[598,"POP","",-1,0,0],[599,"JUMP","",-1,0,0],[600,"JUMPDEST","",-1,0,0],[601,"PUSH0","",-1,0,0],[602,"PUSH1","02",-1,0,0],[604,"PUSH0","",-1,0,0],[605,"DUP5","",-1,0,0],[606,"DUP5","",-1,0,0],[607,"PUSH1","40",-1,0,0],[609,"MLOAD","",-1,0,0],[610,"PUSH2","026c",-1,0,0],[613,"SWAP3","",-1,0,0],[614,"SWAP2","",-1,0,0],[615,"SWAP1","",-1,0,0],[616,"PUSH2","0556",-1,0,0],[619,"JUMP","",-1,0,0],[620,"JUMPDEST","",-1,0,0],[621,"PUSH1","40",-1,0,0],[623,"DUP1","",-1,0,0],[624,"MLOAD","",-1,0,0],[625,"SWAP2","",-1,0,0],[626,"DUP3","",-1,0,0],[627,"SWAP1","",-1,0,0],[628,"SUB","",-1,0,0],[629,"SWAP1","",-1,0,0],[630,"SWAP2","",-1,0,0],[631,"KECCAK256","",-1,0,0],[632,"DUP3","",-1,0,0],[633,"MSTORE","",-1,0,0],[634,"PUSH1","20",-1,0,0],[636,"DUP3","",-1,0,0],[637,"ADD","",-1,0,0],[638,"SWAP3","",-1,0,0],[639,"SWAP1","",-1,0,0],[640,"SWAP3","",-1,0,0],[641,"MSTORE","",-1,0,0],[642,"ADD","",-1,0,0],[643,"PUSH0","",-1,0,0],[644,"KECCAK256","",-1,0,0],[645,"SLOAD","",-1,0,0],[646,"PUSH1","01",-1,0,0],[648,"PUSH1","01",-1,0,0],[650,"PUSH1","a0",-1,0,0],[652,"SHL","",-1,0,0],[653,"SUB","",-1,0,0],[654,"AND","",-1,0,0],[655,"SWAP4","",-1,0,0],[656,"SWAP3","",-1,0,0],[657,"POP","",-1,0,0],[658,"POP","",-1,0,0],[659,"POP","",-1,0,0],[660,"JUMP","",-1,0,0],[661,"JUMPDEST","",-1,0,0],[662,"PUSH0","",-1,0,0],[663,"SLOAD","",-1,0,0],[664,"PUSH1","01",-1,0,0],[666,"PUSH1","01",-1,0,0],[668,"PUSH1","a0",-1,0,0],[670,"SHL","",-1,0,0],[671,"SUB","",-1,0,0],[672,"AND","",-1,0,0],[673,"CALLER","",-1,0,0],[674,"EQ","",-1,0,0],[675,"PUSH2","02bf",-1,0,0],[678,"JUMPI","",-1,0,0],[679,"PUSH1","40",-1,0,0],[681,"MLOAD","",-1,0,0],[682,"PUSH4","30cd7471",-1,0,0],[687,"PUSH1","e0",-1,0,0],[689,"SHL","",-1,0,0],[690,"DUP2","",-1,0,0],[691,"MSTORE","",-1,0,0],[692,"PUSH1","04",-1,0,0],[694,"ADD","",-1,0,0],[695,"PUSH1","40",-1,0,0],[697,"MLOAD","",-1,0,0],[698,"DUP1","",-1,0,0],[699,"SWAP2","",-1,0,0],[700,"SUB","",-1,0,0],[701,"SWAP1","",-1,0,0],[702,"REVERT","",-1,0,0],[703,"JUMPDEST","",-1,0,0],[704,"PUSH1","01",-1,0,0],[706,"SSTORE","",-1,0,0],[707,"JUMP","",-1,0,0],[708,"JUMPDEST","",-1,0,0],[709,"PUSH1","01",-1,0,0],[711,"SLOAD","",-1,0,0],[712,"CALLVALUE","",-1,0,0],[713,"LT","",-1,0,0],[714,"ISZERO","",-1,0,0],[715,"PUSH2","02f4",-1,0,0],[718,"JUMPI","",-1,0,0],[719,"PUSH1","01",-1,0,0],[721,"SLOAD","",-1,0,0],[722,"PUSH1","40",-1,0,0],[724,"MLOAD","",-1,0,0],[725,"PUSH4","29f68437",-1,0,0],[730,"PUSH1","e2",-1,0,0],[732,"SHL","",-1,0,0],[733,"DUP2","",-1,0,0],[734,"MSTORE","",-1,0,0],[735,"PUSH1","04",-1,0,0],[737,"DUP2","",-1,0,0],[738,"ADD","",-1,0,0],[739,"SWAP2","",-1,0,0],[740,"SWAP1","",-1,0,0],[741,"SWAP2","",-1,0,0],[742,"MSTORE","",-1,0,0],[743,"CALLVALUE","",-1,0,0],[744,"PUSH1","24",-1,0,0],[746,"DUP3","",-1,0,0],[747,"ADD","",-1,0,0],[748,"MSTORE","",-1,0,0],[749,"PUSH1","44",-1,0,0],[751,"ADD","",-1,0,0],[752,"PUSH2","01f4",-1,0,0],[755,"JUMP","",-1,0,0],[756,"JUMPDEST","",-1,0,0],[757,"PUSH0","",-1,0,0],[758,"DUP3","",-1,0,0],[759,"DUP3","",-1,0,0],[760,"PUSH1","40",-1,0,0],[762,"MLOAD","",-1,0,0],[763,"PUSH2","0305",-1,0,0],[766,"SWAP3","",-1,0,0],[767,"SWAP2","",-1,0,0],[768,"SWAP1","",-1,0,0],[769,"PUSH2","0556",-1,0,0],[772,"JUMP","",-1,0,0],[773,"JUMPDEST","",-1,0,0],[774,"PUSH1","40",-1,0,0],[776,"DUP1","",-1,0,0],[777,"MLOAD","",-1,0,0],[778,"SWAP2","",-1,0,0],[779,"DUP3","",-1,0,0],[780,"SWAP1","",-1,0,0],[781,"SUB","",-1,0,0],[782,"SWAP1","",-1,0,0],[783,"SWAP2","",-1,0,0],[784,"KECCAK256","",-1,0,0],[785,"PUSH0","",-1,0,0],[786,"DUP2","",-1,0,0],[787,"DUP2","",-1,0,0],[788,"MSTORE","",-1,0,0],[789,"PUSH1","02",-1,0,0],[791,"PUSH1","20",-1,0,0],[793,"MSTORE","",-1,0,0],[794,"SWAP2","",-1,0,0],[795,"SWAP1","",-1,0,0],[796,"SWAP2","",-1,0,0],[797,"KECCAK256","",-1,0,0],[798,"SLOAD","",-1,0,0],[799,"SWAP1","",-1,0,0],[800,"SWAP2","",-1,0,0],[801,"POP","",-1,0,0],[802,"PUSH1","01",-1,0,0],[804,"PUSH1","01",-1,0,0],[806,"PUSH1","a0",-1,0,0],[808,"SHL","",-1,0,0],[809,"SUB","",-1,0,0],[810,"AND","",-1,0,0],[811,"ISZERO","",-1,0,0],[812,"PUSH2","034b",-1,0,0],[815,"JUMPI","",-1,0,0],[816,"PUSH1","40",-1,0,0],[818,"MLOAD","",-1,0,0],[819,"PUSH4","d66f4bcf",-1,0,0],[824,"PUSH1","e0",-1,0,0],[826,"SHL","",-1,0,0],[827,"DUP2","",-1,0,0],[828,"MSTORE","",-1,0,0],[829,"PUSH1","04",-1,0,0],[831,"DUP2","",-1,0,0],[832,"ADD","",-1,0,0],[833,"DUP3","",-1,0,0],[834,"SWAP1","",-1,0,0],[835,"MSTORE","",-1,0,0],[836,"PUSH1","24",-1,0,0],[838,"ADD","",-1,0,0],[839,"PUSH2","01f4",-1,0,0],[842,"JUMP","",-1,0,0],[843,"JUMPDEST","",-1,0,0],[844,"PUSH0","",-1,0,0],[845,"DUP2","",-1,0,0],[846,"DUP2","",-1,0,0],[847,"MSTORE","",-1,0,0],[848,"PUSH1","02",-1,0,0],[850,"PUSH1","20",-1,0,0],[852,"MSTORE","",-1,0,0],[853,"PUSH1","40",-1,0,0],[855,"SWAP1","",-1,0,0],[856,"DUP2","",-1,0,0],[857,"SWAP1","",-1,0,0],[858,"KECCAK256","",-1,0,0],[859,"DUP1","",-1,0,0],[860,"SLOAD","",-1,0,0],[861,"PUSH1","01",-1,0,0],[863,"PUSH1","01",-1,0,0],[865,"PUSH1","a0",-1,0,0],[867,"SHL","",-1,0,0],[868,"SUB","",-1,0,0],[869,"NOT","",-1,0,0],[870,"AND","",-1,0,0],[871,"CALLER","",-1,0,0],[872,"SWAP1","",-1,0,0],[873,"DUP2","",-1,0,0],[874,"OR","",-1,0,0],[875,"SWAP1","",-1,0,0],[876,"SWAP2","",-1,0,0],[877,"SSTORE","",-1,0,0],[878,"SWAP1","",-1,0,0],[879,"MLOAD","",-1,0,0],[880,"DUP3","",-1,0,0],[881,"SWAP1","",-1,0,0],[882,"PUSH32","f6ba725b44f3eb07c7fb1b0231ee431ee1b5ebff64aff03e8ccddd391e7cb592",-1,0,0],[915,"SWAP1","",-1,0,0],[916,"PUSH2","03a0",-1,0,0],[919,"SWAP1","",-1,0,0],[920,"DUP8","",-1,0,0],[921,"SWAP1","",-1,0,0],[922,"DUP8","",-1,0,0],[923,"SWAP1","",-1,0,0],[924,"PUSH2","0565",-1,0,0],[927,"JUMP","",-1,0,0],[928,"JUMPDEST","",-1,0,0],[929,"PUSH1","40",-1,0,0],[931,"MLOAD","",-1,0,0],[932,"DUP1","",-1,0,0],[933,"SWAP2","",-1,0,0],[934,"SUB","",-1,0,0],[935,"SWAP1","",-1,0,0],[936,"LOG3","",-1,0,0],[937,"POP","",-1,0,0],[938,"POP","",-1,0,0],[939,"POP","",-1,0,0],[940,"JUMP","",-1,0,0],[941,"JUMPDEST","",-1,0,0],[942,"PUSH0","",-1,0,0],[943,"SLOAD","",-1,0,0],[944,"PUSH1","01",-1,0,0],[946,"PUSH1","01",-1,0,0],[948,"PUSH1","a0",-1,0,0],[950,"SHL","",-1,0,0],[951,"SUB","",-1,0,0],[952,"AND","",-1,0,0],[953,"CALLER","",-1,0,0],[954,"EQ","",-1,0,0],[955,"PUSH2","03d7",-1,0,0],[958,"JUMPI","",-1,0,0],[959,"PUSH1","40",-1,0,0],[961,"MLOAD","",-1,0,0],[962,"PUSH4","30cd7471",-1,0,0],[967,"PUSH1","e0",-1,0,0],[969,"SHL","",-1,0,0],[970,"DUP2","",-1,0,0],[971,"MSTORE","",-1,0,0],[972,"PUSH1","04",-1,0,0],[974,"ADD","",-1,0,0],[975,"PUSH1","40",-1,0,0],[977,"MLOAD","",-1,0,0],[978,"DUP1","",-1,0,0],[979,"SWAP2","",-1,0,0],[980,"SUB","",-1,0,0],[981,"SWAP1","",-1,0,0],[982,"REVERT","",-1,0,0],[983,"JUMPDEST","",-1,0,0],[984,"PUSH0","",-1,0,0],[985,"DUP1","",-1,0,0],[986,"SLOAD","",-1,0,0],[987,"PUSH1","40",-1,0,0],[989,"MLOAD","",-1,0,0],[990,"PUSH1","01",-1,0,0],[992,"PUSH1","01",-1,0,0],[994,"PUSH1","a0",-1,0,0],[996,"SHL","",-1,0,0],[997,"SUB","",-1,0,0],[998,"DUP1","",-1,0,0],[999,"DUP6","",-1,0,0],[1000,"AND","",-1,0,0],[1001,"SWAP4","",-1,0,0],[1002,"SWAP3","",-1,0,0],[1003,"AND","",-1,0,0],[1004,"SWAP2","",-1,0,0],[1005,"PUSH32","8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0",-1,0,0],[1038,"SWAP2","",-1,0,0],[1039,"LOG3","",-1,0,0],[1040,"PUSH0","",-1,0,0],[1041,"DUP1","",-1,0,0],[1042,"SLOAD","",-1,0,0],[1043,"PUSH1","01",-1,0,0],[1045,"PUSH1","01",-1,0,0],[1047,"PUSH1","a0",-1,0,0],[1049,"SHL","",-1,0,0],[1050,"SUB","",-1,0,0],[1051,"NOT","",-1,0,0],[1052,"AND","",-1,0,0],[1053,"PUSH1","01",-1,0,0],[1055,"PUSH1","01",-1,0,0],[1057,"PUSH1","a0",-1,0,0],[1059,"SHL","",-1,0,0],[1060,"SUB","",-1,0,0],[1061,"SWAP3","",-1,0,0],[1062,"SWAP1","",-1,0,0],[1063,"SWAP3","",-1,0,0],[1064,"AND","",-1,0,0],[1065,"SWAP2","",-1,0,0],[1066,"SWAP1","",-1,0,0],[1067,"SWAP2","",-1,0,0],[1068,"OR","",-1,0,0],[1069,"SWAP1","",-1,0,0],[1070,"SSTORE","",-1,0,0],[1071,"JUMP","",-1,0,0],[1072,"JUMPDEST","",-1,0,0],[1073,"PUSH0","",-1,0,0],[1074,"PUSH0","",-1,0,0],[1075,"DUP4","",-1,0,0],[1076,"PUSH1","1f",-1,0,0],[1078,"DUP5","",-1,0,0],[1079,"ADD","",-1,0,0],[1080,"SLT","",-1,0,0],[1081,"PUSH2","0440",-1,0,0],[1084,"JUMPI","",-1,0,0],[1085,"PUSH0","",-1,0,0],[1086,"PUSH0","",-1,0,0],[1087,"REVERT","",-1,0,0],[1088,"JUMPDEST","",-1,0,0],[1089,"POP","",-1,0,0],[1090,"DUP2","",-1,0,0],[1091,"CALLDATALOAD","",-1,0,0],[1092,"PUSH8","ffffffffffffffff",-1,0,0],[1101,"DUP2","",-1,0,0],[1102,"GT","",-1,0,0],[1103,"ISZERO","",-1,0,0],[1104,"PUSH2","0457",-1,0,0],[1107,"JUMPI","",-1,0,0],[1108,"PUSH0","",-1,0,0],[1109,"PUSH0","",-1,0,0],[1110,"REVERT","",-1,0,0],[1111,"JUMPDEST","",-1,0,0],[1112,"PUSH1","20",-1,0,0],[1114,"DUP4","",-1,0,0],[1115,"ADD","",-1,0,0],[1116,"SWAP2","",-1,0,0],[1117,"POP","",-1,0,0],[1118,"DUP4","",-1,0,0],[1119,"PUSH1","20",-1,0,0],[1121,"DUP3","",-1,0,0],[1122,"DUP6","",-1,0,0],[1123,"ADD","",-1,0,0],[1124,"ADD","",-1,0,0],[1125,"GT","",-1,0,0],[1126,"ISZERO","",-1,0,0],[1127,"PUSH2","046e",-1,0,0],[1130,"JUMPI","",-1,0,0],[1131,"PUSH0","",-1,0,0],[1132,"PUSH0","",-1,0,0],[1133,"REVERT","",-1,0,0],[1134,"JUMPDEST","",-1,0,0],[1135,"SWAP3","",-1,0,0],[1136,"POP","",-1,0,0],[1137,"SWAP3","",-1,0,0],[1138,"SWAP1","",-1,0,0],[1139,"POP","",-1,0,0],[1140,"JUMP","",-1,0,0],[1141,"JUMPDEST","",-1,0,0],[1142,"DUP1","",-1,0,0],[1143,"CALLDATALOAD","",-1,0,0],[1144,"PUSH1","01",-1,0,0],[1146,"PUSH1","01",-1,0,0],[1148,"PUSH1","a0",-1,0,0],[1150,"SHL","",-1,0,0],[1151,"SUB","",-1,0,0],[1152,"DUP2","",-1,0,0],[1153,"AND","",-1,0,0],[1154,"DUP2","",-1,0,0],[1155,"EQ","",-1,0,0],[1156,"PUSH2","048b",-1,0,0],[1159,"JUMPI","",-1,0,0],[1160,"PUSH0","",-1,0,0],[1161,"PUSH0","",-1,0,0],[1162,"REVERT","",-1,0,0],[1163,"JUMPDEST","",-1,0,0],[1164,"SWAP2","",-1,0,0],[1165,"SWAP1","",-1,0,0],[1166,"POP","",-1,0,0],[1167,"JUMP","",-1,0,0],[1168,"JUMPDEST","",-1,0,0],[1169,"PUSH0","",-1,0,0],[1170,"PUSH0","",-1,0,0],[1171,"PUSH0","",-1,0,0],[1172,"PUSH1","40",-1,0,0],[1174,"DUP5","",-1,0,0],[1175,"DUP7","",-1,0,0],[1176,"SUB","",-1,0,0],[1177,"SLT","",-1,0,0],[1178,"ISZERO","",-1,0,0],[1179,"PUSH2","04a2",-1,0,0],[1182,"JUMPI","",-1,0,0],[1183,"PUSH0","",-1,0,0],[1184,"PUSH0","",-1,0,0],[1185,"REVERT","",-1,0,0],[1186,"JUMPDEST","",-1,0,0],[1187,"DUP4","",-1,0,0],[1188,"CALLDATALOAD","",-1,0,0],[1189,"PUSH8","ffffffffffffffff",-1,0,0],[1198,"DUP2","",-1,0,0],[1199,"GT","",-1,0,0],[1200,"ISZERO","",-1,0,0],[1201,"PUSH2","04b8",-1,0,0],[1204,"JUMPI","",-1,0,0],[1205,"PUSH0","",-1,0,0],[1206,"PUSH0","",-1,0,0],[1207,"REVERT","",-1,0,0],[1208,"JUMPDEST","",-1,0,0],[1209,"PUSH2","04c4",-1,0,0],[1212,"DUP7","",-1,0,0],[1213,"DUP3","",-1,0,0],[1214,"DUP8","",-1,0,0],[1215,"ADD","",-1,0,0],[1216,"PUSH2","0430",-1,0,0],[1219,"JUMP","",-1,0,0],[1220,"JUMPDEST","",-1,0,0],[1221,"SWAP1","",-1,0,0],[1222,"SWAP5","",-1,0,0],[1223,"POP","",-1,0,0],[1224,"SWAP3","",-1,0,0],[1225,"POP","",-1,0,0],[1226,"PUSH2","04d7",-1,0,0],[1229,"SWAP1","",-1,0,0],[1230,"POP","",-1,0,0],[1231,"PUSH1","20",-1,0,0],[1233,"DUP6","",-1,0,0],[1234,"ADD","",-1,0,0],[1235,"PUSH2","0475",-1,0,0],[1238,"JUMP","",-1,0,0],[1239,"JUMPDEST","",-1,0,0],[1240,"SWAP1","",-1,0,0],[1241,"POP","",-1,0,0],[1242,"SWAP3","",-1,0,0],[1243,"POP","",-1,0,0],[1244,"SWAP3","",-1,0,0],[1245,"POP","",-1,0,0],[1246,"SWAP3","",-1,0,0],[1247,"JUMP","",-1,0,0],[1248,"JUMPDEST","",-1,0,0],[1249,"PUSH0","",-1,0,0],[1250,"PUSH0","",-1,0,0],[1251,"PUSH1","20",-1,0,0],[1253,"DUP4","",-1,0,0],[1254,"DUP6","",-1,0,0],[1255,"SUB","",-1,0,0],[1256,"SLT","",-1,0,0],[1257,"ISZERO","",-1,0,0],[1258,"PUSH2","04f1",-1,0,0],[1261,"JUMPI","",-1,0,0],[1262,"PUSH0","",-1,0,0],[1263,"PUSH0","",-1,0,0],[1264,"REVERT","",-1,0,0],[1265,"JUMPDEST","",-1,0,0],[1266,"DUP3","",-1,0,0],[1267,"CALLDATALOAD","",-1,0,0],[1268,"PUSH8","ffffffffffffffff",-1,0,0],[1277,"DUP2","",-1,0,0],[1278,"GT","",-1,0,0],[1279,"ISZERO","",-1,0,0],[1280,"PUSH2","0507",-1,0,0],[1283,"JUMPI","",-1,0,0],[1284,"PUSH0","",-1,0,0],[1285,"PUSH0","",-1,0,0],[1286,"REVERT","",-1,0,0],[1287,"JUMPDEST","",-1,0,0],[1288,"PUSH2","0513",-1,0,0],[1291,"DUP6","",-1,0,0],[1292,"DUP3","",-1,0,0],[1293,"DUP7","",-1,0,0],[1294,"ADD","",-1,0,0],[1295,"PUSH2","0430",-1,0,0],[1298,"JUMP","",-1,0,0],[1299,"JUMPDEST","",-1,0,0],[1300,"SWAP1","",-1,0,0],[1301,"SWAP7","",-1,0,0],[1302,"SWAP1","",-1,0,0],[1303,"SWAP6","",-1,0,0],[1304,"POP","",-1,0,0],[1305,"SWAP4","",-1,0,0],[1306,"POP","",-1,0,0],[1307,"POP","",-1,0,0],[1308,"POP","",-1,0,0],[1309,"POP","",-1,0,0],[1310,"JUMP","",-1,0,0],[1311,"JUMPDEST","",-1,0,0],[1312,"PUSH0","",-1,0,0],[1313,"PUSH1","20",-1,0,0],[1315,"DUP3","",-1,0,0],[1316,"DUP5","",-1,0,0],[1317,"SUB","",-1,0,0],[1318,"SLT","",-1,0,0],[1319,"ISZERO","",-1,0,0],[1320,"PUSH2","052f",-1,0,0],[1323,"JUMPI","",-1,0,0],[1324,"PUSH0","",-1,0,0],[1325,"PUSH0","",-1,0,0],[1326,"REVERT","",-1,0,0],[1327,"JUMPDEST","",-1,0,0],[1328,"POP","",-1,0,0],[1329,"CALLDATALOAD","",-1,0,0],[1330,"SWAP2","",-1,0,0],[1331,"SWAP1","",-1,0,0],[1332,"POP","",-1,0,0],[1333,"JUMP","",-1,0,0],[1334,"JUMPDEST","",-1,0,0],[1335,"PUSH0","",-1,0,0],[1336,"PUSH1","20",-1,0,0],[1338,"DUP3","",-1,0,0],[1339,"DUP5","",-1,0,0],[1340,"SUB","",-1,0,0],[1341,"SLT","",-1,0,0],[1342,"ISZERO","",-1,0,0],[1343,"PUSH2","0546",-1,0,0],[1346,"JUMPI","",-1,0,0],[1347,"PUSH0","",-1,0,0],[1348,"PUSH0","",-1,0,0],[1349,"REVERT","",-1,0,0],[1350,"JUMPDEST","",-1,0,0],[1351,"PUSH2","054f",-1,0,0],[1354,"DUP3","",-1,0,0],[1355,"PUSH2","0475",-1,0,0],[1358,"JUMP","",-1,0,0],[1359,"JUMPDEST","",-1,0,0],[1360,"SWAP4","",-1,0,0],[1361,"SWAP3","",-1,0,0],[1362,"POP","",-1,0,0],[1363,"POP","",-1,0,0],[1364,"POP","",-1,0,0],[1365,"JUMP","",-1,0,0],[1366,"JUMPDEST","",-1,0,0],[1367,"DUP2","",-1,0,0],[1368,"DUP4","",-1,0,0],[1369,"DUP3","",-1,0,0],[1370,"CALLDATACOPY","",-1,0,0],[1371,"PUSH0","",-1,0,0],[1372,"SWAP2","",-1,0,0],[1373,"ADD","",-1,0,0],[1374,"SWAP1","",-1,0,0],[1375,"DUP2","",-1,0,0],[1376,"MSTORE","",-1,0,0],[1377,"SWAP2","",-1,0,0],[1378,"SWAP1","",-1,0,0],[1379,"POP","",-1,0,0],[1380,"JUMP","",-1,0,0],[1381,"JUMPDEST","",-1,0,0],[1382,"PUSH1","20",-1,0,0],[1384,"DUP2","",-1,0,0],[1385,"MSTORE","",-1,0,0],[1386,"DUP2","",-1,0,0],[1387,"PUSH1","20",-1,0,0],[1389,"DUP3","",-1,0,0],[1390,"ADD","",-1,0,0],[1391,"MSTORE","",-1,0,0],[1392,"DUP2","",-1,0,0],[1393,"DUP4","",-1,0,0],[1394,"PUSH1","40",-1,0,0],[1396,"DUP4","",-1,0,0],[1397,"ADD","",-1,0,0],[1398,"CALLDATACOPY","",-1,0,0],[1399,"PUSH0","",-1,0,0],[1400,"DUP2","",-1,0,0],[1401,"DUP4","",-1,0,0],[1402,"ADD","",-1,0,0],[1403,"PUSH1","40",-1,0,0],[1405,"SWAP1","",-1,0,0],[1406,"DUP2","",-1,0,0],[1407,"ADD","",-1,0,0],[1408,"SWAP2","",-1,0,0],[1409,"SWAP1","",-1,0,0],[1410,"SWAP2","",-1,0,0],[1411,"MSTORE","",-1,0,0],[1412,"PUSH1","1f",-1,0,0],[1414,"SWAP1","",-1,0,0],[1415,"SWAP3","",-1,0,0],[1416,"ADD","",-1,0,0],[1417,"PUSH1","1f",-1,0,0],[1419,"NOT","",-1,0,0],[1420,"AND","",-1,0,0],[1421,"ADD","",-1,0,0],[1422,"ADD","",-1,0,0],[1423,"SWAP2","",-1,0,0],[1424,"SWAP1","",-1,0,0],[1425,"POP","",-1,0,0],[1426,"JUMP","",-1,0,0],[1427,"INVALID","",-1,0,0]],"runtimeHex":"608060405260043610610079575f3560e01c80638da5cb5b1161004c5780638da5cb5b1461012d578063ddca3f431461014b578063f2c298be1461016e578063f2fde38b14610181575f5ffd5b806337194d1e1461007d578063461a44781461009e57806369fe0e2d146100da5780637dd56411146100f9575b5f5ffd5b348015610088575f5ffd5b5061009c610097366004610490565b6101a0565b005b3480156100a9575f5ffd5b506100bd6100b83660046104e0565b610258565b6040516001600160a01b0390911681526020015b60405180910390f35b3480156100e5575f5ffd5b5061009c6100f436600461051f565b610295565b348015610104575f5ffd5b506100bd61011336600461051f565b60026020525f90815260409020546001600160a01b031681565b348015610138575f5ffd5b505f546100bd906001600160a01b031681565b348015610156575f5ffd5b5061016060015481565b6040519081526020016100d1565b61009c61017c3660046104e0565b6102c4565b34801561018c575f5ffd5b5061009c61019b366004610536565b6103ad565b5f83836040516101b1929190610556565b60408051918290039091205f818152600260205291909120549091506001600160a01b031633146101fd576040516342c27e2f60e11b8152600481018290526024015b60405180910390fd5b5f8181526002602052604080822080546001600160a01b0319166001600160a01b03861690811790915590519091339184917fee3ae35c0d0799fb196f821efc8d30111345552cd23192da6bab51e7f664b6ba91a450505050565b5f60025f848460405161026c929190610556565b604080519182900390912082526020820192909252015f20546001600160a01b03169392505050565b5f546001600160a01b031633146102bf576040516330cd747160e01b815260040160405180910390fd5b600155565b6001543410156102f4576001546040516329f6843760e21b815260048101919091523460248201526044016101f4565b5f8282604051610305929190610556565b60408051918290039091205f818152600260205291909120549091506001600160a01b03161561034b5760405163d66f4bcf60e01b8152600481018290526024016101f4565b5f818152600260205260409081902080546001600160a01b03191633908117909155905182907ff6ba725b44f3eb07c7fb1b0231ee431ee1b5ebff64aff03e8ccddd391e7cb592906103a09087908790610565565b60405180910390a3505050565b5f546001600160a01b031633146103d7576040516330cd747160e01b815260040160405180910390fd5b5f80546040516001600160a01b03808516939216917f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e091a35f80546001600160a01b0319166001600160a01b0392909216919091179055565b5f5f83601f840112610440575f5ffd5b50813567ffffffffffffffff811115610457575f5ffd5b60208301915083602082850101111561046e575f5ffd5b9250929050565b80356001600160a01b038116811461048b575f5ffd5b919050565b5f5f5f604084860312156104a2575f5ffd5b833567ffffffffffffffff8111156104b8575f5ffd5b6104c486828701610430565b90945092506104d7905060208501610475565b90509250925092565b5f5f602083850312156104f1575f5ffd5b823567ffffffffffffffff811115610507575f5ffd5b61051385828601610430565b90969095509350505050565b5f6020828403121561052f575f5ffd5b5035919050565b5f60208284031215610546575f5ffd5b61054f82610475565b9392505050565b818382375f9101908152919050565b60208152816020820152818360408301375f818301604090810191909152601f909201601f1916010191905056fea264697066735822122022bcec986ba503c74bf3a9db6d3f4818b9a0b9e80e5820da5de79e6990be0df264736f6c634300081c0033","cbor":"a264697066735822122022bcec986ba503c74bf3a9db6d3f4818b9a0b9e80e5820da5de79e6990be0df264736f6c634300081c0033","abi":[{"type":"constructor","inputs":[{"name":"initialOwner","type":"address","internalType":"address"},{"name":"initialFee","type":"uint256","internalType":"uint256"}],"stateMutability":"nonpayable"},{"type":"function","name":"fee","inputs":[],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},{"type":"function","name":"owner","inputs":[],"outputs":[{"name":"","type":"address","internalType":"address"}],"stateMutability":"view"},{"type":"function","name":"ownerOf","inputs":[{"name":"","type":"bytes32","internalType":"bytes32"}],"outputs":[{"name":"","type":"address","internalType":"address"}],"stateMutability":"view"},{"type":"function","name":"register","inputs":[{"name":"name","type":"string","internalType":"string"}],"outputs":[],"stateMutability":"payable"},{"type":"function","name":"resolve","inputs":[{"name":"name","type":"string","internalType":"string"}],"outputs":[{"name":"","type":"address","internalType":"address"}],"stateMutability":"view"},{"type":"function","name":"setFee","inputs":[{"name":"newFee","type":"uint256","internalType":"uint256"}],"outputs":[],"stateMutability":"nonpayable"},{"type":"function","name":"transferName","inputs":[{"name":"name","type":"string","internalType":"string"},{"name":"to","type":"address","internalType":"address"}],"outputs":[],"stateMutability":"nonpayable"},{"type":"function","name":"transferOwnership","inputs":[{"name":"newOwner","type":"address","internalType":"address"}],"outputs":[],"stateMutability":"nonpayable"},{"type":"event","name":"NameRegistered","inputs":[{"name":"node","type":"bytes32","indexed":true,"internalType":"bytes32"},{"name":"name","type":"string","indexed":false,"internalType":"string"},{"name":"owner","type":"address","indexed":true,"internalType":"address"}],"anonymous":false},{"type":"event","name":"NameTransferred","inputs":[{"name":"node","type":"bytes32","indexed":true,"internalType":"bytes32"},{"name":"from","type":"address","indexed":true,"internalType":"address"},{"name":"to","type":"address","indexed":true,"internalType":"address"}],"anonymous":false},{"type":"event","name":"OwnershipTransferred","inputs":[{"name":"previousOwner","type":"address","indexed":true,"internalType":"address"},{"name":"newOwner","type":"address","indexed":true,"internalType":"address"}],"anonymous":false},{"type":"error","name":"FeeRequired","inputs":[{"name":"required","type":"uint256","internalType":"uint256"},{"name":"sent","type":"uint256","internalType":"uint256"}]},{"type":"error","name":"NameTaken","inputs":[{"name":"node","type":"bytes32","internalType":"bytes32"}]},{"type":"error","name":"NotNameOwner","inputs":[{"name":"node","type":"bytes32","internalType":"bytes32"}]},{"type":"error","name":"NotOwner","inputs":[]}],"methodIdentifiers":{"fee()":"ddca3f43","owner()":"8da5cb5b","ownerOf(bytes32)":"7dd56411","register(string)":"f2c298be","resolve(string)":"461a4478","setFee(uint256)":"69fe0e2d","transferName(string,address)":"37194d1e","transferOwnership(address)":"f2fde38b"},"solc":"0.8.28+commit.7893614a","size":1481,"initSize":1670};
+const GUESTBOOK = {"ins":[[0,"PUSH1","80"],[2,"PUSH1","40"],[4,"MSTORE",""],[5,"CALLVALUE",""],[6,"DUP1",""],[7,"ISZERO",""],[8,"PUSH2","000f"],[11,"JUMPI",""],[12,"PUSH0",""],[13,"PUSH0",""],[14,"REVERT",""],[15,"JUMPDEST",""],[16,"POP",""],[17,"PUSH1","04"],[19,"CALLDATASIZE",""],[20,"LT",""],[21,"PUSH2","0055"],[24,"JUMPI",""],[25,"PUSH0",""],[26,"CALLDATALOAD",""],[27,"PUSH1","e0"],[29,"SHR",""],[30,"DUP1",""],[31,"PUSH4","06661abd"],[36,"EQ",""],[37,"PUSH2","0059"],[40,"JUMPI",""],[41,"DUP1",""],[42,"PUSH4","70983e2f"],[47,"EQ",""],[48,"PUSH2","006f"],[51,"JUMPI",""],[52,"DUP1",""],[53,"PUSH4","799cd333"],[58,"EQ",""],[59,"PUSH2","008e"],[62,"JUMPI",""],[63,"DUP1",""],[64,"PUSH4","b20eb4c4"],[69,"EQ",""],[70,"PUSH2","00a3"],[73,"JUMPI",""],[74,"DUP1",""],[75,"PUSH4","b30906d4"],[80,"EQ",""],[81,"PUSH2","00b6"],[84,"JUMPI",""],[85,"JUMPDEST",""],[86,"PUSH0",""],[87,"PUSH0",""],[88,"REVERT",""],[89,"JUMPDEST",""],[90,"PUSH0",""],[91,"SLOAD",""],[92,"JUMPDEST",""],[93,"PUSH1","40"],[95,"MLOAD",""],[96,"SWAP1",""],[97,"DUP2",""],[98,"MSTORE",""],[99,"PUSH1","20"],[101,"ADD",""],[102,"JUMPDEST",""],[103,"PUSH1","40"],[105,"MLOAD",""],[106,"DUP1",""],[107,"SWAP2",""],[108,"SUB",""],[109,"SWAP1",""],[110,"RETURN",""],[111,"JUMPDEST",""],[112,"PUSH2","005c"],[115,"PUSH2","007d"],[118,"CALLDATASIZE",""],[119,"PUSH1","04"],[121,"PUSH2","0275"],[124,"JUMP",""],[125,"JUMPDEST",""],[126,"PUSH1","01"],[128,"PUSH1","20"],[130,"MSTORE",""],[131,"PUSH0",""],[132,"SWAP1",""],[133,"DUP2",""],[134,"MSTORE",""],[135,"PUSH1","40"],[137,"SWAP1",""],[138,"KECCAK256",""],[139,"SLOAD",""],[140,"DUP2",""],[141,"JUMP",""],[142,"JUMPDEST",""],[143,"PUSH2","00a1"],[146,"PUSH2","009c"],[149,"CALLDATASIZE",""],[150,"PUSH1","04"],[152,"PUSH2","02a2"],[155,"JUMP",""],[156,"JUMPDEST",""],[157,"PUSH2","00f7"],[160,"JUMP",""],[161,"JUMPDEST",""],[162,"STOP",""],[163,"JUMPDEST",""],[164,"PUSH2","00a1"],[167,"PUSH2","00b1"],[170,"CALLDATASIZE",""],[171,"PUSH1","04"],[173,"PUSH2","02a2"],[176,"JUMP",""],[177,"JUMPDEST",""],[178,"PUSH2","0215"],[181,"JUMP",""],[182,"JUMPDEST",""],[183,"PUSH2","00c9"],[186,"PUSH2","00c4"],[189,"CALLDATASIZE",""],[190,"PUSH1","04"],[192,"PUSH2","02a2"],[195,"JUMP",""],[196,"JUMPDEST",""],[197,"PUSH2","022e"],[200,"JUMP",""],[201,"JUMPDEST",""],[202,"PUSH1","40"],[204,"DUP1",""],[205,"MLOAD",""],[206,"PUSH1","01"],[208,"PUSH1","01"],[210,"PUSH1","a0"],[212,"SHL",""],[213,"SUB",""],[214,"SWAP1",""],[215,"SWAP5",""],[216,"AND",""],[217,"DUP5",""],[218,"MSTORE",""],[219,"PUSH8","ffffffffffffffff"],[228,"SWAP1",""],[229,"SWAP3",""],[230,"AND",""],[231,"PUSH1","20"],[233,"DUP5",""],[234,"ADD",""],[235,"MSTORE",""],[236,"SWAP1",""],[237,"DUP3",""],[238,"ADD",""],[239,"MSTORE",""],[240,"PUSH1","60"],[242,"ADD",""],[243,"PUSH2","0066"],[246,"JUMP",""],[247,"JUMPDEST",""],[248,"PUSH1","40"],[250,"DUP1",""],[251,"MLOAD",""],[252,"PUSH1","60"],[254,"DUP2",""],[255,"ADD",""],[256,"DUP3",""],[257,"MSTORE",""],[258,"CALLER",""],[259,"DUP1",""],[260,"DUP3",""],[261,"MSTORE",""],[262,"PUSH8","ffffffffffffffff"],[271,"TIMESTAMP",""],[272,"DUP2",""],[273,"AND",""],[274,"PUSH1","20"],[276,"DUP1",""],[277,"DUP6",""],[278,"ADD",""],[279,"SWAP2",""],[280,"DUP3",""],[281,"MSTORE",""],[282,"DUP5",""],[283,"DUP7",""],[284,"ADD",""],[285,"DUP8",""],[286,"DUP2",""],[287,"MSTORE",""],[288,"PUSH0",""],[289,"DUP1",""],[290,"SLOAD",""],[291,"PUSH1","01"],[293,"DUP2",""],[294,"DUP2",""],[295,"ADD",""],[296,"DUP4",""],[297,"SSTORE",""],[298,"DUP3",""],[299,"DUP1",""],[300,"MSTORE",""],[301,"SWAP8",""],[302,"MLOAD",""],[303,"PUSH1","02"],[305,"SWAP1",""],[306,"SWAP2",""],[307,"MUL",""],[308,"PUSH32","290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563"],[341,"DUP2",""],[342,"ADD",""],[343,"DUP1",""],[344,"SLOAD",""],[345,"SWAP7",""],[346,"MLOAD",""],[347,"SWAP1",""],[348,"SWAP8",""],[349,"AND",""],[350,"PUSH1","01"],[352,"PUSH1","a0"],[354,"SHL",""],[355,"MUL",""],[356,"PUSH1","01"],[358,"PUSH1","01"],[360,"PUSH1","e0"],[362,"SHL",""],[363,"SUB",""],[364,"NOT",""],[365,"SWAP1",""],[366,"SWAP7",""],[367,"AND",""],[368,"PUSH1","01"],[370,"PUSH1","01"],[372,"PUSH1","a0"],[374,"SHL",""],[375,"SUB",""],[376,"SWAP3",""],[377,"SWAP1",""],[378,"SWAP3",""],[379,"AND",""],[380,"SWAP2",""],[381,"SWAP1",""],[382,"SWAP2",""],[383,"OR",""],[384,"SWAP5",""],[385,"SWAP1",""],[386,"SWAP5",""],[387,"OR",""],[388,"SWAP1",""],[389,"SWAP5",""],[390,"SSTORE",""],[391,"MLOAD",""],[392,"PUSH32","290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e564"],[425,"SWAP1",""],[426,"SWAP3",""],[427,"ADD",""],[428,"SWAP2",""],[429,"SWAP1",""],[430,"SWAP2",""],[431,"SSTORE",""],[432,"SWAP2",""],[433,"DUP2",""],[434,"MSTORE",""],[435,"SWAP1",""],[436,"DUP3",""],[437,"SWAP1",""],[438,"MSTORE",""],[439,"SWAP2",""],[440,"DUP3",""],[441,"KECCAK256",""],[442,"DUP1",""],[443,"SLOAD",""],[444,"SWAP2",""],[445,"SWAP3",""],[446,"SWAP1",""],[447,"SWAP2",""],[448,"PUSH2","01ca"],[451,"SWAP1",""],[452,"DUP5",""],[453,"SWAP1",""],[454,"PUSH2","02cd"],[457,"JUMP",""],[458,"JUMPDEST",""],[459,"SWAP1",""],[460,"SWAP2",""],[461,"SSTORE",""],[462,"POP",""],[463,"POP",""],[464,"PUSH0",""],[465,"SLOAD",""],[466,"PUSH2","01dd"],[469,"SWAP1",""],[470,"PUSH1","01"],[472,"SWAP1",""],[473,"PUSH2","02e6"],[476,"JUMP",""],[477,"JUMPDEST",""],[478,"PUSH1","40"],[480,"MLOAD",""],[481,"DUP3",""],[482,"DUP2",""],[483,"MSTORE",""],[484,"CALLER",""],[485,"SWAP1",""],[486,"PUSH32","f6fdcd5f89b5d7cd2e70805ed68abdcb82d7b2bd6a4990639ee78ec702372d10"],[519,"SWAP1",""],[520,"PUSH1","20"],[522,"ADD",""],[523,"PUSH1","40"],[525,"MLOAD",""],[526,"DUP1",""],[527,"SWAP2",""],[528,"SUB",""],[529,"SWAP1",""],[530,"LOG3",""],[531,"POP",""],[532,"JUMP",""],[533,"JUMPDEST",""],[534,"DUP1",""],[535,"PUSH1","02"],[537,"PUSH0",""],[538,"DUP3",""],[539,"DUP3",""],[540,"SLOAD",""],[541,"PUSH2","0226"],[544,"SWAP2",""],[545,"SWAP1",""],[546,"PUSH2","02cd"],[549,"JUMP",""],[550,"JUMPDEST",""],[551,"SWAP1",""],[552,"SWAP2",""],[553,"SSTORE",""],[554,"POP",""],[555,"POP",""],[556,"POP",""],[557,"JUMP",""],[558,"JUMPDEST",""],[559,"PUSH0",""],[560,"DUP2",""],[561,"DUP2",""],[562,"SLOAD",""],[563,"DUP2",""],[564,"LT",""],[565,"PUSH2","023c"],[568,"JUMPI",""],[569,"PUSH0",""],[570,"DUP1",""],[571,"REVERT",""],[572,"JUMPDEST",""],[573,"PUSH0",""],[574,"SWAP2",""],[575,"DUP3",""],[576,"MSTORE",""],[577,"PUSH1","20"],[579,"SWAP1",""],[580,"SWAP2",""],[581,"KECCAK256",""],[582,"PUSH1","02"],[584,"SWAP1",""],[585,"SWAP2",""],[586,"MUL",""],[587,"ADD",""],[588,"DUP1",""],[589,"SLOAD",""],[590,"PUSH1","01"],[592,"SWAP1",""],[593,"SWAP2",""],[594,"ADD",""],[595,"SLOAD",""],[596,"PUSH1","01"],[598,"PUSH1","01"],[600,"PUSH1","a0"],[602,"SHL",""],[603,"SUB",""],[604,"DUP3",""],[605,"AND",""],[606,"SWAP3",""],[607,"POP",""],[608,"PUSH1","01"],[610,"PUSH1","a0"],[612,"SHL",""],[613,"SWAP1",""],[614,"SWAP2",""],[615,"DIV",""],[616,"PUSH8","ffffffffffffffff"],[625,"AND",""],[626,"SWAP1",""],[627,"DUP4",""],[628,"JUMP",""],[629,"JUMPDEST",""],[630,"PUSH0",""],[631,"PUSH1","20"],[633,"DUP3",""],[634,"DUP5",""],[635,"SUB",""],[636,"SLT",""],[637,"ISZERO",""],[638,"PUSH2","0285"],[641,"JUMPI",""],[642,"PUSH0",""],[643,"PUSH0",""],[644,"REVERT",""],[645,"JUMPDEST",""],[646,"DUP2",""],[647,"CALLDATALOAD",""],[648,"PUSH1","01"],[650,"PUSH1","01"],[652,"PUSH1","a0"],[654,"SHL",""],[655,"SUB",""],[656,"DUP2",""],[657,"AND",""],[658,"DUP2",""],[659,"EQ",""],[660,"PUSH2","029b"],[663,"JUMPI",""],[664,"PUSH0",""],[665,"PUSH0",""],[666,"REVERT",""],[667,"JUMPDEST",""],[668,"SWAP4",""],[669,"SWAP3",""],[670,"POP",""],[671,"POP",""],[672,"POP",""],[673,"JUMP",""],[674,"JUMPDEST",""],[675,"PUSH0",""],[676,"PUSH1","20"],[678,"DUP3",""],[679,"DUP5",""],[680,"SUB",""],[681,"SLT",""],[682,"ISZERO",""],[683,"PUSH2","02b2"],[686,"JUMPI",""],[687,"PUSH0",""],[688,"PUSH0",""],[689,"REVERT",""],[690,"JUMPDEST",""],[691,"POP",""],[692,"CALLDATALOAD",""],[693,"SWAP2",""],[694,"SWAP1",""],[695,"POP",""],[696,"JUMP",""],[697,"JUMPDEST",""],[698,"PUSH4","4e487b71"],[703,"PUSH1","e0"],[705,"SHL",""],[706,"PUSH0",""],[707,"MSTORE",""],[708,"PUSH1","11"],[710,"PUSH1","04"],[712,"MSTORE",""],[713,"PUSH1","24"],[715,"PUSH0",""],[716,"REVERT",""],[717,"JUMPDEST",""],[718,"DUP1",""],[719,"DUP3",""],[720,"ADD",""],[721,"DUP1",""],[722,"DUP3",""],[723,"GT",""],[724,"ISZERO",""],[725,"PUSH2","02e0"],[728,"JUMPI",""],[729,"PUSH2","02e0"],[732,"PUSH2","02b9"],[735,"JUMP",""],[736,"JUMPDEST",""],[737,"SWAP3",""],[738,"SWAP2",""],[739,"POP",""],[740,"POP",""],[741,"JUMP",""],[742,"JUMPDEST",""],[743,"DUP2",""],[744,"DUP2",""],[745,"SUB",""],[746,"DUP2",""],[747,"DUP2",""],[748,"GT",""],[749,"ISZERO",""],[750,"PUSH2","02e0"],[753,"JUMPI",""],[754,"PUSH2","02e0"],[757,"PUSH2","02b9"],[760,"JUMP",""],[761,"INVALID",""]],"runtimeHex":"608060405234801561000f575f5ffd5b5060043610610055575f3560e01c806306661abd1461005957806370983e2f1461006f578063799cd3331461008e578063b20eb4c4146100a3578063b30906d4146100b6575b5f5ffd5b5f545b6040519081526020015b60405180910390f35b61005c61007d366004610275565b60016020525f908152604090205481565b6100a161009c3660046102a2565b6100f7565b005b6100a16100b13660046102a2565b610215565b6100c96100c43660046102a2565b61022e565b604080516001600160a01b03909416845267ffffffffffffffff909216602084015290820152606001610066565b604080516060810182523380825267ffffffffffffffff42811660208085019182528486018781525f805460018181018355828052975160029091027f290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563810180549651909716600160a01b026001600160e01b03199096166001600160a01b03929092169190911794909417909455517f290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e56490920191909155918152908290529182208054919290916101ca9084906102cd565b90915550505f546101dd906001906102e6565b60405182815233907ff6fdcd5f89b5d7cd2e70805ed68abdcb82d7b2bd6a4990639ee78ec702372d109060200160405180910390a350565b8060025f82825461022691906102cd565b909155505050565b5f818154811061023c575f80fd5b5f918252602090912060029091020180546001909101546001600160a01b0382169250600160a01b90910467ffffffffffffffff169083565b5f60208284031215610285575f5ffd5b81356001600160a01b038116811461029b575f5ffd5b9392505050565b5f602082840312156102b2575f5ffd5b5035919050565b634e487b7160e01b5f52601160045260245ffd5b808201808211156102e0576102e06102b9565b92915050565b818103818111156102e0576102e06102b956fea2646970667358221220fa94dd51e625522c5c56a2fbd1af246965b11fc7e5beb4f860dcac947628552564736f6c634300081c0033","size":815,"cbor":"a2646970667358221220fa94dd51e625522c5c56a2fbd1af246965b11fc7e5beb4f860dcac947628552564736f6c634300081c0033"};
+
+const CORE = (() => {
+  /* ---------- deterministic PRNG ---------- */
+  function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  const R = mulberry32(40204);
+  const hexN = (n) => { let s = ""; for (let i = 0; i < n; i++) s += Math.floor(R() * 16).toString(16); return s; };
+  const poisson = (l) => { let L = Math.exp(-l), k = 0, p = 1; do { k++; p *= R(); } while (p > L); return k - 1; };
+
+  /* ---------- ABI encoding for the Write tab preview ---------- */
+  const ABI = {
+    word: (hex) => hex.replace(/^0x/, "").padStart(64, "0"),
+    encode(sel, types, vals) {
+      let head = "", tail = "", dynOff = 32 * types.length;
+      types.forEach((t, k) => {
+        const v = vals[k];
+        if (t === "string" || t === "bytes") {
+          const bytes = t === "string" ? Array.from(new TextEncoder().encode(v)).map((x) => x.toString(16).padStart(2, "0")).join("") : String(v).replace(/^0x/, "");
+          head += ABI.word((dynOff).toString(16));
+          const len = bytes.length / 2;
+          const padded = bytes.padEnd(Math.ceil(len / 32) * 64, "0");
+          tail += ABI.word(len.toString(16)) + padded;
+          dynOff += 32 + padded.length / 2;
+        } else if (t === "address" || t === "bytes32") head += t === "bytes32" ? String(v).replace(/^0x/, "").padEnd(64, "0") : ABI.word(String(v).toLowerCase());
+        else if (/^uint/.test(t)) head += ABI.word(BigInt(v).toString(16));
+        else if (t === "bool") head += ABI.word(v ? "1" : "0");
+      });
+      return "0x" + sel + head + tail;
+    },
+    validate(t, v) {
+      if (v === "" || v == null) return "Required";
+      if (t === "address") return /^0x[0-9a-fA-F]{40}$/.test(v) ? null : "Enter a 20-byte hex address starting with 0x";
+      if (t === "bytes32") return /^0x[0-9a-fA-F]{64}$/.test(v) ? null : "Enter 32 bytes as 0x followed by 64 hex characters";
+      if (/^uint/.test(t)) return /^\d+$/.test(v) ? null : "Enter a whole number (base units)";
+      return null;
+    },
+  };
+
+  const K = 18;                 // GhostDAG k (core/consensus/src/types.rs)
+  const H0 = 41300, BS0 = 48900; // display offsets for sample heights / blue scores
+  const SLOT_MS = 2000;          // sample slot spacing (illustrative)
+  const T0 = Date.UTC(2026, 10, 4, 15, 0, 0);
+  const CHECKPOINT_EVERY = 50;
+  const NSLOTS = 190, START_VISIBLE = 150;
+  const WORK = 1048576;          // per-block work (sample constant)
+
+  /* ---------- accounts ---------- */
+  const PRODUCERS = [];
+  const shares = [0.22, 0.19, 0.16, 0.14, 0.12, 0.10, 0.07];
+  for (let i = 0; i < 7; i++) PRODUCERS.push({ i, addr: "0x" + hexN(40), label: "Producer " + (i + 1), weight: shares[i] });
+  const EOAS = [];
+  for (let i = 0; i < 12; i++) EOAS.push("0x" + hexN(40));
+  const PROXY = "0x" + "4c1e" + hexN(36);      // EIP-1967 proxy, verified implementation behind it
+  const IMPL = "0x" + "9a07" + hexN(36);       // NameRegistry implementation (verified, full match)
+  const IMPL_OLD = "0x" + "77b2" + hexN(36);   // previous implementation
+  const GUEST = "0x" + "b0b5" + hexN(36);      // unverified contract
+  const DEPLOYER = EOAS[0];
+
+  /* ---------- DAG simulation ---------- */
+  const blocks = [];
+  const byHash = {};
+  function mkBlock(parents, slot, producer) {
+    const b = { i: blocks.length, hash: "0x" + hexN(64), parents, slot, producer, ts: T0 + slot * SLOT_MS + Math.floor(R() * 900), txs: [] };
+    b.height = parents.length ? Math.max(...parents.map((p) => blocks[p].height)) + 1 : 0;
+    b.past = new Set();
+    parents.forEach((p) => { b.past.add(p); blocks[p].past.forEach((x) => b.past.add(x)); });
+    blocks.push(b); byHash[b.hash] = b;
+    ghostdag(b);
+    return b;
+  }
+  const inAnticone = (x, y) => x !== y && !blocks[x].past.has(y) && !blocks[y].past.has(x);
+  function ghostdag(b) {
+    if (!b.parents.length) { b.sp = null; b.blues = []; b.reds = []; b.blueScore = 0; b.blueWork = WORK; b.blueSet = new Set(); return; }
+    const ps = b.parents.slice().sort((x, y) => (blocks[y].blueWork - blocks[x].blueWork) || (blocks[x].hash < blocks[y].hash ? 1 : -1));
+    const sp = ps[0]; b.sp = sp;
+    const spb = blocks[sp];
+    const merge = [];
+    b.past.forEach((x) => { if (x !== sp && !spb.past.has(x)) merge.push(x); });
+    merge.sort((x, y) => (blocks[x].blueWork - blocks[y].blueWork) || (blocks[x].hash < blocks[y].hash ? -1 : 1));
+    const view = new Set(spb.blueSet); view.add(sp);
+    const blues = [sp], reds = [];
+    for (const c of merge) {
+      const ac = []; view.forEach((v) => { if (inAnticone(c, v)) ac.push(v); });
+      let ok = ac.length <= K;
+      if (ok) for (const v of ac) { let n = 0; view.forEach((w) => { if (inAnticone(v, w)) n++; }); if (n + 1 > K) { ok = false; break; } }
+      if (ok) { blues.push(c); view.add(c); } else reds.push(c);
+    }
+    b.blues = blues; b.reds = reds; b.blueSet = view;
+    b.blueScore = spb.blueScore + blues.length;
+    b.blueWork = spb.blueWork + blues.length * WORK;
+    b.mergeOrder = [sp, ...merge];   // GhostDAG total order of the mergeset (SP first)
+  }
+  const tipsOf = (set) => { const t = new Set(set); set.forEach((x) => blocks[x].parents.forEach((p) => t.delete(p))); return [...t]; };
+  const vsp = (tips) => tips.slice().sort((x, y) => (blocks[y].blueWork - blocks[x].blueWork) || (blocks[x].hash < blocks[y].hash ? 1 : -1))[0];
+  function chainFrom(t) { const c = []; let x = t; while (x !== null && x !== undefined) { c.push(x); x = blocks[x].sp; } return c; }
+
+  mkBlock([], -1, 0);
+  const PART = [96, 120, 5];            // producer 6 (index 5) partitioned for slots [96,120)
+  const slotLog = [];                   // per slot: {slot, blocks:[], tips, vtip, chainChange}
+  const chainChanges = [];
+  let prevChain = new Set(chainFrom(0));
+  for (let s = 0; s < NSLOTS; s++) {
+    const made = [];
+    const all = blocks.map((b) => b.i);
+    PRODUCERS.forEach((p) => {
+      const lambda = p.weight * 1.35;
+      if (R() < 1 - Math.exp(-lambda)) {
+        const partitioned = s >= PART[0] && s < PART[1];
+        const seen = new Set();
+        all.forEach((x) => {
+          const bx = blocks[x];
+          const sideBlock = bx.slot >= PART[0] && bx.slot < PART[1] && bx.producer === PART[2];
+          if (partitioned && p.i === PART[2]) { if (bx.slot < PART[0] || bx.producer === PART[2]) seen.add(x); return; }
+          if (partitioned && sideBlock) return;
+          if (bx.slot < s - 1 || bx.producer === p.i || bx.slot < 0) seen.add(x);
+          else if (R() < 0.82) seen.add(x);
+        });
+        // a block can only reference blocks whose whole past it has seen
+        const closed = new Set([...seen].filter((x) => [...blocks[x].past].every((y) => seen.has(y))));
+        let parents = tipsOf(closed);
+        if (parents.length > 10) parents = parents.sort((x, y) => blocks[y].blueWork - blocks[x].blueWork).slice(0, 10);
+        made.push({ parents, p: p.i });
+      }
+    });
+    const madeB = made.map((m) => mkBlock(m.parents, s, m.p).i);
+    const tips = tipsOf(new Set(blocks.map((b) => b.i)));
+    const vt = vsp(tips);
+    const chain = chainFrom(vt);
+    const cs = new Set(chain);
+    const removed = [...prevChain].filter((x) => !cs.has(x));
+    let change = null;
+    if (removed.length) {
+      const added = chain.filter((x) => !prevChain.has(x));
+      change = { slot: s, removed, added, depth: removed.length, newTip: vt };
+      chainChanges.push(change);
+    }
+    prevChain = cs;
+    slotLog.push({ slot: s, blocks: madeB, tips, vtip: vt, change });
+  }
+
+  /* ---------- transactions (sample) ---------- */
+  const txs = [], txByHash = {};
+  const NAMES = ["atlas-lab", "harbor", "northfield", "kiln", "quarry-7", "fernhill", "ledgerline", "aster", "copperleaf", "tidewater", "grain", "meridian-ops", "foundry-west", "lumen", "cedar", "sextant"];
+  let nameIdx = 0;
+  const regState = {};  // name -> owner
+  const regFee = "10000000000000000"; // 0.01 SALT
+  const nonces = {};
+  function mkTx(bi, kind) {
+    const from = EOAS[1 + Math.floor(R() * 11)];
+    nonces[from] = (nonces[from] || 0) + 1;
+    const t = { hash: "0x" + hexN(64), from, nonce: nonces[from] - 1, includedIn: [bi], kind, status: "success", logs: [], gasPrice: "1000000000" };
+    if (kind === "transfer") { t.to = EOAS[Math.floor(R() * 12)]; t.value = String(BigInt(Math.floor(R() * 4000 + 1)) * 10n ** 15n); t.gasUsed = 21000; t.input = "0x"; }
+    else if (kind === "register") {
+      const name = NAMES[nameIdx++ % NAMES.length] + (nameIdx > NAMES.length ? "-" + nameIdx : "");
+      t.to = PROXY; t.value = regFee; t.method = "register(string)"; t.args = [name]; t.input = ABI.encode("f2c298be", ["string"], [name]);
+      t.gasUsed = 51000 + Math.floor(R() * 4000);
+      if (regState[name]) { t.status = "reverted"; t.revert = "NameTaken(bytes32)"; }
+      else { regState[name] = from; t.logs.push({ event: "NameRegistered", topic0: "0xf6ba725b44f3eb07c7fb1b0231ee431ee1b5ebff64aff03e8ccddd391e7cb592", node: "0x" + hexN(64), name, owner: from }); }
+    } else if (kind === "sign") {
+      t.to = GUEST; t.value = "0"; t.method = "0x799cd333"; t.input = "0x799cd333" + hexN(64); t.gasUsed = 74000 + Math.floor(R() * 3000);
+      t.logs.push({ event: "0xf6fdcd5f", topic0: "0xf6fdcd5f89b5d7cd2e70805ed68abdcb82d7b2bd6a4990639ee78ec702372d10", raw: true });
+    }
+    txs.push(t); txByHash[t.hash] = t; blocks[bi].txs.push(t.hash);
+    return t;
+  }
+  blocks.forEach((b) => {
+    if (b.i === 0) return;
+    const n = poisson(1.6);
+    for (let j = 0; j < n; j++) { const r = R(); mkTx(b.i, r < 0.55 ? "transfer" : r < 0.82 ? "register" : "sign"); }
+  });
+  // one duplicate: the same signed tx gossiped into two sibling blocks of one slot
+  const dupSlot = slotLog.find((s) => s.slot > 130 && s.blocks.length >= 2 && blocks[s.blocks[0]].txs.length > 0);
+  let dupTx = null;
+  if (dupSlot) { dupTx = txByHash[blocks[dupSlot.blocks[0]].txs[0]]; dupTx.includedIn.push(dupSlot.blocks[1]); blocks[dupSlot.blocks[1]].txs.push(dupTx.hash); }
+
+  /* ---------- views over a visible prefix (the "live" stream) ---------- */
+  function viewAt(slotN) {
+    const vis = blocks.filter((b) => b.slot < slotN).map((b) => b.i);
+    const visSet = new Set(vis);
+    const tips = tipsOf(visSet);
+    const vt = vsp(tips);
+    const chain = chainFrom(vt);
+    const onChain = new Set(chain);
+    const color = {};    // i -> "chain" | "blue" | "red" | "pending"
+    const acceptedBy = {};
+    chain.forEach((c) => {
+      color[c] = "chain";
+      const cb = blocks[c];
+      (cb.blues || []).forEach((x) => { if (!onChain.has(x)) color[x] = "blue"; });
+      (cb.reds || []).forEach((x) => { color[x] = "red"; });
+      (cb.mergeOrder || []).forEach((x) => { acceptedBy[x] = c; });
+    });
+    vis.forEach((x) => { if (!color[x]) color[x] = "pending"; });
+    const tip = blocks[vt];
+    const tipBS = tip.blueScore;
+    const finalized = Math.max(0, Math.floor((tipBS - 30) / CHECKPOINT_EVERY) * CHECKPOINT_EVERY);
+    const pendingCp = finalized + CHECKPOINT_EVERY;
+    const votes = Math.min(66, 40 + ((tipBS - pendingCp + 30) * 3) % 27);
+    return { slotN, vis, visSet, tips, vt, chain, onChain, color, acceptedBy, tip, tipBS, finalized, pendingCp, votes, changes: chainChanges.filter((c) => c.slot < slotN) };
+  }
+  function metrics(v, windowSlots) {
+    const lo = v.slotN - windowSlots;
+    const sl = slotLog.filter((s) => s.slot >= lo && s.slot < v.slotN);
+    const nb = sl.reduce((a, s) => a + s.blocks.length, 0);
+    const empty = sl.filter((s) => !s.blocks.length).length;
+    const win = v.vis.filter((x) => blocks[x].slot >= lo);
+    const chainWin = win.filter((x) => v.onChain.has(x));
+    const merging = chainWin.filter((x) => blocks[x].parents.length > 1).length;
+    const reds = win.filter((x) => v.color[x] === "red").length;
+    const changes = v.changes.filter((c) => c.slot >= lo);
+    const share = PRODUCERS.map((p) => ({ p, n: win.filter((x) => blocks[x].producer === p.i).length }));
+    const perSlot = sl.map((s) => s.blocks.length);
+    return { windowSlots, blocks: nb, perSlot, bps: nb / Math.max(1, sl.length), emptyPct: 100 * empty / Math.max(1, sl.length), mergeRate: 100 * merging / Math.max(1, chainWin.length), redRate: 100 * reds / Math.max(1, win.length), changes: changes.length, maxDepth: changes.reduce((a, c) => Math.max(a, c.depth), 0), share, total: win.length };
+  }
+  function anticone(i, v) { return v.vis.filter((x) => inAnticone(i, x)); }
+
+  /* ---------- formatting ---------- */
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const short = (h, a = 6, b = 4) => h.length > a + b + 2 ? h.slice(0, a) + "…" + h.slice(-b) : h;
+  const num = (n) => Number(n).toLocaleString("en-US");
+  const salt = (wei) => { const w = BigInt(wei); const whole = w / 10n ** 18n; const frac = (w % 10n ** 18n).toString().padStart(18, "0").slice(0, 4).replace(/0+$/, ""); return num(whole) + (frac ? "." + frac : "") + " SALT"; };
+  const iso = (ms) => new Date(ms).toISOString().replace("T", " ").slice(0, 19) + "Z";
+  const ago = (ms, now) => { const s = Math.max(0, Math.round((now - ms) / 1000)); return s < 60 ? s + "s ago" : Math.floor(s / 60) + "m " + (s % 60) + "s ago"; };
+  const H = (b) => H0 + b.height;
+  const BS = (b) => BS0 + b.blueScore;
+  const BW = (b) => "0x" + (BigInt(b.blueWork) * 0x9c4n + 0x3a7f00000000n).toString(16);
+  const addrLabel = (a) => {
+    if (a === PROXY) return "NameRegistry (proxy)";
+    if (a === IMPL) return "NameRegistry impl v2";
+    if (a === IMPL_OLD) return "NameRegistry impl v1";
+    if (a === GUEST) return "Unverified contract";
+    const p = PRODUCERS.find((x) => x.addr === a); if (p) return p.label;
+    return null;
+  };
+  const route = (kind, id) => "#" + kind + (id ? "-" + id : "");
+
+  /* ---------- contract helpers ---------- */
+  function sourceLines() { return CONTRACT.files.map((f) => f.text.split("\n")); }
+  const JUMPDESTS_GB = {};
+  (function () {
+    const sel = { "06661abd": "count()", "70983e2f": "signedCount(address)", "799cd333": "sign(bytes32)", "b30906d4": "entries(uint256)" }; // signature DB hits (b20eb4c4 not in DB)
+    const ins = GUESTBOOK.ins;
+    for (let k = 0; k < ins.length - 2; k++) {
+      if (ins[k][1] === "PUSH4" && ins[k + 1][1] === "EQ" && ins[k + 2][1] === "PUSH2") JUMPDESTS_GB[parseInt(ins[k + 2][2], 16)] = { sel: ins[k][2], name: sel[ins[k][2]] || null };
+    }
+  })();
+
+  return {
+    K, H0, BS0, SLOT_MS, T0, NSLOTS, START_VISIBLE, CHECKPOINT_EVERY,
+    blocks, byHash, txs, txByHash, slotLog, chainChanges, PRODUCERS, EOAS, PROXY, IMPL, IMPL_OLD, GUEST, DEPLOYER, regState, regFee, dupTx, PART,
+    viewAt, metrics, anticone, esc, short, num, salt, iso, ago, H, BS, BW, addrLabel, route, ABI, sourceLines, JUMPDESTS_GB,
+  };
+})();
+
+/* =====================================================================
+   Shared screen builders. Each direction passes a UI kit (U) that owns
+   its own chrome, chips and DAG drawing; these functions own the content.
+   ===================================================================== */
+const SCREENS = (() => {
+  const C = CORE, e = C.esc;
+  const link = (kind, id, text, cls = "") => `<a class="lnk mono ${cls}" href="${C.route(kind, id)}">${e(text)}</a>`;
+  const blink = (i, fmt = "short") => { const b = C.blocks[i]; return fmt === "h" ? `<a class="lnk mono" href="${C.route("block", b.hash)}">${C.num(C.H(b))}<span class="hsuf"> ${b.hash.slice(0, 6)}</span></a>` : link("block", b.hash, C.short(b.hash, 8, 6)); };
+  const alink = (a) => { const l = C.addrLabel(a); const kind = (a === C.PROXY || a === C.GUEST || a === C.IMPL || a === C.IMPL_OLD) ? "contract" : "addr"; return `<span class="addr">${link(kind, a, C.short(a, 8, 6))}${l ? ` <span class="addr-l">${e(l)}</span>` : ""}</span>`; };
+  const txlink = (h) => link("tx", h, C.short(h, 10, 6));
+  const copyBtn = (v, label = "Copy") => `<button class="copy" type="button" data-copy="${e(v)}" aria-label="${e(label)}">${label === "Copy" ? "Copy" : e(label)}</button>`;
+
+  function kv(rows) {
+    return `<dl class="kv">${rows.filter(Boolean).map(([k, v, hint]) => `<div class="kv-r"><dt>${e(k)}${hint ? `<span class="kv-h">${e(hint)}</span>` : ""}</dt><dd>${v}</dd></div>`).join("")}</dl>`;
+  }
+
+  /* ---------- block ---------- */
+  function block(U, v, hash) {
+    const b = C.byHash[hash];
+    if (!b) return U.page("Block not found", `<p class="muted">No block with hash <span class="mono">${e(hash)}</span> in the sample data.</p>`);
+    if (!v.visSet.has(b.i)) return U.page("Block not yet streamed", `<p class="muted">This sample block arrives later in the stream. <a class="lnk" href="#dag">Open the DAG</a>.</p>`);
+    const col = v.color[b.i];
+    const acc = v.acceptedBy[b.i];
+    const children = v.vis.filter((x) => C.blocks[x].parents.includes(b.i));
+    const merges = b.parents.filter((p) => p !== b.sp);
+    const fin = C.BS(b) <= C.BS0 + v.finalized ? "finalized" : C.BS(b) <= C.BS0 + v.pendingCp ? "voting" : "tip";
+    const ac = C.anticone(b.i, v);
+    const body = `
+      ${U.statusRow([U.colorChip(col), U.finChip(fin, v), b.parents.length > 1 ? U.tag(`merges ${merges.length}`) : "", v.tips.includes(b.i) ? U.tag("tip") : ""])}
+      <section class="sec"><h2 class="sec-h">DAG position</h2>
+      ${kv([
+        ["Block hash", `<span class="mono brk">${e(b.hash)}</span> ${copyBtn(b.hash)}`],
+        ["Height", `<span class="mono">${C.num(C.H(b))}</span>`, "longest parent path"],
+        ["Blue score", `<span class="mono">${C.num(C.BS(b))}</span>`, "blue blocks in its past"],
+        ["Blue work", `<span class="mono">${C.BW(b)}</span>`],
+        ["Selected parent", b.sp != null ? blink(b.sp) + ` <span class="muted">blue score ${C.num(C.BS(C.blocks[b.sp]))}</span>` : "genesis"],
+        ["Merge parents", merges.length ? merges.map((p) => `${blink(p)} ${U.colorChip(v.color[p], true)}`).join("<br>") : `<span class="muted">none</span>`],
+        ["Mergeset", `<span class="mono">${b.blues.length} blue</span> · <span class="mono">${b.reds.length} red</span> <a class="lnk" href="#dag-${b.hash}">Inspect in DAG</a>`],
+        ["Accepting block", col === "chain" ? (acc !== undefined && acc !== b.i ? blink(acc) : `<span class="muted">this block is on the selected chain; its own txs are accepted by its selected child${v.onChain.has(b.i) && b.i === v.vt ? " (not produced yet)" : ""}</span>`) : (acc !== undefined ? blink(acc) + ` <span class="muted">merged this block</span>` : `<span class="muted">not merged yet</span>`)],
+        ["Children", children.length ? children.map((x) => blink(x)).join(" ") : `<span class="muted">none yet</span>`],
+        ["Anticone", `<span class="mono">${ac.length}</span> blocks <span class="muted">(${ac.filter((x) => v.color[x] === "red").length} red)</span>`, "neither ancestor nor descendant"],
+      ])}</section>
+      <section class="sec"><h2 class="sec-h">Header</h2>
+      ${kv([
+        ["Producer", alink(C.PRODUCERS[b.producer].addr)],
+        ["Slot", `<span class="mono">${C.num(b.slot + 72000)}</span>`],
+        ["Timestamp", `<span class="mono">${C.iso(b.ts)}</span>`],
+        ["Transactions", `<span class="mono">${b.txs.length}</span>`],
+        ["Gas used", `<span class="mono">${C.num(b.txs.reduce((a, h) => a + C.txByHash[h].gasUsed, 0))}</span>`],
+      ])}</section>
+      <section class="sec"><h2 class="sec-h">Transactions included</h2>${txTable(U, v, b.txs.map((h) => C.txByHash[h]), b.i)}</section>`;
+    return U.page(`Block ${C.num(C.H(b))}`, body, { eyebrow: "Block", sub: C.short(b.hash, 12, 8) });
+  }
+
+  function txTable(U, v, list, inBlock) {
+    if (!list.length) return `<p class="muted">No transactions.</p>`;
+    return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th scope="col">Tx hash</th><th scope="col">Method</th><th scope="col">From</th><th scope="col">To</th><th scope="col" class="r">Value</th><th scope="col">Status</th></tr></thead><tbody>${list.map((t) => `<tr><td>${txlink(t.hash)}</td><td>${U.method(t.method ? t.method.replace(/\(.*$/, "") : "transfer")}</td><td>${alink(t.from)}</td><td>${alink(t.to)}</td><td class="r mono">${C.salt(t.value)}</td><td>${U.txStatus(txStatus(t, v, inBlock))}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+  function txStatus(t, v, inBlock) {
+    if (t === C.dupTx && t.includedIn.length > 1) {
+      const order = execOrder(t, v);
+      if (order && inBlock !== undefined && inBlock !== order.exec) return "skipped";
+    }
+    return t.status;
+  }
+  function execOrder(t, v) {
+    const accs = t.includedIn.map((i) => ({ i, acc: v.acceptedBy[i] })).filter((x) => x.acc !== undefined);
+    if (!accs.length) return null;
+    // same accepting block: GhostDAG total order of its mergeset decides
+    const acc = accs[0].acc; const order = C.blocks[acc].mergeOrder || [];
+    const sorted = t.includedIn.slice().sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    return { exec: sorted[0], skipped: sorted.slice(1), acc };
+  }
+
+  /* ---------- tx ---------- */
+  function tx(U, v, hash) {
+    const t = C.txByHash[hash];
+    if (!t) return U.page("Transaction not found", `<p class="muted">No transaction <span class="mono">${e(hash)}</span> in the sample data.</p>`);
+    const inc = t.includedIn[0], b = C.blocks[inc];
+    if (!v.visSet.has(inc)) return U.page("Transaction not yet streamed", `<p class="muted">This sample transaction arrives later in the stream.</p>`);
+    const acc = v.acceptedBy[inc];
+    const red = v.color[inc] === "red";
+    const dup = t.includedIn.length > 1 ? execOrder(t, v) : null;
+    const accLine = acc !== undefined
+      ? `${U.flow([["Included in", blink(inc, "h"), U.colorChip(v.color[inc], true)], ["Accepted by chain block", blink(acc, "h"), U.colorChip("chain", true)]])}`
+      : `${U.flow([["Included in", blink(inc, "h"), U.colorChip(v.color[inc], true)], ["Accepted by chain block", `<span class="muted">pending: waits for the next selected-chain block to merge it</span>`, ""]])}`;
+    const status = dup ? "success" : t.status;
+    const body = `
+      ${U.statusRow([U.txStatus(status), acc !== undefined ? U.tag("accepted") : U.tag("awaiting acceptance"), red ? U.tag("red block") : ""])}
+      <section class="sec"><h2 class="sec-h">Where it executed</h2>${accLine}
+      ${red ? `<p class="note">This transaction sits in a red block. Whether red-block transactions execute is still open in the mergeset execution spec (CV-4a). The prototype shows the accepting block either way.</p>` : ""}
+      ${dup ? `<p class="note">The same signed transaction was included in ${t.includedIn.length} sibling blocks. It executed once, in ${blink(dup.exec, "h")}, the first in GhostDAG order of the mergeset of ${blink(dup.acc, "h")}. The copy in ${dup.skipped.map((x) => blink(x, "h")).join(", ")} was skipped with no fee.</p>` : ""}
+      </section>
+      <section class="sec"><h2 class="sec-h">Overview</h2>
+      ${kv([
+        ["Tx hash", `<span class="mono brk">${e(t.hash)}</span> ${copyBtn(t.hash)}`],
+        ["Status", U.txStatus(status) + (t.revert ? ` <span class="mono">${e(t.revert)}</span>` : "")],
+        ["From", alink(t.from)],
+        ["To", alink(t.to)],
+        ["Value", `<span class="mono">${C.salt(t.value)}</span>`],
+        ["Gas used", `<span class="mono">${C.num(t.gasUsed)}</span>`],
+        ["Gas price", `<span class="mono">1 gwei</span>`],
+        ["Nonce", `<span class="mono">${t.nonce}</span>`],
+        ["Timestamp", `<span class="mono">${C.iso(b.ts)}</span>`],
+        t.method ? ["Method", `<span class="mono">${e(t.method)}</span>${t.args ? ` <span class="muted">("${e(t.args[0])}")</span>` : t.to === C.GUEST ? ` <span class="muted">selector resolved from the signature DB: sign(bytes32)</span>` : ""}`] : null,
+        ["Input data", `<pre class="code-inline">${e(t.input.length > 330 ? t.input.slice(0, 330) + "…" : t.input)}</pre>`],
+      ])}</section>
+      ${t.logs.length ? `<section class="sec"><h2 class="sec-h">Logs</h2>${t.logs.map((l) => logCard(U, l)).join("")}</section>` : ""}`;
+    return U.page("Transaction", body, { eyebrow: "Transaction", sub: C.short(t.hash, 14, 8) });
+  }
+  function logCard(U, l) {
+    if (l.raw) return `<div class="log"><div class="log-h"><span class="mono">0xf6fdcd5f…</span> <span class="muted">matches Signed(address,uint256,bytes32) in the signature DB, not in a verified ABI</span></div><div class="mono small brk">topic0 ${l.topic0}</div></div>`;
+    return `<div class="log"><div class="log-h"><span class="mono">${l.event}</span>(bytes32 indexed node, string name, address indexed owner)</div>${kv([["node", `<span class="mono brk small">${l.node}</span>`], ["name", `<span class="mono">"${e(l.name)}"</span>`], ["owner", alink(l.owner)]])}<div class="mono small brk muted">topic0 ${l.topic0}</div></div>`;
+  }
+
+  /* ---------- address ---------- */
+  function address(U, v, a) {
+    const list = C.txs.filter((t) => (t.from === a || t.to === a) && v.visSet.has(t.includedIn[0]));
+    const isProd = C.PRODUCERS.find((p) => p.addr === a);
+    const produced = isProd ? v.vis.filter((x) => C.blocks[x].producer === isProd.i) : [];
+    let bal = 1200n * 10n ** 18n; list.forEach((t) => { if (t.to === a) bal += BigInt(t.value); if (t.from === a) bal -= BigInt(t.value) + BigInt(t.gasUsed) * 10n ** 9n; });
+    const names = Object.entries(C.regState).filter(([, o]) => o === a).map(([n]) => n);
+    const body = `
+      ${U.statusRow([U.tag(isProd ? "producer" : "account"), names.length ? U.tag(`${names.length} names`) : ""])}
+      ${U.stats([["Balance", C.salt(bal.toString())], ["Transactions", C.num(list.length)], isProd ? ["Blocks produced", C.num(produced.length)] : ["Names held", C.num(names.length)], ["First seen", `slot ${C.num(72000)}`]])}
+      <section class="sec"><h2 class="sec-h">Overview</h2>${kv([["Address", `<span class="mono brk">${e(a)}</span> ${copyBtn(a)}`], isProd ? ["Label", e(isProd.label) + ` <span class="muted">(sample)</span>`] : null, names.length ? ["NameRegistry names", names.map((n) => `<span class="mono">${e(n)}</span>`).join(", ")] : null])}</section>
+      ${isProd ? `<section class="sec"><h2 class="sec-h">Recent blocks produced</h2><div class="chips">${produced.slice(-14).reverse().map((x) => `${blink(x, "h")} ${U.colorChip(v.color[x], true)}`).join(" ")}</div></section>` : ""}
+      <section class="sec"><h2 class="sec-h">Transactions</h2>${txTable(U, v, list.slice(-25).reverse())}</section>`;
+    return U.page(C.addrLabel(a) || "Address", body, { eyebrow: "Address", sub: C.short(a, 10, 8) });
+  }
+
+  /* ---------- contract ---------- */
+  const READS = [
+    { name: "fee", sig: "fee()", inputs: [], out: "uint256" },
+    { name: "owner", sig: "owner()", inputs: [], out: "address" },
+    { name: "ownerOf", sig: "ownerOf(bytes32)", inputs: [["node", "bytes32"]], out: "address" },
+    { name: "resolve", sig: "resolve(string)", inputs: [["name", "string"]], out: "address" },
+  ];
+  const WRITES = [
+    { name: "register", sel: "f2c298be", sig: "register(string)", inputs: [["name", "string"]], payable: true },
+    { name: "transferName", sel: "37194d1e", sig: "transferName(string,address)", inputs: [["name", "string"], ["to", "address"]] },
+    { name: "setFee", sel: "69fe0e2d", sig: "setFee(uint256)", inputs: [["newFee", "uint256"]], owner: true },
+    { name: "transferOwnership", sel: "f2fde38b", sig: "transferOwnership(address)", inputs: [["newOwner", "address"]], owner: true },
+  ];
+  function contract(U, v, a, tab, state) {
+    if (a === C.GUEST) return unverified(U, v, tab || "disasm", state);
+    const isProxy = a === C.PROXY;
+    const tabs = [["code", "Code"], ["read", isProxy ? "Read as proxy" : "Read contract"], ["write", isProxy ? "Write as proxy" : "Write contract"], ["events", "Events"]];
+    tab = tab || "code";
+    const proxyBanner = isProxy ? U.banner("proxy", `<strong>EIP-1967 proxy.</strong> Implementation ${alink(C.IMPL)} <span class="muted">read from slot</span> <span class="mono small">0x3608…382bbc</span>. ${U.tag("verified, full match")}
+      <details class="hist"><summary>Implementation history (2)</summary><ul class="hist-l"><li>${alink(C.IMPL)} <span class="muted">from block ${C.num(C.H0 + 140)}, Upgraded event</span></li><li>${alink(C.IMPL_OLD)} <span class="muted">blocks ${C.num(C.H0 + 12)} to ${C.num(C.H0 + 139)}</span></li></ul></details>`) : "";
+    let pane = "";
+    if (tab === "code") pane = codePane(U);
+    if (tab === "read") pane = readPane(U, state);
+    if (tab === "write") pane = writePane(U, state);
+    if (tab === "events") pane = eventsPane(U, v);
+    const body = `${proxyBanner}
+      ${U.statusRow([U.tag("contract"), U.tag("verified, full match"), U.tag("solc " + CONTRACT.solc.replace(/\+.*/, ""))])}
+      ${U.stats([["Runtime size", C.num(CONTRACT.size) + " bytes"], ["Creator", `${link("addr", C.DEPLOYER, C.short(C.DEPLOYER, 6, 4))}`], ["Names registered", C.num(Object.keys(C.regState).length)], ["Match", "runtime + creation"]])}
+      ${U.tabs(tabs, tab, a)}
+      <div class="tabpane" role="tabpanel" id="tp-${tab}" aria-labelledby="tab-${tab}">${pane}</div>`;
+    return U.page(isProxy ? "NameRegistry" : "NameRegistry implementation", body, { eyebrow: "Contract", sub: C.short(a, 10, 8) });
+  }
+
+  function codePane(U) {
+    const files = CONTRACT.files;
+    const tree = `<nav class="ftree" aria-label="Source files"><div class="ftree-h">Sources (${files.length})</div>${files.map((f, k) => `<button type="button" class="ftree-i" data-file="${k}" aria-pressed="${k === 0}"><span class="ftree-d">${e(f.path.replace(/[^/]+$/, ""))}</span>${e(f.path.split("/").pop())}</button>`).join("")}
+      <div class="ftree-h">Compiler</div><div class="ftree-m mono small">${e(CONTRACT.solc)}<br>optimizer on, 200 runs<br>evmVersion cancun</div></nav>`;
+    const ins = CONTRACT.ins;
+    const ops = ins.map((x, k) => `<button type="button" class="op${x[3] < 0 ? " op-gen" : ""}" data-k="${k}" data-f="${x[3]}" data-l="${x[4]}" data-l2="${x[5]}" ${x[1] === "JUMPDEST" ? 'data-jd="1"' : ""}><span class="op-pc">${x[0].toString(16).padStart(4, "0")}</span><span class="op-n">${x[1]}</span><span class="op-a">${x[2] ? "0x" + x[2] : ""}</span><span class="op-ln">${x[3] >= 0 ? CONTRACT.files[x[3]].path.split("/").pop().replace(".sol", "") + ":" + x[4] : ""}</span></button>`).join("");
+    return `<div class="codegrid">
+      ${tree}
+      <section class="src-pane" aria-label="Verified source"><div class="pane-h"><span class="pane-t" id="src-title">${e(files[0].path)}</span><span class="muted small">click a line to find its opcodes</span></div><div class="src" id="src"></div></section>
+      <section class="op-pane" aria-label="Runtime opcodes"><div class="pane-h"><span class="pane-t">Runtime opcodes</span><span class="muted small">${ins.length} instructions, source map from solc</span></div><div class="ops" id="ops">${ops}</div>
+      <details class="rawhex"><summary>Raw runtime bytecode (${C.num(CONTRACT.size)} bytes)</summary><pre class="code-inline">0x${CONTRACT.runtimeHex}</pre></details></section>
+      </div>`;
+  }
+  function wireCode(root) {
+    const src = root.querySelector("#src"); if (!src) return;
+    const lines = C.sourceLines();
+    let cur = 0;
+    function renderFile(k, hl1, hl2) {
+      cur = k;
+      root.querySelector("#src-title").textContent = CONTRACT.files[k].path;
+      root.querySelectorAll(".ftree-i").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.file === k)));
+      const hasOps = new Set(CONTRACT.ins.filter((x) => x[3] === k).map((x) => x[4]));
+      src.innerHTML = lines[k].map((ln, n) => `<div class="sl${n + 1 >= hl1 && n + 1 <= hl2 ? " sl-hl" : ""}${n + 1 === hl1 ? " sl-hl0" : ""}${hasOps.has(n + 1) ? " sl-op" : ""}" data-n="${n + 1}"${hasOps.has(n + 1) ? ' tabindex="0" role="button"' : ""}><span class="sl-n">${n + 1}</span><span class="sl-t">${hilite(ln)}</span></div>`).join("");
+      const first = src.querySelector(".sl-hl0"); if (first) first.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+    renderFile(0, 0, -1);
+    root.querySelectorAll(".ftree-i").forEach((b) => b.addEventListener("click", () => renderFile(+b.dataset.file, 0, -1)));
+    const opsEl = root.querySelector("#ops");
+    opsEl.addEventListener("click", (ev) => {
+      const b = ev.target.closest(".op"); if (!b) return;
+      opsEl.querySelectorAll(".op-on").forEach((x) => x.classList.remove("op-on"));
+      b.classList.add("op-on");
+      const f = +b.dataset.f, l = +b.dataset.l, l2 = +b.dataset.l2;
+      if (f < 0) { src.querySelectorAll(".sl-hl").forEach((x) => x.classList.remove("sl-hl", "sl-hl0")); root.querySelector("#src-title").textContent = CONTRACT.files[cur].path + "  (opcode is compiler-generated, no source range)"; return; }
+      // narrow multi-line ranges to the first line for the strong mark, keep a light band for the range
+      renderFile(f, l, l2 - l > 12 ? l : l2);
+    });
+    src.addEventListener("click", (ev) => {
+      const r = ev.target.closest(".sl-op"); if (!r) return;
+      const n = +r.dataset.n;
+      opsEl.querySelectorAll(".op-on").forEach((x) => x.classList.remove("op-on"));
+      const hits = [...opsEl.querySelectorAll(`.op[data-f="${cur}"][data-l="${n}"]`)];
+      hits.forEach((x) => x.classList.add("op-on"));
+      src.querySelectorAll(".sl-hl").forEach((x) => x.classList.remove("sl-hl", "sl-hl0"));
+      r.classList.add("sl-hl", "sl-hl0");
+      if (hits[0]) hits[0].scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    src.addEventListener("keydown", (ev) => { if (ev.key === "Enter" && ev.target.closest(".sl-op")) ev.target.click(); });
+  }
+  function hilite(line) {
+    let s = e(line);
+    if (/^\s*(\/\/|\/\*|\*)/.test(line)) return `<span class="tk-c">${s}</span>`;
+    s = s.replace(/\b(pragma|solidity|contract|interface|abstract|function|external|public|private|internal|view|payable|returns|return|event|error|indexed|mapping|struct|emit|revert|if|modifier|constructor|import|from|is|memory|calldata|storage)\b/g, '<span class="tk-k">$1</span>')
+      .replace(/\b(address|uint256|uint64|bytes32|bytes|string|bool)\b/g, '<span class="tk-t">$1</span>')
+      .replace(/(\/\/.*)$/, '<span class="tk-c">$1</span>');
+    return s || "&nbsp;";
+  }
+
+  function readPane(U, state) {
+    return `<p class="muted small">Calls run <span class="mono">eth_call</span> against the selected block. In this prototype the results come from the sample state, and no RPC call is made.</p>
+      <div class="field-row"><label for="rd-block">Block</label><select id="rd-block"><option>latest</option><option>finalized checkpoint</option><option>custom height</option></select></div>
+      <div class="fnlist">${READS.map((f, k) => `<form class="fn" data-read="${k}"><div class="fn-h"><span class="mono">${k + 1}. ${f.name}</span><span class="muted small mono">${f.sig} returns (${f.out})</span></div>
+      ${f.inputs.map(([n, t]) => `<div class="field"><label for="r-${k}-${n}">${n} <span class="muted mono">${t}</span></label><input id="r-${k}-${n}" name="${n}" class="mono" autocomplete="off" placeholder="${t === "string" ? "e.g. harbor" : t === "bytes32" ? "0x… (64 hex)" : ""}"><span class="err" role="alert"></span></div>`).join("")}
+      <div class="fn-a"><button class="btn" type="submit">Query</button><output class="res mono" aria-live="polite"></output></div></form>`).join("")}</div>`;
+  }
+  function writePane(U, state) {
+    const wallet = state.wallet;
+    return `${wallet ? U.banner("ok", `Connected: <span class="mono">${C.short(wallet, 8, 6)}</span> <span class="muted">(sample wallet on chain 40204)</span> <button class="btn btn-q" type="button" data-act="disconnect">Disconnect</button>`) : U.banner("info", `Connect a wallet to send transactions. <button class="btn" type="button" data-act="connect">Connect wallet</button> <span class="muted small">Prototype: this simulates a connection and nothing is signed.</span>`)}
+      <div class="fnlist">${WRITES.map((f, k) => `<form class="fn" data-write="${k}"><div class="fn-h"><span class="mono">${k + 1}. ${f.name}</span>${f.payable ? U.tag("payable") : ""}${f.owner ? U.tag("owner only") : ""}<span class="muted small mono">${f.sig}</span></div>
+      ${f.payable ? `<div class="field"><label for="w-${k}-value">value <span class="muted mono">SALT</span></label><input id="w-${k}-value" name="__value" class="mono" value="0.01" autocomplete="off"><span class="hint muted small">current fee: ${C.salt(C.regFee)}</span></div>` : ""}
+      ${f.inputs.map(([n, t]) => `<div class="field"><label for="w-${k}-${n}">${n} <span class="muted mono">${t}</span></label><input id="w-${k}-${n}" name="${n}" class="mono" autocomplete="off"><span class="err" role="alert"></span></div>`).join("")}
+      <div class="fn-a"><button class="btn${wallet ? "" : " btn-dis"}" type="submit" ${wallet ? "" : 'aria-disabled="true"'}>Write</button></div><output class="res-w" aria-live="polite"></output></form>`).join("")}</div>`;
+  }
+  function wireForms(root, state, rerender) {
+    root.querySelectorAll("form[data-read]").forEach((f) => f.addEventListener("submit", (ev) => {
+      ev.preventDefault(); const fn = READS[+f.dataset.read]; const out = f.querySelector(".res");
+      let bad = false;
+      fn.inputs.forEach(([n, t]) => { const i = f.elements[n]; const er = ABI.validate(t, i.value.trim()); i.nextElementSibling.textContent = er || ""; i.setAttribute("aria-invalid", er ? "true" : "false"); if (er) bad = true; });
+      if (bad) { out.textContent = ""; return; }
+      let r;
+      if (fn.name === "fee") r = C.regFee + "  (" + C.salt(C.regFee) + ")";
+      else if (fn.name === "owner") r = C.DEPLOYER;
+      else if (fn.name === "resolve") { const nm = f.elements.name.value.trim(); r = C.regState[nm] || "0x0000000000000000000000000000000000000000  (not registered)"; }
+      else r = "0x0000000000000000000000000000000000000000  (sample state has no reverse index by node)";
+      out.textContent = "→ " + r;
+    }));
+    root.querySelectorAll("form[data-write]").forEach((f) => f.addEventListener("submit", (ev) => {
+      ev.preventDefault(); const fn = WRITES[+f.dataset.write]; const out = f.querySelector(".res-w");
+      if (!state.wallet) { out.innerHTML = `<span class="err">Connect a wallet first.</span>`; return; }
+      let bad = false; const vals = [];
+      fn.inputs.forEach(([n, t]) => { const i = f.elements[n]; const er = ABI.validate(t, i.value.trim()); i.nextElementSibling.textContent = er || ""; i.setAttribute("aria-invalid", er ? "true" : "false"); if (er) bad = true; vals.push(i.value.trim()); });
+      if (bad) { out.innerHTML = ""; return; }
+      const data = ABI.encode(fn.sel, fn.inputs.map((x) => x[1]), vals);
+      let warn = "";
+      if (fn.owner && state.wallet !== C.DEPLOYER) warn = `<p class="err">Simulation: this call reverts with <span class="mono">NotOwner()</span>. The connected wallet is not the owner.</p>`;
+      if (fn.name === "register" && C.regState[vals[0]]) warn = `<p class="err">Simulation: reverts with <span class="mono">NameTaken(bytes32)</span>. "${e(vals[0])}" is already registered.</p>`;
+      out.innerHTML = `<div class="preview"><div class="eyebrow">Transaction preview (not sent)</div>${warn}<dl class="kv kv-tight"><div class="kv-r"><dt>to</dt><dd class="mono brk">${C.PROXY}</dd></div><div class="kv-r"><dt>value</dt><dd class="mono">${fn.payable ? e(f.elements.__value.value) + " SALT" : "0"}</dd></div><div class="kv-r"><dt>data</dt><dd><pre class="code-inline">${data}</pre></dd></div></dl></div>`;
+    }));
+    root.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => { state.wallet = b.dataset.act === "connect" ? C.EOAS[3] : null; rerender(); }));
+  }
+  function eventsPane(U, v) {
+    const logs = [];
+    C.txs.forEach((t) => { if (t.to === C.PROXY && v.visSet.has(t.includedIn[0])) t.logs.forEach((l) => logs.push({ t, l })); });
+    return `<p class="muted small">Decoded with the verified ABI. topic0 for NameRegistered is <span class="mono brk">0xf6ba725b…7cb592</span>.</p>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th scope="col">Tx</th><th scope="col">Block</th><th scope="col">Event</th><th scope="col">Decoded</th></tr></thead><tbody>
+      ${logs.slice(-30).reverse().map(({ t, l }) => `<tr><td>${txlink(t.hash)}</td><td>${blink(t.includedIn[0], "h")}</td><td class="mono">${l.event}</td><td><span class="mono">name</span> "${e(l.name)}" <span class="mono">owner</span> ${alink(l.owner)}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+
+  function unverified(U, v, tab, state) {
+    const tabs = [["disasm", "Disassembly"], ["selectors", "Selectors"], ["decompiled", "Decompiled"]];
+    const ins = GUESTBOOK.ins;
+    let pane = "";
+    if (tab === "disasm") pane = `<div class="ops ops-wide" id="gops">${ins.map((x) => { const jd = C.JUMPDESTS_GB[x[0]]; return `${jd && x[1] === "JUMPDEST" ? `<div class="op-lbl mono">${jd.name ? e(jd.name) : "unknown 0x" + jd.sel} <span class="muted">entry</span></div>` : ""}<div class="op op-static"><span class="op-pc">${x[0].toString(16).padStart(4, "0")}</span><span class="op-n">${x[1]}</span>${x[2] ? `<span class="op-a">0x${x[2]}${x[1] === "PUSH4" && C.JUMPDESTS_GB[parseInt((ins[ins.indexOf(x) + 2] || [0, 0, "0"])[2], 16)] ? `  <span class="muted">${e((C.JUMPDESTS_GB[parseInt(ins[ins.indexOf(x) + 2][2], 16)] || {}).name || "unresolved")}</span>` : ""}</span>` : ""}</div>`; }).join("")}</div>`;
+    if (tab === "selectors") pane = `<p class="muted small">Selectors found in the dispatcher, resolved against the signature DB (seeded from verified contracts and a public 4-byte dataset). Guessed ABI only; no source is known.</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th scope="col">Selector</th><th scope="col">Resolved signature</th><th scope="col">Entry pc</th><th scope="col">Mutability (guess)</th></tr></thead><tbody>
+      ${Object.entries(C.JUMPDESTS_GB).map(([pc, s]) => `<tr><td class="mono">0x${s.sel}</td><td class="mono">${s.name ? e(s.name) : `<span class="muted">no match</span>`}</td><td class="mono">0x${(+pc).toString(16).padStart(4, "0")}</td><td>${s.name && /count|entries|signedCount/.test(s.name) ? "view" : "nonpayable"}</td></tr>`).join("")}</tbody></table></div>
+      <p class="muted small">Event topic <span class="mono brk">0xf6fdcd5f…372d10</span> resolves to <span class="mono">Signed(address,uint256,bytes32)</span>.</p>`;
+    if (tab === "decompiled") pane = `${U.banner("warn", `<strong>Decompiled, not source.</strong> Produced offline by a decompiler worker from runtime bytecode. Names are guesses. Do not rely on this for audits or for Write calls.`)}
+      <pre class="code-block mono">${e(DECOMPILED)}</pre>`;
+    const body = `${U.banner("warn", `<strong>Unverified contract.</strong> No source has been submitted for this bytecode. <a class="lnk" href="#verify">Verify and publish source</a>`)}
+      ${U.statusRow([U.tag("contract"), U.tag("unverified"), U.tag("no proxy detected")])}
+      ${U.stats([["Runtime size", C.num(GUESTBOOK.size) + " bytes"], ["Selectors", "5 found, 4 resolved"], ["Events", "1 resolved"], ["Similar match", "none"]])}
+      ${U.tabs(tabs, tab, C.GUEST)}
+      <div class="tabpane" role="tabpanel" id="tp-${tab}" aria-labelledby="tab-${tab}">${pane}</div>`;
+    return U.page("Unverified contract", body, { eyebrow: "Contract", sub: C.short(C.GUEST, 10, 8) });
+  }
+  const DECOMPILED = `// decompiled from runtime bytecode (815 bytes); names are guesses
+// storage[0]   : array of 2-slot structs   (guess: entries)
+// storage[1]   : mapping(address => uint256)  (guess: signedCount)
+// storage[2]   : uint256  (no public getter)
+
+function count() public view returns (uint256) {
+    return storage[0].length;
+}
+
+function signedCount(address arg0) public view returns (uint256) {
+    return mapping_1[arg0];
+}
+
+function sign(bytes32 arg0) public {
+    require(msg.value == 0);
+    storage[0].push(struct(msg.sender, uint64(block.timestamp), arg0));
+    mapping_1[msg.sender] = mapping_1[msg.sender] + 1;   // checked add
+    emit Signed(msg.sender, storage[0].length - 1, arg0);   // topic 0xf6fdcd5f
+}
+
+function unknown_b20eb4c4(uint256 arg0) public {
+    storage[2] = storage[2] + arg0;   // checked add
+}
+
+function entries(uint256 arg0) public view returns (address, uint64, bytes32) {
+    require(arg0 < storage[0].length);
+    return (storage[0][arg0].field0, storage[0][arg0].field1, storage[0][arg0].field2);
+}`;
+
+  /* ---------- verify ---------- */
+  function verify(U) {
+    const A = C.short(C.IMPL, 6, 4);
+    const blocksOf = [
+      ["Foundry (explorer API)", `forge verify-contract ${C.IMPL} \\
+  src/NameRegistry.sol:NameRegistry \\
+  --chain-id 40204 \\
+  --compiler-version 0.8.28 \\
+  --num-of-optimizations 200 \\
+  --constructor-args $(cast abi-encode "constructor(address,uint256)" ${C.DEPLOYER} 10000000000000000) \\
+  --verifier etherscan \\
+  --verifier-url https://explorer.citrate.ai/api \\
+  --etherscan-api-key "$CITRATESCAN_API_KEY" \\
+  --watch`],
+      ["Foundry (Sourcify-compatible)", `forge verify-contract ${C.IMPL} \\
+  src/NameRegistry.sol:NameRegistry \\
+  --chain-id 40204 \\
+  --verifier sourcify \\
+  --verifier-url https://explorer.citrate.ai/`],
+      ["Deploy and verify in one step", `forge create src/NameRegistry.sol:NameRegistry \\
+  --rpc-url https://rpc.citrate.ai \\
+  --account deployer \\
+  --constructor-args ${C.DEPLOYER} 10000000000000000 \\
+  --verify \\
+  --verifier etherscan \\
+  --verifier-url https://explorer.citrate.ai/api \\
+  --etherscan-api-key "$CITRATESCAN_API_KEY"`],
+      ["Hardhat (hardhat.config.ts)", `etherscan: {
+  apiKey: { citrate: process.env.CITRATESCAN_API_KEY ?? "" },
+  customChains: [{
+    network: "citrate",
+    chainId: 40204,
+    urls: {
+      apiURL: "https://explorer.citrate.ai/api",
+      browserURL: "https://explorer.citrate.ai",
+    },
+  }],
+},
+
+// then
+npx hardhat verify --network citrate ${C.IMPL} ${C.DEPLOYER} 10000000000000000`],
+      ["Citrate CLI", `citrate contract verify ${C.IMPL} src/NameRegistry.sol \\
+  --compiler 0.8.28 \\
+  --optimized`],
+      ["citrate-sdk-js", `import { verifyContract } from "@citrate/sdk";
+
+await verifyContract({
+  chainId: 40204,
+  address: "${C.IMPL}",
+  buildInfo: "out/build-info/<id>.json",
+  contract: "src/NameRegistry.sol:NameRegistry",
+});`],
+    ];
+    const body = `
+      ${U.banner("info", `<strong>Planned endpoints.</strong> The explorer API at <span class="mono">/api</span> (module=contract) and the Sourcify-compatible <span class="mono">/v2/verify/40204/{address}</span> ship in EXP-S2. Today's CLI calls an operator-only node method, which EXP-S2 retires. SDK helpers are planned. Commands below show the intended usage.`)}
+      <section class="sec"><h2 class="sec-h">Submit source</h2>
+      <form class="vform" id="vform">
+        <div class="field"><label for="v-addr">Contract address</label><input id="v-addr" class="mono" value="${C.IMPL}" autocomplete="off"></div>
+        <div class="field-grid">
+          <div class="field"><label for="v-kind">Input</label><select id="v-kind"><option>Standard JSON input (recommended)</option><option>Solidity files</option><option>Metadata.json</option></select></div>
+          <div class="field"><label for="v-solc">Compiler</label><select id="v-solc"><option>0.8.28+commit.7893614a</option><option>0.8.26+commit.8a97fa7a</option><option>0.8.24+commit.e11b9ed9</option></select></div>
+        </div>
+        <div class="field"><label for="v-file">Standard JSON input or build-info</label><input id="v-file" type="file" accept=".json"></div>
+        <div class="field"><label for="v-args">Constructor arguments (ABI-encoded, optional)</label><input id="v-args" class="mono" autocomplete="off" placeholder="0x… (detected from the creation tx when left empty)"></div>
+        <div class="fn-a"><button class="btn" type="submit">Verify</button><output class="res" id="v-out" aria-live="polite"></output></div>
+      </form>
+      <p class="muted small">Checks run in an isolated worker: runtime match (immutables masked, metadata stripped), creation match (init code + constructor args), library links. A passing record is never overwritten.</p></section>
+      <section class="sec"><h2 class="sec-h">From your toolchain, chain 40204</h2>
+      <div class="cmds">${blocksOf.map(([t, c]) => `<div class="cmd"><div class="cmd-h"><span>${e(t)}</span>${copyBtn(c)}</div><pre class="code-block mono">${e(c)}</pre></div>`).join("")}</div>
+      <p class="muted small">API keys for the explorer API are an open question for the owner. <span class="mono">${A}</span> is a sample address.</p></section>`;
+    return U.page("Verify and publish source", body, { eyebrow: "Developers", sub: "chain 40204" });
+  }
+  function wireVerify(root) {
+    const f = root.querySelector("#vform"); if (!f) return;
+    f.addEventListener("submit", (ev) => { ev.preventDefault(); root.querySelector("#v-out").textContent = "Prototype: nothing was submitted. A real submission returns a GUID to poll with checkverifystatus."; });
+  }
+
+  function wireCopy(root) {
+    root.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", () => {
+      const v = b.dataset.copy; const done = () => { const o = b.textContent; b.textContent = "Copied"; setTimeout(() => (b.textContent = o), 1200); };
+      try { navigator.clipboard.writeText(v).then(done, () => { selectNear(b); }); } catch (_) { selectNear(b); }
+    }));
+    function selectNear(b) { const pre = b.closest(".cmd, .kv-r"); const t = pre && pre.querySelector("pre, .mono"); if (!t) return; const r = document.createRange(); r.selectNodeContents(t); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+  }
+
+  return { block, tx, address, contract, verify, wireCode, wireForms, wireVerify, wireCopy, txTable, blink, alink, txlink, link, kv };
+})();
+
+/* ---------- tiny hash router shared by both prototypes ---------- */
+function parseRoute() {
+  const h = (location.hash || "#home").slice(1);
+  const m = h.match(/^(block|tx|addr|contract|dag)-(.+)$/);
+  if (m) { const [, kind, rest] = m; const parts = rest.split("-"); return { kind, id: parts[0], tab: parts[1] || null }; }
+  return { kind: h || "home" };
+}
+
+/* ---------- app controller shared by both prototypes ---------- */
+function APP(U) {
+  const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const st = { slotN: CORE.START_VISIBLE, playing: !reduced, wallet: null, tickMs: 2600 };
+  const main = document.getElementById("main");
+  let timer = null, lastKind = null;
+  function now() { return CORE.T0 + st.slotN * CORE.SLOT_MS; }
+  function render(fromTick) {
+    const r = parseRoute();
+    const v = CORE.viewAt(st.slotN);
+    U.status(v, st);
+    if (fromTick && !(r.kind === "home" || r.kind === "dag")) return;
+    const keep = fromTick ? U.saveScroll(main) : null;
+    let html;
+    const ctx = { st, now: now(), reduced };
+    switch (r.kind) {
+      case "home": html = U.home(v, ctx); break;
+      case "dag": html = U.dag(v, ctx, r.id || null); break;
+      case "block": html = SCREENS.block(U, v, r.id); break;
+      case "tx": html = SCREENS.tx(U, v, r.id); break;
+      case "addr": html = SCREENS.address(U, v, r.id); break;
+      case "contract": html = SCREENS.contract(U, v, r.id, r.tab, st); break;
+      case "verify": html = SCREENS.verify(U); break;
+      default: html = U.page("Not found", `<p class="muted">Nothing at <span class="mono">#${CORE.esc(r.kind)}</span>. <a class="lnk" href="#home">Go home</a>.</p>`);
+    }
+    main.innerHTML = html;
+    U.nav(r.kind);
+    SCREENS.wireCopy(main);
+    SCREENS.wireCode(main);
+    SCREENS.wireForms(main, st, () => render(false));
+    SCREENS.wireVerify(main);
+    U.after(main, v, ctx, r);
+    if (keep) U.restoreScroll(main, keep);
+    if (!fromTick && lastKind !== null) { window.scrollTo(0, 0); const h = main.querySelector("h1"); if (h) { h.setAttribute("tabindex", "-1"); h.focus({ preventScroll: true }); } }
+    lastKind = r.kind;
+  }
+  function tick() { if (st.slotN < CORE.NSLOTS) { st.slotN++; render(true); } else { st.playing = false; stop(); U.status(CORE.viewAt(st.slotN), st); } }
+  function start() { stop(); if (st.playing) timer = setInterval(tick, st.tickMs); }
+  function stop() { if (timer) clearInterval(timer); timer = null; }
+  const api = {
+    st, render,
+    toggle() { st.playing = !st.playing; if (st.slotN >= CORE.NSLOTS && st.playing) st.slotN = CORE.START_VISIBLE; start(); render(true); },
+    step() { st.playing = false; stop(); if (st.slotN < CORE.NSLOTS) st.slotN++; render(true); },
+    replay() { st.slotN = CORE.START_VISIBLE; render(false); },
+  };
+  window.addEventListener("hashchange", () => render(false));
+  document.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-stream]"); if (!b) return;
+    const a = b.dataset.stream; if (a === "toggle") api.toggle(); if (a === "step") api.step(); if (a === "replay") api.replay();
+  });
+  // theme toggle: stamps data-theme on the root, cycling system -> light -> dark
+  document.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-theme-toggle]"); if (!b) return;
+    const root = document.documentElement; const cur = root.getAttribute("data-theme");
+    const sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const next = cur === "dark" ? "light" : cur === "light" ? "dark" : (sysDark ? "light" : "dark");
+    root.setAttribute("data-theme", next); b.setAttribute("aria-label", "Theme: " + next + ". Switch theme");
+    b.querySelector("[data-theme-label]") && (b.querySelector("[data-theme-label]").textContent = next === "dark" ? "Dark" : "Light");
+  });
+  render(false); start();
+  return api;
+}
+
+/* ---------- DAG layout on a blue-score axis (shared geometry, drawn differently per direction) ---------- */
+function dagLayout(v, maxBlocks) {
+  const C = CORE;
+  const vis = v.vis.slice().sort((a, b) => C.blocks[a].blueScore - C.blocks[b].blueScore || a - b).slice(-maxBlocks);
+  const set = new Set(vis);
+  const minBS = C.blocks[vis[0]].blueScore, maxBS = C.blocks[vis[vis.length - 1]].blueScore;
+  const cols = {};
+  const nodes = {};
+  const order = [0, 1, -1, 2, -2, 3, -3];
+  vis.forEach((i) => {
+    const b = C.blocks[i]; const c = b.blueScore - minBS;
+    const used = cols[c] || (cols[c] = new Set());
+    let lane;
+    if (v.onChain.has(i)) lane = 0; else lane = order.find((l) => l !== 0 && !used.has(l)) ?? 4;
+    used.add(lane);
+    nodes[i] = { i, b, col: c, lane, color: v.color[i], tip: v.tips.includes(i) };
+  });
+  const edges = [];
+  vis.forEach((i) => { C.blocks[i].parents.forEach((p) => { if (set.has(p)) edges.push({ from: p, to: i, sel: C.blocks[i].sp === p, chain: v.onChain.has(i) && v.onChain.has(p) && C.blocks[i].sp === p }); }); });
+  const lanes = Object.values(nodes).map((n) => n.lane);
+  return { vis, set, nodes, edges, minBS, maxBS, minLane: Math.min(...lanes, -1), maxLane: Math.max(...lanes, 1) };
+}
+/* selection context for the mergeset inspector */
+function dagSelection(v, i) {
+  const C = CORE; const b = C.blocks[i];
+  const ac = C.anticone(i, v);
+  return { i, b, blues: b.blues || [], reds: b.reds || [], anticone: ac, past: b.past, mergeset: new Set([...(b.blues || []), ...(b.reds || [])]) };
+}
+
+/* Direction A UI kit: CitrateScan, evolved */
+const UA = (() => {
+  const C = CORE, e = C.esc, S = SCREENS;
+  const CH = { chain: "Selected chain", blue: "Blue", red: "Red", pending: "Not merged yet" };
+  const U = {
+    page(title, body, o = {}) {
+      return `<div class="pg-h">${o.eyebrow ? `<span class="eyebrow">${e(o.eyebrow)}</span>` : ""}<h1>${e(title)}</h1>${o.sub ? `<span class="pg-sub">${e(o.sub)}</span>` : ""}</div>${body}`;
+    },
+    statusRow: (xs) => `<div class="srow">${xs.filter(Boolean).join("")}</div>`,
+    colorChip: (c, sm) => `<span class="chip chip-${c}${sm ? " chip-sm" : ""}"><i aria-hidden="true"></i>${CH[c]}</span>`,
+    finChip: (f, v) => f === "finalized" ? `<span class="chip fin-final">Finalized at checkpoint ${C.num(C.BS0 + v.finalized)}</span>` : f === "voting" ? `<span class="chip fin-vote">Checkpoint voting (${v.votes}% of 67%)</span>` : `<span class="chip fin-tip">Above the voting checkpoint</span>`,
+    tag: (t) => `<span class="tag">${e(t)}</span>`,
+    txStatus: (s) => s === "success" ? `<span class="chip st-ok">Success</span>` : s === "skipped" ? `<span class="chip st-skip">Skipped (duplicate)</span>` : `<span class="chip st-bad">Reverted</span>`,
+    method: (m) => `<span class="meth">${e(m)}</span>`,
+    flow: (steps) => `<div class="flow">${steps.map(([k, v, chip], n) => `${n ? `<span class="flow-a" aria-hidden="true">→</span>` : ""}<div class="flow-s"><span class="flow-k">${e(k)}</span><span class="flow-v">${v} ${chip}</span></div>`).join("")}</div>`,
+    stats: (xs) => `<div class="stats">${xs.filter(Boolean).map(([k, v]) => `<div class="stat"><div class="stat-k">${e(k)}</div><div class="stat-v">${v}</div></div>`).join("")}</div>`,
+    banner: (kind, html) => `<div class="banner banner-${kind}" role="note">${html}</div>`,
+    tabs: (tabs, active, a) => `<div class="tabs" role="tablist">${tabs.map(([id, label]) => `<a role="tab" id="tab-${id}" href="#contract-${a}-${id}" aria-selected="${id === active}" aria-controls="tp-${id}">${e(label)}</a>`).join("")}</div>`,
+    saveScroll(main) { const w = main.querySelector(".dag-wrap"); return w ? { x: w.scrollLeft, atEnd: w.scrollLeft + w.clientWidth >= w.scrollWidth - 40, y: window.scrollY } : { y: window.scrollY }; },
+    restoreScroll(main, k) { const w = main.querySelector(".dag-wrap"); if (w) w.scrollLeft = k.atEnd ? w.scrollWidth : k.x; },
+    nav(kind) { document.querySelectorAll(".nav a").forEach((a) => { const r = a.getAttribute("href").slice(1); a.toggleAttribute("aria-current", r === kind || (r === "contract-" + C.PROXY && kind === "contract")); if (a.hasAttribute("aria-current")) a.setAttribute("aria-current", "page"); }); },
+    status(v, st) {
+      const el = document.getElementById("live"); if (!el) return;
+      const ended = st.slotN >= C.NSLOTS;
+      el.className = "live" + (st.playing ? " live-on" : "");
+      el.innerHTML = `<span class="live-dot" aria-hidden="true"></span>tip ${C.num(C.H(v.tip))} · blue score ${C.num(C.BS(v.tip))}`;
+      const b = document.getElementById("live-btn");
+      b.textContent = ended ? "Replay" : st.playing ? "Pause" : "Play";
+      b.dataset.stream = ended ? "replay" : "toggle";
+    },
+  };
+
+  /* ---------- home ---------- */
+  function spark(vals, w = 220, h = 34) {
+    const max = Math.max(3, ...vals); const bw = w / vals.length;
+    return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Blocks per slot, last ${vals.length} slots">${vals.map((x, k) => x ? `<rect x="${(k * bw + .5).toFixed(1)}" y="${(h - (x / max) * (h - 2)).toFixed(1)}" width="${(bw - 1).toFixed(1)}" height="${((x / max) * (h - 2)).toFixed(1)}" fill="var(--dag-spine)" opacity="${k === vals.length - 1 ? 1 : .55}"></rect>` : `<rect x="${(k * bw + .5).toFixed(1)}" y="${h - 2}" width="${(bw - 1).toFixed(1)}" height="2" fill="var(--warning)"></rect>`).join("")}</svg>`;
+  }
+  function finBand(v) {
+    const lo = v.finalized - 20, hi = Math.max(v.tipBS, v.pendingCp) + 4;
+    const pct = (bs) => (100 * (bs - lo) / (hi - lo)).toFixed(2) + "%";
+    const w = (a, b) => (100 * (b - a) / (hi - lo)).toFixed(2) + "%";
+    return `<div class="fb" role="img" aria-label="Finality band: finalized checkpoint at blue score ${C.BS0 + v.finalized}, voting checkpoint ${C.BS0 + v.pendingCp}, tip ${C.BS0 + v.tipBS}">
+      <div class="fb-track"><span class="fb-fin" style="width:${pct(v.finalized)}"></span><span class="fb-vote" style="left:${pct(v.finalized)};width:${w(v.finalized, v.tipBS)}"></span><span class="fb-cp" style="left:${pct(v.pendingCp)}"></span><span class="fb-tip" style="left:${pct(v.tipBS)}"></span></div>
+      <div class="fb-ax mono"><span>${C.num(C.BS0 + lo)}</span><span>blue score</span><span>${C.num(C.BS0 + hi)}</span></div></div>`;
+  }
+  function feedBlocks(v, now) {
+    const list = v.vis.slice(-9).reverse();
+    return `<ul class="feed">${list.map((i) => { const b = C.blocks[i]; return `<li class="${b.slot === v.slotN - 1 ? "new-row" : ""}"><a class="badge-h" href="#block-${b.hash}">${C.num(C.H(b))}</a><div class="feed-m"><span>${S.link("block", b.hash, C.short(b.hash, 10, 6))} ${U.colorChip(v.color[i], true)}</span><span class="muted small">${C.PRODUCERS[b.producer].label} · ${b.txs.length} txs${b.parents.length > 1 ? ` · merges ${b.parents.length - 1}` : ""}</span></div><div class="feed-r"><span>bs ${C.num(C.BS(b))}</span><span>${C.ago(b.ts, now)}</span></div></li>`; }).join("")}</ul>`;
+  }
+  function feedTxs(v, now) {
+    const list = []; for (let k = v.vis.length - 1; k >= 0 && list.length < 9; k--) { const b = C.blocks[v.vis[k]]; for (const h of b.txs.slice().reverse()) { if (list.length < 9) list.push([h, b]); } }
+    return `<ul class="feed">${list.map(([h, b]) => { const t = C.txByHash[h]; return `<li><span class="meth">${e(t.method ? t.method.replace(/\(.*$/, "") : "transfer")}</span><div class="feed-m"><span>${S.txlink(h)}</span><span class="muted small">${C.short(t.from, 6, 4)} → ${C.addrLabel(t.to) || C.short(t.to, 6, 4)}</span></div><div class="feed-r"><span class="mono">${C.salt(t.value)}</span><span>${C.ago(b.ts, now)}</span></div></li>`; }).join("")}</ul>`;
+  }
+  U.home = (v, ctx) => {
+    const m = C.metrics(v, 60), m100 = C.metrics(v, 100);
+    const shareMax = Math.max(...m.share.map((s) => s.n));
+    return `<div class="pg-h"><span class="eyebrow">Chain 40204 · GhostDAG k = ${C.K}</span><h1>Network health</h1></div>
+      <p class="lede">Every block on the DAG, colored the way consensus colors it.</p>
+      <div class="home-grid">
+        <div class="card span-3 tile"><div class="tile-k"><span>Blocks per slot</span><span class="mono small">60 slots</span></div><div class="tile-v">${m.bps.toFixed(2)}</div>${spark(m.perSlot)}<div class="tile-s">${m.emptyPct.toFixed(0)}% empty slots (marked in yellow)</div></div>
+        <div class="card span-3 tile"><div class="tile-k"><span>Merge rate</span><span class="mono small">60 slots</span></div><div class="tile-v">${m.mergeRate.toFixed(0)}<small>%</small></div><div class="tile-s">of selected-chain blocks merge at least one side block</div></div>
+        <div class="card span-3 tile"><div class="tile-k"><span>Selected-chain changes</span><span class="mono small">100 slots</span></div><div class="tile-v">${m100.changes}</div><div class="tile-s">${m100.changes ? `deepest ${m100.maxDepth} block${m100.maxDepth > 1 ? "s" : ""}` : "no reorgs in the window"} · <a class="lnk" href="#dag">timeline</a></div></div>
+        <div class="card span-3 tile"><div class="tile-k"><span>Red blocks</span><span class="mono small">100 slots</span></div><div class="tile-v">${m100.redRate.toFixed(1)}<small>%</small></div><div class="tile-s">blocks outside the k-cluster when merged</div></div>
+        <div class="card span-7"><div class="card-h"><h2>Finality</h2><span class="muted small">checkpoint votes, not block depth</span></div><div class="fband">${finBand(v)}<div class="fband-legend"><span>Finalized checkpoint <b>${C.num(C.BS0 + v.finalized)}</b></span><span>Voting <b>${C.num(C.BS0 + v.pendingCp)}</b> at <b>${v.votes}%</b> of 67%</span><span>Tip <b>${C.num(C.BS0 + v.tipBS)}</b>, ${v.tipBS - v.finalized} above the checkpoint</span></div><p class="muted small" style="margin:4px 0 0">Votes run from block 0. Refusing to reorg below the checkpoint turns on by governance after the soak (CV-8), so today this band reports votes and does not yet enforce them.</p></div></div>
+        <div class="card span-5"><div class="card-h"><h2>Producer share</h2><span class="muted small">${m.total} blocks, 60 slots</span></div><div class="share">${m.share.map((s) => `<div class="share-r"><span>${e(s.p.label)}</span><span class="share-b" role="img" aria-label="${s.n} blocks"><i style="width:${(100 * s.n / Math.max(1, shareMax)).toFixed(1)}%"></i></span><span class="mono">${(100 * s.n / Math.max(1, m.total)).toFixed(0)}%</span></div>`).join("")}</div></div>
+        <div class="card span-12"><div class="card-h"><h2>Live DAG</h2><a class="lnk" href="#dag">Open the DAG view</a></div><div class="mini-dag dag-wrap">${dagSvg(v, 34, null, true)}</div></div>
+        <div class="card span-6"><div class="card-h"><h2>Latest blocks</h2><span class="muted small">siblings included</span></div>${feedBlocks(v, ctx.now)}</div>
+        <div class="card span-6"><div class="card-h"><h2>Latest transactions</h2><a class="lnk" href="#contract-${C.PROXY}">Sample contract</a></div>${feedTxs(v, ctx.now)}</div>
+      </div>`;
+  };
+
+  /* ---------- DAG ---------- */
+  function dagSvg(v, maxBlocks, sel, compact) {
+    const L = dagLayout(v, maxBlocks);
+    const sx = compact ? 22 : 30, ly = compact ? 22 : 40, padX = 30, top = compact ? 14 : 34, bot = compact ? 10 : 30;
+    const lanes = L.maxLane - L.minLane;
+    const H = top + bot + lanes * ly;
+    const W = padX * 2 + (L.maxBS - L.minBS) * sx;
+    const X = (n) => padX + n.col * sx, Y = (n) => top + (n.lane - L.minLane) * ly;
+    const S2 = sel != null ? dagSelection(v, sel) : null;
+    const nb = (i) => L.nodes[i];
+    let g = "";
+    // finality shading and axis grid
+    if (!compact) {
+      const fx = padX + (v.finalized - L.minBS) * sx, px = padX + (v.pendingCp - L.minBS) * sx;
+      if (fx > 0) g += `<rect class="fin-rect" x="0" y="0" width="${Math.max(0, fx).toFixed(1)}" height="${H}"></rect><text x="${Math.max(6, fx - 6)}" y="14" text-anchor="end" class="lbl-strong">finalized ≤ ${C.num(C.BS0 + v.finalized)}</text>`;
+      g += `<rect class="vote-rect" x="${Math.max(0, fx).toFixed(1)}" y="0" width="${Math.max(0, Math.min(W, px) - Math.max(0, fx)).toFixed(1)}" height="${H}"></rect>`;
+      for (let bs = Math.ceil(L.minBS / 5) * 5; bs <= L.maxBS; bs += 5) { const x = padX + (bs - L.minBS) * sx; g += `<line class="grid-l" x1="${x}" x2="${x}" y1="${top - 10}" y2="${H - bot + 6}"></line><text x="${x}" y="${H - 8}" text-anchor="middle">${C.num(C.BS0 + bs)}</text>`; }
+      v.changes.forEach((c) => { const n = nb(c.added[c.added.length - 1]); if (!n) return; const x = X(n) - sx / 2; g += `<line class="chg-line" x1="${x}" x2="${x}" y1="18" y2="${H - bot}"></line><text class="chg-lbl" x="${x + 4}" y="28">chain change, depth ${c.depth}</text>`; });
+    }
+    // edges
+    L.edges.forEach((ed) => {
+      const a = nb(ed.from), b = nb(ed.to); const x1 = X(a), y1 = Y(a), x2 = X(b), y2 = Y(b); const mx = (x1 + x2) / 2;
+      const ms = S2 && ed.to === S2.i;
+      const red = v.color[ed.from] === "red";
+      if (ed.chain) g += `<path class="e-spine" d="M${x1} ${y1}L${x2} ${y2}"></path>`;
+      else g += `<path class="${ed.sel ? "e-sel" : "e-merge"}${red ? " e-red" : ""}${ms ? " e-ms" : ""}" d="M${x1} ${y1}C${mx} ${y1},${mx} ${y2},${x2} ${y2}"></path>`;
+    });
+    // nodes
+    const r = compact ? 6 : 9;
+    L.vis.forEach((i) => {
+      const n = nb(i); const x = X(n), y = Y(n);
+      const cls = ["n", "n-" + n.color];
+      if (S2) { if (i === S2.i) cls.push("is-sel"); else if (S2.mergeset.has(i)) cls.push("in-ms"); else if (S2.anticone.includes(i)) cls.push("in-ac"); else if (S2.past.has(i)) cls.push("in-past"); }
+      const rr = n.color === "chain" ? r + 1.5 : r;
+      const label = `Block ${C.num(C.H(n.b))}, ${CH[n.color]}, blue score ${C.num(C.BS(n.b))}${n.tip ? ", tip" : ""}`;
+      g += `<g class="${cls.join(" ")}" data-h="${n.b.hash}" role="button" tabindex="${compact ? -1 : 0}" aria-label="${label}"><title>${label}</title>
+        ${n.tip ? `<circle class="halo" cx="${x}" cy="${y}" r="${rr + 5}"></circle>` : ""}
+        <circle class="body" cx="${x}" cy="${y}" r="${rr}"></circle>
+        ${n.color === "red" ? `<path class="x" d="M${x - 3.5} ${y - 3.5}L${x + 3.5} ${y + 3.5}M${x + 3.5} ${y - 3.5}L${x - 3.5} ${y + 3.5}"></path>` : ""}
+        ${S2 && i === S2.i ? `<circle class="selring" cx="${x}" cy="${y}" r="${rr + 4}"></circle>` : ""}
+        ${!compact && n.lane === 0 && n.col % 2 === 0 ? `<text x="${x}" y="${y - rr - 6}" text-anchor="middle">${C.num(C.H(n.b))}</text>` : ""}</g>`;
+    });
+    return `<svg class="dag-svg${S2 ? " has-sel" : ""}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="group" aria-label="DAG of the last ${L.vis.length} blocks on a blue-score axis${compact ? "" : "; select a block to inspect its mergeset"}">${g}</svg>`;
+  }
+  function legend() {
+    const dot = (cls, extra = "") => `<svg width="16" height="16" aria-hidden="true"><g class="n ${cls}"><circle class="body" cx="8" cy="8" r="5.5"></circle>${extra}</g></svg>`;
+    return `<div class="legend" aria-label="Legend">
+      <span>${dot("n-chain")} selected chain</span><span>${dot("n-blue")} blue (merged)</span><span>${dot("n-red", '<path class="x" d="M5.5 5.5L10.5 10.5M10.5 5.5L5.5 10.5"></path>')} red</span><span>${dot("n-pending")} not merged yet</span>
+      <span><svg width="22" height="10" aria-hidden="true"><line x1="0" x2="22" y1="5" y2="5" stroke="var(--dag-spine)" stroke-width="4"></line></svg> spine</span>
+      <span><svg width="22" height="10" aria-hidden="true"><line x1="0" x2="22" y1="5" y2="5" stroke="var(--dag-change)" stroke-width="1.5" stroke-dasharray="4 3"></line></svg> chain change</span></div>`;
+  }
+  function defaultSel(v) {
+    const ch = v.chain.slice(1, 12);
+    return ch.find((i) => C.blocks[i].parents.length > 2) ?? ch.find((i) => C.blocks[i].parents.length > 1) ?? v.vt;
+  }
+  function redExample(v) { return v.chain.find((i) => (C.blocks[i].reds || []).length); }
+  const hb = (i) => { const b = C.blocks[i]; return `<a class="lnk mono" href="#dag-${b.hash}">${C.num(C.H(b))}<span class="muted small"> ${b.hash.slice(0, 6)}</span></a>`; };
+  function inspector(v, i) {
+    const s = dagSelection(v, i); const b = s.b;
+    const item = (x, cls) => `<a class="ms-i ${cls}" href="#dag-${C.blocks[x].hash}" title="Inspect block ${C.H(C.blocks[x])}">${C.num(C.H(C.blocks[x]))} <span class="muted">${C.blocks[x].hash.slice(2, 6)}</span></a>`;
+    return `<aside class="card insp" aria-label="Mergeset inspector"><div class="insp-g">
+      <div><span class="eyebrow">Mergeset inspector</span><h2>Block ${C.num(C.H(b))}</h2><div class="srow" style="margin:6px 0 0">${U.colorChip(v.color[i])}${v.tips.includes(i) ? U.tag("tip") : ""}</div></div>
+      ${S.kv([["Blue score", `<span class="mono">${C.num(C.BS(b))}</span>`], ["Blue work", `<span class="mono small">${C.BW(b)}</span>`], ["Selected parent", b.sp != null ? S.blink(b.sp, "h") : "genesis"], ["Accepted by", v.acceptedBy[i] !== undefined ? S.blink(v.acceptedBy[i], "h") : `<span class="muted">not yet</span>`]])}
+      <div><div class="ms-h"><span>Mergeset blues</span><span class="mono">${s.blues.length}</span></div><div class="ms-l">${s.blues.map((x) => item(x, "blue")).join("") || `<span class="muted small">none</span>`}</div></div>
+      <div><div class="ms-h"><span>Mergeset reds</span><span class="mono">${s.reds.length}</span></div><div class="ms-l">${s.reds.map((x) => item(x, "red")).join("") || `<span class="muted small">none</span>`}</div></div>
+      <div><div class="ms-h"><span>Anticone (in view)</span><span class="mono">${s.anticone.length}</span></div><div class="ms-l">${s.anticone.slice(0, 24).map((x) => item(x, "ac")).join("") || `<span class="muted small">none</span>`}</div></div>
+      <p class="muted small" style="margin:0">On the graph: the selected block is ringed, its mergeset stays solid, its anticone is outlined in yellow and its past is dimmed.</p>
+      <a class="lnk" href="#block-${b.hash}">Open block page</a></div></aside>`;
+  }
+  U.dag = (v, ctx, hash) => {
+    const selB = hash && C.byHash[hash] && v.visSet.has(C.byHash[hash].i) ? C.byHash[hash].i : defaultSel(v);
+    const st = ctx.st;
+    const changes = v.changes.slice().reverse();
+    return `<div class="pg-h"><span class="eyebrow">GhostDAG k = ${C.K} · blue-score axis</span><h1>Live DAG</h1></div>
+      <div class="dag-top">${legend()}<div class="ctrls"><button class="cbtn" type="button" data-stream="${st.slotN >= C.NSLOTS ? "replay" : "toggle"}" aria-pressed="${st.playing}">${st.slotN >= C.NSLOTS ? "Replay" : st.playing ? "Pause stream" : "Play stream"}</button><button class="cbtn" type="button" data-stream="step">Step one slot</button>${redExample(v) !== undefined ? `<a class="cbtn" style="text-decoration:none" href="#dag-${C.blocks[redExample(v)].hash}">Show a merge with red blocks</a>` : ""}</div></div>
+      <div class="dag-layout"><div style="min-width:0">
+        <div class="dag-wrap" id="dagwrap">${dagSvg(v, 80, selB, false)}<div class="dag-foot"><span>Green band: finalized by checkpoint votes</span><span>Yellow band: checkpoint voting</span><span>Scroll sideways for older blocks</span></div></div>
+        <section class="sec" style="margin-top:14px"><h2 class="sec-h">Selected-chain changes</h2>${changes.length ? `<ul class="tl">${changes.map((c) => `<li><span class="mono small">slot ${C.num(c.slot + 72000)}</span><span>Depth ${c.depth}: ${c.removed.map(hb).join(", ")} left the selected chain and ${c.added.map(hb).join(", ")} joined it. The losing block stays in the DAG and is merged as a side block.</span></li>`).join("")}</ul>` : `<p class="muted">No changes in the sample window.</p>`}</section>
+      </div>${inspector(v, selB)}</div>`;
+  };
+  U.after = (main, v, ctx, r) => {
+    main.querySelectorAll(".dag-svg .n").forEach((g) => {
+      const go = () => { location.hash = "dag-" + g.dataset.h; };
+      g.addEventListener("click", go); g.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); go(); } });
+    });
+    main.querySelectorAll(".dag-wrap").forEach((w) => {
+      const sel = w.querySelector(".n.is-sel circle.body");
+      if (sel) { const cx = +sel.getAttribute("cx"); w.scrollLeft = Math.max(0, cx - w.clientWidth * 0.6); } else w.scrollLeft = w.scrollWidth;
+    });
+  };
+  return U;
+})();
+
+/* search: block hash, tx hash, address, or height */
+function wireSearch(formId) {
+  const f = document.getElementById(formId); if (!f) return;
+  const msg = f.querySelector(".search-msg");
+  f.addEventListener("submit", (ev) => {
+    ev.preventDefault(); const q = f.querySelector("input").value.trim().toLowerCase(); msg.hidden = true;
+    const C = CORE;
+    if (/^\d+$/.test(q)) { const b = C.blocks.find((x) => C.H(x) === +q); if (b) { location.hash = "block-" + b.hash; return; } }
+    if (C.byHash[q]) { location.hash = "block-" + q; return; }
+    if (C.txByHash[q]) { location.hash = "tx-" + q; return; }
+    if ([C.PROXY, C.IMPL, C.IMPL_OLD, C.GUEST].includes(q)) { location.hash = "contract-" + q; return; }
+    if (/^0x[0-9a-f]{40}$/.test(q)) { location.hash = "addr-" + q; return; }
+    const pre = C.blocks.find((x) => q.length > 5 && x.hash.startsWith(q)); if (pre) { location.hash = "block-" + pre.hash; return; }
+    msg.textContent = "No match in the sample data. Try a height such as " + C.num(C.H(C.blocks[150])).replace(/,/g, "") + "."; msg.hidden = false;
+  });
+}
+
+document.getElementById("shell").innerHTML = document.getElementById("shell").innerHTML.replaceAll("__PROXY__", CORE.PROXY).replaceAll("__GUEST__", CORE.GUEST);
+wireSearch("srch");
+window.PROTO = APP(UA);
+</script>
