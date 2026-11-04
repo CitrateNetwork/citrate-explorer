@@ -11,8 +11,15 @@
  *   pnpm indexer:once   — single pass (INDEXER_ONCE=1): ingest the latest block
  *                         and exit. Used as a smoke test / cron tick.
  *
- * Resume: picks up from the `indexer_state` cursor (MAX height committed), so a
- * restart produces zero gaps and zero duplicates (onConflictDoNothing).
+ * Resume: picks up from the `indexer_state` cursor + 1. The cursor is the
+ * highest height such that every height at or below it landed (the scheduler's
+ * contiguous watermark), and it only moves forward, so a restart re-covers any
+ * hole. Each block is written in one transaction and re-ingest never duplicates.
+ *
+ * Retries (explorer#40): a height whose ingest fails (RPC error, missing receipt,
+ * DB conflict) is retried with exponential backoff from INDEXER_RETRY_BASE_MS
+ * (default 1 s) up to INDEXER_RETRY_MAX_MS (default 60 s). It is never skipped;
+ * newer heights keep flowing meanwhile, and the cursor waits below it.
  *
  * Genesis guard (EXP-S0): before writing, and every INDEXER_GENESIS_CHECK_MS
  * (default 60 s) while running, the RPC's block 0 hash is compared with
@@ -28,11 +35,13 @@
  * Deploy alongside the inference box (D-Host). Run with: `pnpm indexer`.
  */
 import {
+  advanceCursor,
   ingestBlock,
   reconcileFinality,
   resumeHeight,
   headHeight,
 } from "@/lib/indexer/ingest";
+import { HeightScheduler } from "@/lib/indexer/scheduler";
 import { getDb, isDbEnabled } from "@/lib/db/client";
 import {
   checkGenesis,
@@ -47,13 +56,11 @@ const ONCE = process.env.INDEXER_ONCE === "1";
 /**
  * How many heights to ingest concurrently while catching up. Default 1
  * preserves the previous strictly-sequential behaviour. Set higher when
- * the indexer is far behind head — each `ingestBlock` is idempotent
- * (`onConflictDoNothing` on `blocks` / `receipts` / `logs` / `dag_edges`,
- * `onConflictDoUpdate(id=1)` on `indexer_state`), so the only effect of a
- * cursor race is a brief regression that gets retried-and-deduped on the
- * next loop iteration. With `INDEXER_PARALLEL=8` and ~1s per block, the
- * sustained ingest rate goes from ~1 block/s to ~8 blocks/s, which is
- * what closes a 10k+ block gap in minutes instead of hours.
+ * the indexer is far behind head. Each `ingestBlock` is one transaction and
+ * idempotent, a failed height is retried (never skipped), and the cursor is
+ * the contiguous watermark, so parallel ingest cannot lose a height. With
+ * `INDEXER_PARALLEL=8` and ~1s per block, the sustained ingest rate goes
+ * from ~1 block/s to ~8 blocks/s.
  *
  * Capped at 32 to keep the Neon connection pool happy on the free tier.
  */
@@ -61,6 +68,9 @@ const PARALLEL = Math.max(
   1,
   Math.min(32, Number(process.env.INDEXER_PARALLEL ?? 1)),
 );
+
+const RETRY_BASE_MS = Math.max(100, Number(process.env.INDEXER_RETRY_BASE_MS ?? 1_000));
+const RETRY_MAX_MS = Math.max(RETRY_BASE_MS, Number(process.env.INDEXER_RETRY_MAX_MS ?? 60_000));
 
 const GENESIS_CHECK_MS = Math.max(5_000, Number(process.env.INDEXER_GENESIS_CHECK_MS ?? 60_000));
 
@@ -126,9 +136,17 @@ async function loop() {
   await lockOrExit();
   await guardGenesisAtStart();
   let lastGenesisCheck = Date.now();
-  let next = await resumeHeight();
+  const start = await resumeHeight();
+  const sched = new HeightScheduler({
+    start,
+    parallel: PARALLEL,
+    baseDelayMs: RETRY_BASE_MS,
+    maxDelayMs: RETRY_MAX_MS,
+  });
+  const db = getDb();
+  let cursor = sched.contiguousThrough();
   console.log(
-    `[indexer] resuming at height ${next}; db=${isDbEnabled() ? "neon" : "dry"}; poll=${POLL_MS}ms parallel=${PARALLEL}`,
+    `[indexer] resuming at height ${start}; db=${db ? "postgres" : "dry"}; poll=${POLL_MS}ms parallel=${PARALLEL} retry=${RETRY_BASE_MS}..${RETRY_MAX_MS}ms`,
   );
   for (;;) {
     try {
@@ -137,31 +155,29 @@ async function loop() {
         lastGenesisCheck = Date.now();
       }
       const head = await headHeight();
-      while (next <= head) {
-        // Process up to PARALLEL heights concurrently. Each call is
-        // idempotent at every persist site, so a partial batch failure
-        // just leaves a gap that the next loop iteration re-covers via
-        // the same `next <= head` check.
-        const batchEnd = Math.min(next + PARALLEL - 1, head);
-        const heights: number[] = [];
-        for (let h = next; h <= batchEnd; h++) heights.push(h);
-        const results = await Promise.allSettled(
-          heights.map((h) => ingestBlock(h)),
-        );
-        for (let i = 0; i < heights.length; i++) {
+      // Due retries first, then fresh heights, up to PARALLEL at a time.
+      for (let batch = sched.nextBatch(head); batch.length; batch = sched.nextBatch(head)) {
+        const results = await Promise.allSettled(batch.map((h) => ingestBlock(h)));
+        for (let i = 0; i < batch.length; i++) {
           const r = results[i];
-          const h = heights[i];
+          const h = batch[i];
           if (r.status === "fulfilled") {
+            sched.succeeded(h);
             const v = r.value;
-            if (v.persisted || v.hash) {
-              const sup = v.superseded ? ` superseded=${v.superseded}` : "";
-              console.log(`[indexer] block ${h} hash=${v.hash} txs=${v.txCount}${sup}`);
-            }
+            const sup = v.superseded ? ` superseded=${v.superseded}` : "";
+            console.log(`[indexer] block ${h} hash=${v.hash} txs=${v.txCount}${sup}`);
           } else {
-            console.error(`[indexer] block ${h} failed: ${(r.reason as Error).message}`);
+            const { attempts, retryInMs } = sched.failed(h);
+            console.error(
+              `[indexer] block ${h} failed (attempt ${attempts}, retry in ${retryInMs} ms): ${(r.reason as Error).message}`,
+            );
           }
         }
-        next = batchEnd + 1;
+        const through = sched.contiguousThrough();
+        if (db && through > cursor) {
+          await advanceCursor(db, through);
+          cursor = through;
+        }
       }
       if (isDbEnabled()) {
         const f = await reconcileFinality();

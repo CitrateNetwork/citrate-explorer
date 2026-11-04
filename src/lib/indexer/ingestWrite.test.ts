@@ -113,6 +113,17 @@ describe("reorg re-ingest", () => {
     expect(await ctx.db.select().from(logs).where(eq(logs.txHash, T))).toHaveLength(1);
   });
 
+  it("a block served again after it was displaced becomes live again", async () => {
+    const a = source({ 5: block(A5, 5, [tx(T)]) }, () => receipt());
+    await ingestBlock(5, { db: ctx.db, source: a });
+    await ingestBlock(5, { db: ctx.db, source: source({ 5: block(B5, 5, [tx(T)]) }, () => receipt()) });
+    await ingestBlock(5, { db: ctx.db, source: a });
+    const rows = await ctx.db.select().from(blocks);
+    expect(rows.filter((r) => !r.superseded).map((r) => r.hash)).toEqual([A5]);
+    expect((await txRow(T)).blockHash).toBe(A5);
+    expect(await ctx.db.select().from(logs)).toHaveLength(1);
+  });
+
   it("re-ingesting the same block does not duplicate logs", async () => {
     const src = source({ 5: block(A5, 5, [tx(T)]) }, () => receipt());
     await ingestBlock(5, { db: ctx.db, source: src });

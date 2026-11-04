@@ -9,10 +9,19 @@ import { getDb } from "@/lib/db/client";
 import { blocks, transactions, tokenTransfers } from "@/lib/db/schema";
 import { NOT_PROVISIONED, type NotProvisioned } from "./types";
 
+// Reorg discipline (explorer#40): a displaced block is kept with `superseded =
+// true` for history, but no read below serves it, or a transaction / transfer
+// that only a superseded block contains, as canonical.
+const liveBlock = eq(blocks.superseded, false);
+/** The tx's block is not superseded (a tx with no indexed block row is kept). */
+const liveTx = sql`not exists (select 1 from ${blocks} sb where sb.hash = ${transactions.blockHash} and sb.superseded)`;
+/** The transfer's block is not superseded. */
+const liveTransfer = sql`not exists (select 1 from ${blocks} sb where sb.hash = ${tokenTransfers.blockHash} and sb.superseded)`;
+
 export async function getRecentBlocks(limit = 25) {
   const db = getDb();
   if (!db) return NOT_PROVISIONED;
-  return db.select().from(blocks).orderBy(desc(blocks.blueScore)).limit(limit);
+  return db.select().from(blocks).where(liveBlock).orderBy(desc(blocks.blueScore)).limit(limit);
 }
 
 /**
@@ -24,14 +33,20 @@ export async function indexerHead(): Promise<number | null> {
   if (!db) return null;
   const [row] = await db
     .select({ height: sql<number>`max(${blocks.height})` })
-    .from(blocks);
+    .from(blocks)
+    .where(liveBlock);
   return row?.height ?? null;
 }
 
 export async function getBlockByHeight(height: number) {
   const db = getDb();
   if (!db) return NOT_PROVISIONED;
-  const rows = await db.select().from(blocks).where(eq(blocks.height, height)).limit(1);
+  const rows = await db
+    .select()
+    .from(blocks)
+    .where(and(eq(blocks.height, height), liveBlock))
+    .orderBy(desc(blocks.blueScore))
+    .limit(1);
   return rows[0] ?? null;
 }
 
@@ -41,7 +56,7 @@ export async function getTxByHash(hash: string) {
   const rows = await db
     .select()
     .from(transactions)
-    .where(eq(transactions.hash, hash))
+    .where(and(eq(transactions.hash, hash), liveTx))
     .limit(1);
   return rows[0] ?? null;
 }
@@ -56,7 +71,7 @@ export async function searchTransactions(
   const results = await db
     .select()
     .from(transactions)
-    .where(or(eq(transactions.from, a), eq(transactions.to, a)))
+    .where(and(or(eq(transactions.from, a), eq(transactions.to, a)), liveTx))
     .orderBy(desc(transactions.timestamp))
     .limit(limit);
   return { provisioned: true, results };
@@ -113,7 +128,7 @@ export async function findNativeTransfers(
   if (!db) return NOT_PROVISIONED;
 
   const valueNumeric = sql`CAST(${transactions.value} AS NUMERIC)`;
-  const conds = [sql`${valueNumeric} > 0`];
+  const conds = [sql`${valueNumeric} > 0`, liveTx];
   if (q.minGrains !== undefined) conds.push(sql`${valueNumeric} >= CAST(${q.minGrains.toString()} AS NUMERIC)`);
   if (q.maxGrains !== undefined) conds.push(sql`${valueNumeric} <= CAST(${q.maxGrains.toString()} AS NUMERIC)`);
   if (q.counterparty) {
@@ -166,7 +181,8 @@ export async function findNativeTransfers(
       minH: sql<number | null>`min(${transactions.blockHeight})`,
       maxH: sql<number | null>`max(${transactions.blockHeight})`,
     })
-    .from(transactions);
+    .from(transactions)
+    .where(liveTx);
 
   // Postgres min/max(bigint) come back as strings via the driver — coerce to numbers
   // so the result type (and the agent) gets real numbers, not "1004".
@@ -233,7 +249,7 @@ export async function findTokenTransfers(
   if (!db) return NOT_PROVISIONED;
 
   const valueNumeric = sql`CAST(${tokenTransfers.value} AS NUMERIC)`;
-  const conds = [eq(tokenTransfers.token, q.token.toLowerCase())];
+  const conds = [eq(tokenTransfers.token, q.token.toLowerCase()), liveTransfer];
   if (q.minRaw !== undefined) conds.push(sql`${valueNumeric} >= CAST(${q.minRaw.toString()} AS NUMERIC)`);
   if (q.maxRaw !== undefined) conds.push(sql`${valueNumeric} <= CAST(${q.maxRaw.toString()} AS NUMERIC)`);
   if (q.counterparty) {
@@ -289,7 +305,7 @@ export async function tokenActivity(
 ): Promise<NotProvisioned | { provisioned: true; token: string; transfers: number; senders: number; recipients: number }> {
   const db = getDb();
   if (!db) return NOT_PROVISIONED;
-  const conds = [eq(tokenTransfers.token, token.toLowerCase())];
+  const conds = [eq(tokenTransfers.token, token.toLowerCase()), liveTransfer];
   if (opts.fromTs !== undefined) conds.push(sql`${tokenTransfers.timestamp} >= ${opts.fromTs}`);
   if (opts.toTs !== undefined) conds.push(sql`${tokenTransfers.timestamp} <= ${opts.toTs}`);
   const [row] = await db
@@ -332,19 +348,19 @@ export async function addressActivity(
   const [sent] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(transactions)
-    .where(eq(transactions.from, a));
+    .where(and(eq(transactions.from, a), liveTx));
   const [received] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(transactions)
-    .where(eq(transactions.to, a));
+    .where(and(eq(transactions.to, a), liveTx));
   const [tokenSent] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(tokenTransfers)
-    .where(eq(tokenTransfers.from, a));
+    .where(and(eq(tokenTransfers.from, a), liveTransfer));
   const [tokenReceived] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(tokenTransfers)
-    .where(eq(tokenTransfers.to, a));
+    .where(and(eq(tokenTransfers.to, a), liveTransfer));
   return {
     provisioned: true,
     address: a,
@@ -380,7 +396,7 @@ export async function addressTokenTransfers(
       tokenId: tokenTransfers.tokenId,
     })
     .from(tokenTransfers)
-    .where(or(eq(tokenTransfers.from, a), eq(tokenTransfers.to, a)))
+    .where(and(or(eq(tokenTransfers.from, a), eq(tokenTransfers.to, a)), liveTransfer))
     .orderBy(desc(tokenTransfers.timestamp))
     .limit(limit);
   return { provisioned: true, results };
@@ -396,8 +412,9 @@ export async function topHolders(
   // rollup lands in S-2. For now expose the transfer-recipient leaderboard.
   const rows = await db.execute(sql`
     SELECT to_addr AS holder, count(*)::int AS transfers
-    FROM token_transfers
-    WHERE token = ${token.toLowerCase()}
+    FROM token_transfers tt
+    WHERE tt.token = ${token.toLowerCase()}
+      AND NOT EXISTS (SELECT 1 FROM blocks sb WHERE sb.hash = tt.block_hash AND sb.superseded)
     GROUP BY to_addr
     ORDER BY transfers DESC
     LIMIT ${limit}
@@ -412,12 +429,16 @@ export async function classifyHash(
 ): Promise<"block" | "transaction" | "unknown" | NotProvisioned> {
   const db = getDb();
   if (!db) return NOT_PROVISIONED;
-  const [b] = await db.select({ h: blocks.hash }).from(blocks).where(eq(blocks.hash, hash)).limit(1);
+  const [b] = await db
+    .select({ h: blocks.hash })
+    .from(blocks)
+    .where(and(eq(blocks.hash, hash), liveBlock))
+    .limit(1);
   if (b) return "block";
   const [t] = await db
     .select({ h: transactions.hash })
     .from(transactions)
-    .where(eq(transactions.hash, hash))
+    .where(and(eq(transactions.hash, hash), liveTx))
     .limit(1);
   if (t) return "transaction";
   return "unknown";
@@ -443,7 +464,7 @@ export async function tokenIdTransfers(
       logIndex: tokenTransfers.logIndex,
     })
     .from(tokenTransfers)
-    .where(and(eq(tokenTransfers.token, token.toLowerCase()), eq(tokenTransfers.tokenId, tokenId.toString())))
+    .where(and(eq(tokenTransfers.token, token.toLowerCase()), eq(tokenTransfers.tokenId, tokenId.toString()), liveTransfer))
     .orderBy(tokenTransfers.blockHeight, tokenTransfers.logIndex)
     .limit(limit);
   return { provisioned: true, results };
