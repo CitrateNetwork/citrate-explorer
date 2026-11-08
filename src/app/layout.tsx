@@ -11,6 +11,7 @@ import "../explorer/ledger.css";
 import "../scan/approval.css";
 import { ConsentProvider } from "@/lib/consent/client";
 import { ConsentBanner } from "@/components/consent-banner";
+import { TestnetResetBanner } from "@/components/testnet-reset-banner";
 
 // The design system's three faces, self-hosted via next/font (no external
 // request, so the CSP stays tight): Space Grotesk for display, Geist for the UI,
@@ -117,6 +118,8 @@ export default async function RootLayout({
             </p>
           </div>
         </noscript>
+        {/* r1007 testnet reset notice. Date: CITRATE_TESTNET_RESET_DATE (YYYY-MM-DD), else "to be announced". */}
+        <TestnetResetBanner resetDate={process.env.CITRATE_TESTNET_RESET_DATE} />
         <ConsentProvider>
           {children}
           <ConsentBanner />
