@@ -2,7 +2,8 @@ import { z } from "zod";
 import { verifySession } from "@/lib/auth/session";
 import { checkSameOrigin } from "@/lib/security/sameOrigin";
 import { allowWriteEvent } from "@/lib/agent/limits";
-import { confirmOnChain, logWriteEvent, writeEventSchema } from "@/lib/agent/writeLog";
+import { writeEventSchema } from "@/lib/agent/writeLog";
+import { confirmOnChain, logWriteEvent } from "@/lib/agent/writeLogServer";
 import { getTransaction } from "@/lib/harness/ops";
 
 /**

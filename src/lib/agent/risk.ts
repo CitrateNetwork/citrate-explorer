@@ -139,6 +139,10 @@ export function assessRisk(i: RiskInput): RiskAssessment {
     add({ code: "eoa-target", severity: "elevated", message: "The target has no contract code. Calldata sent to it does nothing except move any value." });
   } else if (i.target.verification === "partial-match" || i.target.abiSource === "partial-match") {
     add({ code: "partial-match-target", severity: "elevated", message: "The target's source is only a partial match, not verified. Its real behaviour may differ from the shown source." });
+  } else if (i.target.abiSource === "signature" && i.target.verification === "verified") {
+    add({ code: "unverified-target", severity: "elevated", message: "The contract is verified, but this function is not in its verified ABI: it was encoded from a signature you supplied." });
+  } else if (i.target.verification === "unavailable") {
+    add({ code: "unverified-target", severity: "elevated", message: "Whether the target contract is verified is unknown right now (the verification store is unavailable). Treat it as unverified." });
   } else if (i.target.verification !== "verified") {
     add({ code: "unverified-target", severity: "elevated", message: "The target contract is not verified. Nobody has shown what its code does." });
   }

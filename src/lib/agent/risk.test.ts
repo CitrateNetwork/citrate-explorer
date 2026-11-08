@@ -59,6 +59,18 @@ describe("elevated warnings (each requires the typed confirmation)", () => {
     expect(assessRisk(base({ target: { ...base().target, verification: "unverified", abiSource: "signature" } })).elevated).toBe(true);
   });
 
+  it("a signature outside a verified contract's ABI is elevated", () => {
+    const a = assessRisk(base({ target: { ...base().target, verification: "verified", abiSource: "signature" } }));
+    expect(a.elevated).toBe(true);
+    expect(a.flags[0].message).toMatch(/not in its verified ABI/);
+  });
+
+  it("an unknown verification status is elevated and says it is unknown", () => {
+    const a = assessRisk(base({ target: { ...base().target, verification: "unavailable", abiSource: "signature" } }));
+    expect(a.elevated).toBe(true);
+    expect(a.flags[0].message).toMatch(/unknown/);
+  });
+
   it("a partial-match target is elevated", () => {
     expect(codes(base({ target: { ...base().target, verification: "partial-match", abiSource: "partial-match" } }))).toContain("partial-match-target");
   });

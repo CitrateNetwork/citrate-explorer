@@ -656,7 +656,7 @@ export function createContractModule(deps: ContractModuleDeps): ContractModule &
       selector: data.slice(0, 10),
       args,
       valueWei,
-      target: { isContract, verification: abiSource === "signature" ? (res.status === "partial-match" ? "partial-match" : "unverified") : res.status, abiSource, proxy: res.proxy },
+      target: { isContract, verification: res.status, abiSource, proxy: res.proxy },
       simulation,
       thresholdWei: deps.payableThresholdWei(),
     });

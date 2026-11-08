@@ -107,7 +107,7 @@ async function liveDeps(): Promise<ContractToolDeps> {
     import("@/lib/harness/ops"),
     import("@/lib/verify/verifiedSource"),
     import("@/lib/agent/limits"),
-    import("@/lib/agent/writeLog"),
+    import("@/lib/agent/writeLogServer"),
   ]);
   let mod: Promise<ContractModule> | null = null;
   return {

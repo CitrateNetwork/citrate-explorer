@@ -4,7 +4,8 @@ import { parseSources, contractSource } from "./source";
 import { approvalLink, parseApprovalPayload, encodeApprovalPayload, siteOrigin } from "./deepLink";
 import { hasWriteIntent, namedTargets, writeGate } from "./writeIntent";
 import { isWrappedUntrusted, neutralize, untrusted, unwrapUntrusted } from "./untrusted";
-import { formatWriteEvent, logWriteEvent, parseWriteEvent, type ThreadStore, type WriteEvent } from "./writeLog";
+import { formatWriteEvent, parseWriteEvent, type WriteEvent } from "./writeLog";
+import { logWriteEvent, type ThreadStore } from "./writeLogServer";
 import { agentContextFromRoute } from "./context";
 import { shapeVerifiedSource } from "@/lib/verify/verifiedSource";
 

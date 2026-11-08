@@ -5,7 +5,8 @@ import { defaultContractModule } from "@/lib/agent/contractModule";
 import { explainPreparedWrite } from "@/lib/agent/explain";
 import { allowPrepare, requestIdentity } from "@/lib/agent/limits";
 import { approvalRequestSchema } from "@/lib/agent/deepLink";
-import { logWriteEvent, writeEventFrom } from "@/lib/agent/writeLog";
+import { writeEventFrom } from "@/lib/agent/writeLog";
+import { logWriteEvent } from "@/lib/agent/writeLogServer";
 import type { Address } from "@/lib/contracts/types";
 import { checkSameOrigin } from "@/lib/security/sameOrigin";
 
@@ -48,9 +49,11 @@ export async function POST(req: Request) {
   }
   const b = parsed.data;
 
+  // Signing in to CitrateScan is not needed to review a call (the wallet signs),
+  // and MCP clients may prepare anonymously too. A verified session only adds
+  // the history line; an unauthenticated caller is rate limited by IP.
   const auth = await verifySession(req);
-  if (auth.required && !auth.authenticated) return Response.json({ error: "unauthorized" }, { status: 401 });
-  const subject = auth.sub ?? null;
+  const subject = auth.authenticated ? (auth.sub ?? null) : null;
 
   const who = await requestIdentity(req, subject);
   if (!who.ok) return Response.json({ error: who.error }, { status: who.status, headers: { "retry-after": String(who.retryAfter ?? 1) } });
@@ -68,7 +71,7 @@ export async function POST(req: Request) {
       origin: b.origin,
     });
     let threadId: string | null = null;
-    if (subject && auth.authenticated && b.reason !== "refresh") {
+    if (subject && b.reason !== "refresh") {
       try {
         threadId = await logWriteEvent(subject, b.threadId ?? null, writeEventFrom(b.reason === "edited" ? "edited" : "prepared", prepared));
       } catch {

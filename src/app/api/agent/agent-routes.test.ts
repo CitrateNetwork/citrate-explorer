@@ -81,6 +81,14 @@ describe("POST /api/agent/prepare", () => {
     expect((await bad.json()).error).toMatch(/read-only/);
   });
 
+  it("works without a CitrateScan session (the wallet signs), logging nothing", async () => {
+    h.session = { required: true, authenticated: false, sub: undefined };
+    const res = await prepare(req("/api/agent/prepare", { address: TOKEN, function: "transfer(address,uint256)", args: [MALLORY, "1"], from: ALICE }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).threadId).toBeNull();
+    expect(h.threads.size).toBe(0);
+  });
+
   it("is rate limited", async () => {
     h.rateOk = false;
     expect((await prepare(req("/api/agent/prepare", { address: TOKEN, function: "transfer(address,uint256)", args: [MALLORY, "1"] }))).status).toBe(429);

@@ -28,7 +28,8 @@
 .apv-args td:first-child { padding-left: 0; white-space: nowrap; }
 
 .apv-flags { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.apv-flag { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.45; }
+.apv-flag { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.45; min-width: 0; }
+.apv-flag > span:last-child, .apv-explain, .apv-blockers li { overflow-wrap: anywhere; min-width: 0; }
 .apv-flag.elevated { color: var(--danger-text); }
 .apv-explain { margin: 0; font-size: 13.5px; line-height: 1.5; }
 

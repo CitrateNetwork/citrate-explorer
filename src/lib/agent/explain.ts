@@ -33,8 +33,10 @@ export function explainPreparedWrite(p: PreparedWrite): WriteExplanation {
         ? "a proxy whose implementation was decoded"
         : p.target.verification === "partial-match"
           ? "a partially matched (not verified) contract"
-          : p.target.isContract
-            ? "an unverified contract"
+          : p.target.verification === "unavailable" && p.target.isContract
+            ? "a contract whose verification status is unknown right now"
+            : p.target.isContract
+              ? "an unverified contract"
             : "an address with no contract code";
   const value = BigInt(p.value.wei);
   const summary =
