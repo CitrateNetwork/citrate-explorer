@@ -219,7 +219,14 @@ button.cx-op:hover { background: var(--cx-paper-2); }
 .cx.cx-approval { padding: 0; margin: 0; max-width: none; }
 .cx.cx-approval.inline { max-width: 680px; margin: 24px auto; padding: 0 16px; }
 .cx.cx-approval.inline .cx-modal { width: 100%; max-height: none; }
-.cx-approval-body { display: grid; gap: 12px; min-width: 0; }
+.cx-approval .cx-modal { grid-template-columns: minmax(0, 1fr); }
+.cx-approval-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; }
+.cx-approval-body .cx-kv-r { grid-template-columns: 90px minmax(0, 1fr); }
+@media (max-width: 560px) { .cx-approval-body .cx-kv-r { grid-template-columns: minmax(0, 1fr); } }
+.cx-approval-body .mono, .cx-approval-body .cx-risk span { overflow-wrap: anywhere; min-width: 0; }
+.cx-approval-body .cx-risk label { min-width: 0; }
+.cx-approval-body > .cx-row { flex-wrap: wrap; }
+.cx-approval-body .cx-tag { white-space: normal; }
 .cx-blockers { margin: 0; padding-left: 18px; color: var(--cx-yellow-text); }
 
 /* ---------- tables ---------- */

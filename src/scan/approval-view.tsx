@@ -97,7 +97,9 @@ export function ApprovalView(props: ApprovalViewProps) {
         <span className="cx-tag info" title="Citrate network">Citrate · chain 40204</span>
       </div>
       <p className="muted small" style={{ margin: 0 }}>
-        Nothing has been sent. This call was prepared and simulated from your wallet; you decide. Approving opens your wallet to sign.
+        {connected
+          ? "Nothing has been sent. This call was prepared and simulated from your wallet; you decide. Approving opens your wallet to sign."
+          : "Nothing has been sent. This call was prepared and simulated without a sender. Connect your wallet to simulate it from your address before you can approve."}
       </p>
 
       {loading && <div className="cx-result">Simulating from your wallet…</div>}

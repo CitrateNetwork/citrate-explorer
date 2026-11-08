@@ -141,10 +141,13 @@ export function ApprovalDialog({
 
   const log = useCallback(
     async (kind: WriteEventKind, p: PreparedWrite, extra: { path?: ExecutionPath; txHash?: string; outcome?: string } = {}) => {
+      // History is per signed-in user; without a session there is nothing to append to.
+      const auth = headers();
+      if (!auth.Authorization) return;
       try {
         const r = await fetch("/api/agent/write-events", {
           method: "POST",
-          headers: { "content-type": "application/json", ...headers() },
+          headers: { "content-type": "application/json", ...auth },
           body: JSON.stringify({ threadId: historyThread, event: writeEventFromKit(kind, p, evOrigin, extra) }),
         });
         const j = await r.json().catch(() => ({}));
