@@ -43,6 +43,8 @@ export function parseRoute() {
   if (a === "dag") return { name: "dag", id: b };
   if (a === "agents") return { name: "agents", id: b };
   if (a === "agent") return { name: "agent", id: b };
+  // EXP-AGENT: an approval link (`#/approve/<payload>`) from an MCP client.
+  if (a === "approve") return { name: "approve", id: b };
   if (a === "apis") return { name: "dev" };
   if (a === "account" || a === "settings") return { name: "settings" };
   return { name: "home" };

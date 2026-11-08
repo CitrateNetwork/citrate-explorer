@@ -25,6 +25,7 @@ import { ContractScreen } from "./screens/contract";
 import { VerifyScreen } from "./screens/verify";
 import { AgentsScreen, AgentScreen } from "./screens/agents";
 import { AgentPanel } from "./screens/agent";
+import { ApproveScreen } from "./approval";
 import { SettingsScreen, DevHub } from "./screens/settings";
 import { ExplorerFrame } from "@/explorer/Shell";
 import { agentContextFromRoute, agentContextLabel } from "@/explorer/agentContext";
@@ -160,6 +161,7 @@ function Shell() {
   else if (r.name === "dag") view = <Dag selected={r.id || null} />;
   else if (r.name === "dev") view = <DevHub />;
   else if (r.name === "settings") view = <SettingsScreen tweaks={tweaks} />;
+  else if (r.name === "approve") view = <ApproveScreen payload={r.id || ""} onDone={() => scan.nav("")} onOpenTx={(h) => scan.nav(`tx/${h}`)} />;
   else view = <Home />;
 
   return (

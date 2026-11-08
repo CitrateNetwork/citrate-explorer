@@ -8,6 +8,7 @@ import "../scan/scan-ui.css";
 // kit wins over the older CitrateScan tokens.
 import "../explorer/kit/tokens.css";
 import "../explorer/ledger.css";
+import "../scan/approval.css";
 import { ConsentProvider } from "@/lib/consent/client";
 import { ConsentBanner } from "@/components/consent-banner";
 
