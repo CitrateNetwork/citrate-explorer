@@ -193,3 +193,41 @@ describe("anticoneInWindow", () => {
     expect(anticoneInWindow(H(1), ALL)).toEqual([]);
   });
 });
+
+describe("inclusionView (tx page: included in X, accepted by chain block Y)", () => {
+  it("uses the receipt block and says acceptance is unsupported on today's node", async () => {
+    const { inclusionView } = await import("./model");
+    expect(inclusionView({ blockHash: H(4), blockNumber: "4" }, null, false)).toEqual({
+      included: { hash: H(4), height: 4, color: "unknown", source: "receipt" },
+      accepted: null,
+      state: "unsupported",
+      duplicates: [],
+    });
+  });
+  it("reads the executing inclusion and the accepting block from citrate_getAcceptingBlock", async () => {
+    const { inclusionView } = await import("./model");
+    const v = inclusionView({ blockHash: H(5), blockNumber: "5" }, {
+      acceptingBlockHash: H(5),
+      acceptingHeight: 5,
+      inclusions: [
+        { blockHash: H(4), dagHeight: 4, color: "blue", outcome: "executed" },
+        { blockHash: H(6), dagHeight: 4, color: "red", outcome: "skipped:nonce" },
+      ],
+    }, true);
+    expect(v.included).toEqual({ hash: H(4), height: 4, color: "blue", source: "acceptingBlock" });
+    expect(v.accepted).toEqual({ hash: H(5), height: 5 });
+    expect(v.state).toBe("accepted");
+    expect(v.duplicates).toEqual([{ hash: H(6), height: 4, outcome: "skipped:nonce" }]);
+  });
+  it("is pending while no chain block has accepted it", async () => {
+    const { inclusionView } = await import("./model");
+    const v = inclusionView({ blockHash: null, blockNumber: null }, {
+      acceptingBlockHash: null,
+      acceptingHeight: null,
+      inclusions: [{ blockHash: H(7), dagHeight: 7, color: "selected_parent", outcome: "pending" }],
+    }, true);
+    expect(v.state).toBe("pending");
+    expect(v.included.color).toBe("chain");
+    expect(v.accepted).toBeNull();
+  });
+});
