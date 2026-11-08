@@ -40,9 +40,10 @@ describe("disasm: decoding", () => {
     expect(splitMetadata("0x6080").metadata).toBeNull();
   });
 
-  it("produces exactly one instruction per source-map entry for the fixture", () => {
+  it("lines up with solc's source map: one entry per instruction, except the INVALID separator before the metadata", () => {
     const ins = disassemble(fixture.runtimeBytecode);
-    expect(ins.length).toBe(fixture.deployedSourceMap.split(";").length);
+    expect(ins.length).toBe(fixture.deployedSourceMap.split(";").length + 1);
+    expect(ins[ins.length - 1].name).toBe("INVALID");
   });
 
   it("finds every external function in the dispatcher", () => {

@@ -64,7 +64,8 @@ export function memoryReader(chain: MemoryChain): ChainReader & { getLogsCalls: 
           l.blockNumber !== null &&
           l.blockNumber >= req.fromBlock &&
           l.blockNumber <= req.toBlock &&
-          (!req.topics || req.topics.every((t, i) => t === null || lc(l.topics[i] ?? "") === lc(t))),
+          (!req.topics ||
+            req.topics.every((t, i) => t === null || (Array.isArray(t) ? t : [t]).some((x) => lc(l.topics[i] ?? "") === lc(x)))),
       );
     },
   };

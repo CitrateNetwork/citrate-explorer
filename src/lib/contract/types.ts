@@ -35,7 +35,7 @@ export interface ChainReader {
   estimateGas(req: { to: Address; data: Hex; from?: Address; value?: bigint }): Promise<bigint>;
   blockNumber(): Promise<bigint>;
   /** eth_getLogs over an inclusive range. The node caps the span (1000 blocks on 40204). */
-  getLogs(req: { address: Address; fromBlock: bigint; toBlock: bigint; topics?: (Hex | null)[] }): Promise<RawLog[]>;
+  getLogs(req: { address: Address; fromBlock: bigint; toBlock: bigint; topics?: (Hex | Hex[] | null)[] }): Promise<RawLog[]>;
 }
 
 /** One verified source file. */

@@ -48,7 +48,7 @@ describe("codec: reverts", () => {
 
   it("decodes Error(string), Panic(uint256), custom errors and empty reverts", () => {
     const data = revertDataOf({ message: CITRATE_REVERT_MESSAGE })!;
-    expect(decodeRevert(data, abi)).toMatchObject({ kind: "error-string", message: "SALT: insufficient balance" });
+    expect(decodeRevert(data, abi)).toMatchObject({ kind: "error-string", message: "wSALT: insufficient balance" });
 
     expect(decodeRevert("0x4e487b710000000000000000000000000000000000000000000000000000000000000011", abi)).toMatchObject({
       kind: "panic",

@@ -16,8 +16,8 @@ describe("sourceMap: decoding the compressed form", () => {
     ]);
   });
 
-  it("decodes the fixture's map to one entry per instruction", () => {
-    expect(decodeSourceMap(fixture.deployedSourceMap).length).toBe(disassemble(fixture.runtimeBytecode).length);
+  it("decodes the fixture's map to one entry per instruction (solc leaves the trailing INVALID separator unmapped)", () => {
+    expect(decodeSourceMap(fixture.deployedSourceMap).length).toBe(disassemble(fixture.runtimeBytecode).length - 1);
   });
 });
 

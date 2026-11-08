@@ -22,7 +22,9 @@
     "contracts:build": "forge build",
     "contracts:test": "forge test",
     "sync-addresses": "node scripts/sync-addresses.mjs",
-    "sync-addresses:check": "node scripts/sync-addresses.mjs --check"
+    "sync-addresses:check": "node scripts/sync-addresses.mjs --check",
+    "contract:signatures": "tsx scripts/contract/gen-signatures.ts",
+    "contract:fixture": "node scripts/contract/build-fixture.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.48",
