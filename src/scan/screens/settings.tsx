@@ -322,8 +322,9 @@ curl "https://citratescan.ai/api/v1?module=account&action=balance&address=0xf78c
                 </div>
               </div></div>
               <div className="card"><div className="card-bd">
-                <div className="setrow"><div className="grow"><div className="lbl">Theme</div><div className="desc">Warm paper, or deep evergreen</div></div>
+                <div className="setrow"><div className="grow"><div className="lbl">Theme</div><div className="desc">Follow the system, warm paper, or ink</div></div>
                   <div className="row" style={{ gap: 6 }}>
+                    <button className={"btn sm" + (tweaks.theme === "system" ? " primary" : "")} onClick={() => scan.setTweak("theme", "system")}><Icon name="sliders" size={15} /> System</button>
                     <button className={"btn sm" + (tweaks.theme === "light" ? " primary" : "")} onClick={() => scan.setTweak("theme", "light")}><Icon name="sun" size={15} /> Light</button>
                     <button className={"btn sm" + (tweaks.theme === "dark" ? " primary" : "")} onClick={() => scan.setTweak("theme", "dark")}><Icon name="moon" size={15} /> Dark</button>
                   </div>

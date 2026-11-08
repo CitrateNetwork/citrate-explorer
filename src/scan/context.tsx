@@ -18,7 +18,8 @@ import {
 import { SH } from "./harness";
 
 export const TWEAK_DEFAULTS = {
-  theme: "light",
+  // "system" follows prefers-color-scheme (direction B, 2026-11-07); "light" | "dark" pin it.
+  theme: "system",
   accent: "#8ecc09",
   hashEmphasis: "muted",
   verbosity: "full",
@@ -39,7 +40,7 @@ export function parseRoute() {
   if (a === "address") return { name: "address", id: b };
   if (a === "contract") return { name: "contract", id: b };
   if (a === "token") return { name: "token", id: b };
-  if (a === "dag") return { name: "dag" };
+  if (a === "dag") return { name: "dag", id: b };
   if (a === "agents") return { name: "agents", id: b };
   if (a === "agent") return { name: "agent", id: b };
   if (a === "apis") return { name: "dev" };
@@ -80,9 +81,20 @@ export function ScanProvider({ children }) {
   }, []);
 
   // Apply theme + accent + hash emphasis on <html> so body resolves vars.
+  // "system" resolves through prefers-color-scheme and follows it live.
   useEffect(() => {
     const el = document.documentElement;
-    el.setAttribute("data-theme", tweaks.theme);
+    const mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+    const apply = () => el.setAttribute("data-theme", tweaks.theme === "system" ? (mq && mq.matches ? "dark" : "light") : tweaks.theme);
+    apply();
+    if (tweaks.theme === "system" && mq && mq.addEventListener) {
+      mq.addEventListener("change", apply);
+      return () => mq.removeEventListener("change", apply);
+    }
+  }, [tweaks.theme]);
+
+  useEffect(() => {
+    const el = document.documentElement;
     el.style.setProperty("--accent", tweaks.accent);
     el.style.setProperty(
       "--hash-color",
