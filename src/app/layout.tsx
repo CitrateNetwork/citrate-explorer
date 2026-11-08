@@ -5,6 +5,7 @@ import "../scan/scan.css";
 import "../scan/scan-ui.css";
 import { ConsentProvider } from "@/lib/consent/client";
 import { ConsentBanner } from "@/components/consent-banner";
+import { TestnetResetBanner } from "@/components/testnet-reset-banner";
 
 // Brand type system, self-hosted via next/font (no external request — keeps the
 // CSP tight and kills FOUT). Space Grotesk = display/titles, Geist Mono = data,
@@ -113,6 +114,8 @@ export default async function RootLayout({
             </p>
           </div>
         </noscript>
+        {/* r1007 testnet reset notice. Date: CITRATE_TESTNET_RESET_DATE (YYYY-MM-DD), else "to be announced". */}
+        <TestnetResetBanner resetDate={process.env.CITRATE_TESTNET_RESET_DATE} />
         <ConsentProvider>
           {children}
           <ConsentBanner />
