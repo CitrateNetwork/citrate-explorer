@@ -29,9 +29,9 @@ async function readAll(res: Response): Promise<string> {
   }
 }
 
-let intervals: ReturnType<typeof vi.spyOn>;
+let intervals: { mock: { calls: unknown[][] }; mockRestore(): void };
 beforeEach(() => {
-  intervals = vi.spyOn(globalThis, "setInterval");
+  intervals = vi.spyOn(globalThis, "setInterval") as unknown as typeof intervals;
 });
 afterEach(() => {
   intervals.mockRestore();
@@ -58,6 +58,6 @@ describe("/api/dag/stream early close", () => {
     resolveHead(10n);
     await expect(reading).resolves.toBeTypeOf("string");
     await new Promise((r) => setTimeout(r, 0));
-    expect(intervals.mock.calls.filter((c) => c[1] === 2500)).toHaveLength(0);
+    expect(intervals.mock.calls.filter((c: unknown[]) => c[1] === 2500)).toHaveLength(0);
   });
 });

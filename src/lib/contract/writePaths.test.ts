@@ -31,7 +31,6 @@ function files(dir: string): string[] {
 }
 
 const PROD = files(SRC).map((p) => ({ path: relative(ROOT, p), text: readFileSync(p, "utf8") }));
-const hits = (re: RegExp) => PROD.filter((f) => re.test(f.text)).map((f) => f.path).sort();
 // Strip comments so prose about a function does not count as a call.
 const code = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 const callHits = (re: RegExp) => PROD.filter((f) => re.test(code(f.text))).map((f) => f.path).sort();
