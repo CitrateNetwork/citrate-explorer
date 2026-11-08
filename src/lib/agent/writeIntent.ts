@@ -13,14 +13,54 @@
  */
 import type { AgentContext } from "@/lib/contracts/types";
 
-/** Verbs that mean "change state". Matched as whole words in the user's text. */
-const WRITE_VERBS = [
-  "send", "transfer", "approve", "revoke", "mint", "burn", "stake", "unstake", "restake", "deposit",
-  "withdraw", "claim", "register", "unregister", "call", "execute", "write", "submit", "prepare", "set",
-  "update", "upgrade", "vote", "delegate", "undelegate", "swap", "bridge", "pay", "buy", "sell", "create",
-  "grant", "renounce", "lock", "unlock", "redeem", "bond", "unbond", "join", "exit", "cancel", "list", "bid",
+/**
+ * Imperative verbs that ask for a state change on their own ("approve the
+ * router", "stake 10 here"). Deliberately narrow: verbs that are as often reads
+ * or prose ("set", "call", "update", "list", "create", "write", "prepare") only
+ * count in the explicit form below ("prepare a transaction ...").
+ */
+const IMPERATIVE_VERBS = new Set([
+  "send", "transfer", "approve", "revoke", "mint", "burn", "stake", "unstake", "restake", "deposit", "withdraw",
+  "claim", "register", "unregister", "delegate", "undelegate", "vote", "swap", "bridge", "pay", "redeem", "bond",
+  "unbond", "renounce", "grant", "wrap", "unwrap", "upgrade", "buy", "sell", "bid", "execute", "submit", "sign",
+]);
+
+/** "send / execute / sign / write / prepare / build … a transaction (tx, write, contract call)". */
+const TX_VERBS = new Set(["send", "submit", "execute", "sign", "broadcast", "prepare", "draft", "build", "make", "create", "write", "construct", "queue"]);
+const TX_NOUN = /\b(transaction|transactions|tx|txs|txn|contract call|a write|the write|this write|that write)\b/;
+
+/** A clause that opens like this is a question about something, not a request to do it. */
+const QUESTION_START = /^(what|whats|what's|why|how|when|where|who|whom|which|whose|is|are|was|were|am|do|does|did|can|could|should|would|will|shall|may|might|must|has|have|had|explain|show|tell|describe|list|summari[sz]e|compare|walk me through|teach)\b/;
+
+/** Openers that turn what follows into a request ("can you …", "please …", "I want to …"). */
+const REQUEST_OPENERS = [
+  /^(please|pls|kindly)\s+/,
+  /^(can|could|would|will)\s+you\s+(please\s+)?/,
+  /^i\s*('d|would)?\s*(want|like|need)\s+(you\s+)?to\s+/,
+  /^i\s+want\s+you\s+to\s+/,
+  /^(let'?s|let\s+me|help\s+me|go\s+ahead\s+and|now|then|also)\s+/,
 ];
-const WRITE_RE = new RegExp(`\\b(${WRITE_VERBS.join("|")})\\b`, "i");
+const FILLERS = /^(ok(ay)?|so|and|then|now|yes|yeah|yep|sure|great|thanks|thank you|alright|right|cool|hey|hi)\b[\s,]*/;
+
+function isRequestClause(raw: string): boolean {
+  let c = raw.toLowerCase().replace(/\s+/g, " ").trim();
+  for (let i = 0; i < 4 && FILLERS.test(c); i++) c = c.replace(FILLERS, "").trim();
+  let opened = false;
+  for (let i = 0; i < 3; i++) {
+    const before = c;
+    for (const re of REQUEST_OPENERS) c = c.replace(re, "");
+    if (c === before) break;
+    opened = true;
+  }
+  if (!opened && QUESTION_START.test(c)) return false;
+  const first = /^[a-z]+/.exec(c)?.[0] ?? "";
+  if (TX_VERBS.has(first) && TX_NOUN.test(c)) return true;
+  if (!IMPERATIVE_VERBS.has(first)) return false;
+  // "send me the ABI" asks for information, not value: needs an amount or an address to be a transfer.
+  if (first === "send" && /^send (me|us)\b/.test(c) && !/\d|0x[0-9a-f]{40}/.test(c)) return false;
+  return true;
+}
+
 const ADDRESS_RE = /0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g;
 const CONTEXT_TARGET_KINDS = new Set<AgentContext["kind"]>(["address", "contract", "token"]);
 
@@ -32,8 +72,17 @@ export interface WriteGate {
   reason: string;
 }
 
+/**
+ * True when the user's own message explicitly asks for a transaction: an
+ * imperative state-changing action, or a request to send, execute, sign, write or
+ * prepare a transaction. Questions about writes are reads. Deterministic.
+ */
 export function hasWriteIntent(userText: string): boolean {
-  return WRITE_RE.test(userText);
+  return userText
+    .split(/[.!;\n]+|\?(?=\s|$)/)
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .some(isRequestClause);
 }
 
 export function namedTargets(userText: string, context?: AgentContext | null): Set<string> {
