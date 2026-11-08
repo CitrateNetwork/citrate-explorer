@@ -12,6 +12,29 @@ import { checkRateLimit } from "@/lib/api/ratelimit";
 import { clientIp } from "@/lib/api/keys";
 import { createThread, createThreadWithId, ownsThread, appendMessage } from "@/lib/db/conversations";
 import { checkSameOrigin } from "@/lib/security/sameOrigin";
+import { writeGate, GATED_WRITE_TOOLS } from "@/lib/agent/writeIntent";
+import { CITRATE_WRITE_CHAIN_ID } from "@/lib/contracts/types";
+import { AGENT_CONTEXT_ID_RE, AGENT_CONTEXT_KINDS, type AgentContext, type AgentContextKind } from "@/explorer/agentContext";
+import { z } from "zod";
+
+/**
+ * The page the user is on: the direction-B shell's AgentContext
+ * (src/explorer/agentContext.ts), sent by the Ask panel as `pageContext`.
+ * Client input: validated, and only ever used to (a) tell the model what the
+ * user is looking at and (b) name an address the write gate accepts as a target.
+ */
+const contextSchema = z
+  .object({
+    kind: z.enum(AGENT_CONTEXT_KINDS as [AgentContextKind, ...AgentContextKind[]]),
+    id: z.string().regex(AGENT_CONTEXT_ID_RE).nullish(),
+    network: z.object({ chainId: z.number().int(), name: z.string().max(40).optional() }),
+  })
+  .nullish();
+
+function contextLine(ctx: AgentContext | null | undefined): string {
+  if (!ctx || ctx.network.chainId !== CITRATE_WRITE_CHAIN_ID) return "";
+  return `\n\nPage context: the user is viewing ${ctx.kind}${ctx.id ? ` ${ctx.id}` : ""} on Citrate (chain ${ctx.network.chainId}).`;
+}
 
 /** Plain text from an AI SDK UIMessage (concatenated text parts). */
 function uiText(m: UIMessage | undefined): string {
@@ -28,7 +51,9 @@ export const maxDuration = 300;
  * "Ask CitrateScan" — the agentic chat endpoint. The model answers from on-chain
  * ground truth: it calls the read-only tools (src/lib/ai/tools.ts), then explains.
  * `stepCountIs(8)` lets it chain a few tool calls (e.g. resolve → fetch → explain)
- * before composing the final answer. READ-ONLY: there is no write/sign tool.
+ * before composing the final answer. No tool signs or sends: `prepare_write`
+ * proposes a call, gated on the user's own request, and only the user executes
+ * it by approving in the dialog and signing in their wallet (docs/AGENT.md).
  */
 export async function POST(req: Request) {
   // PBA-L3c-018: cookie-authenticated mutation → same-origin only.
@@ -53,8 +78,10 @@ export async function POST(req: Request) {
     );
   }
 
-  const body: { messages: UIMessage[]; threadId?: string } = await req.json();
+  const body: { messages: UIMessage[]; threadId?: string; pageContext?: unknown } = await req.json();
   const { messages } = body;
+  const ctxParsed = contextSchema.safeParse(body.pageContext);
+  const context: AgentContext | null = ctxParsed.success && ctxParsed.data ? { ...ctxParsed.data, id: ctxParsed.data.id ?? null } : null;
 
   let provider;
   try {
@@ -100,11 +127,28 @@ export async function POST(req: Request) {
   const maxOutputTokens = Number(process.env.CITRATE_MAX_OUTPUT_TOKENS ?? 896);
   const maxSteps = Number(process.env.CITRATE_MAX_STEPS ?? 6);
 
+  // EXP-AGENT write-intent gate: prepare_write is offered only when the USER'S
+  // latest message asks for a write, for a target they named or are viewing.
+  // Decided from user input alone, never from tool output (prompt injection).
+  const gate = writeGate(lastUser, context);
+  const tools = citrateTools({
+    subject: owner,
+    threadId,
+    surface: "chat",
+    gate,
+    from: (auth.walletAddress as `0x${string}` | undefined) ?? null,
+    rateKey: owner ?? `ip:${clientIp(req)}`,
+  });
+  const activeTools = (Object.keys(tools) as Array<keyof typeof tools>).filter(
+    (n) => gate.allowed || !(GATED_WRITE_TOOLS as readonly string[]).includes(n),
+  );
+
   const result = streamText({
     model: provider.languageModel(),
-    system: buildSystemPrompt(),
+    system: buildSystemPrompt() + contextLine(context),
     messages: await convertToModelMessages(messages.slice(-historyTurns)),
-    tools: citrateTools({ subject: owner }),
+    tools,
+    activeTools,
     stopWhen: stepCountIs(maxSteps),
     maxOutputTokens,
     temperature: 0.3,

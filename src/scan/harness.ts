@@ -47,7 +47,7 @@ function classify(q) {
     return { kind: "tx", value: s }; // resolver will fall back
   }
   if (/^0x[0-9a-fA-F]{40}$/.test(s)) {
-    const isC = D.CONTRACT[s.toLowerCase()] || (D.ADDR[s] && D.ADDR[s].isContract);
+    const isC = D.ADDR[s] && D.ADDR[s].isContract;
     return { kind: isC ? "contract" : "address", value: s };
   }
   // short forms used in the prototype (0x…4 form)
@@ -82,14 +82,8 @@ const tools = {
     blocks: D.BLOCKS,
   })),
   topHolders: (token) => run("topHolders", "indexer (DB)", () => (token === "cWETH" ? D.TOKEN[D.L.cweth.addr].holders : D.SALT_HOLDERS), { cache: true }),
-  readContract: (addr, fn) => run("readContract", "eth_call", () => {
-    const c = D.CONTRACT[(addr || "").toLowerCase()];
-    const r = c && c.reads.find((x) => x.fn === fn);
-    if (r) return { ...r, decoded: true, verified: true };
-    return { fn, result: "0x…", decoded: false, warning: "Unverified — raw read." };
-  }),
   getToken: (addr) => run("getToken", "eth_call", () => D.TOKEN[addr] || null),
-  isContract: (addr) => run("isContract", "eth_getCode", () => ({ isContract: !!D.CONTRACT[(addr || "").toLowerCase()], known: D.labelOf(addr) ? D.labelOf(addr).label : null })),
+  isContract: (addr) => run("isContract", "eth_getCode", () => ({ isContract: !!(D.ADDR[addr] && D.ADDR[addr].isContract), known: D.labelOf(addr) ? D.labelOf(addr).label : null })),
 };
 
 // finality from depth (A4)

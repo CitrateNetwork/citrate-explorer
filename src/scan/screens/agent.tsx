@@ -2,32 +2,29 @@
 /* eslint-disable */
 "use client";
 // scan-agent.jsx → LIVE. Ask CitrateScan: persistent drawer wired to POST /api/chat
-// (Vercel AI SDK v6 useChat). Streams real answers, shows the actual read-only tool
-// calls the agent made, and renders every on-chain reference as a clickable chip.
+// (Vercel AI SDK v6 useChat). Streams real answers, shows the actual tool calls the
+// agent made, and renders every on-chain reference as a clickable chip. A
+// prepare_write result renders as a "Prepared transaction" card whose Review
+// button opens the approval dialog (src/scan/approval.tsx); nothing is sent
+// unless the user approves there and signs in their wallet.
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { SD } from "@/scan/data";
+import { askSuggestions } from "@/explorer/askSuggestions";
+import { agentContextFromRoute } from "@/explorer/agentContext";
+import { shortHash } from "@/explorer/format";
 import { Icon } from "@/scan/icons";
 import { EntityChip } from "@/scan/components";
 import { useScan } from "@/scan/context";
 import { useAuth } from "@/lib/auth/client";
 import { parseRichBlocks } from "@/lib/markdown/richBlocks";
+import { parseWriteEvent } from "@/lib/agent/writeLog";
+import { PreparedWriteCard } from "@/scan/approval";
 
-const AG = SD.AGENT;
-
-const ENT = {
-  alice:      { value: SD.L.alice.addr, kind: "address" },
-  bob:        { value: SD.L.bob.addr, kind: "address" },
-  foundation: { value: SD.L.foundation.addr, kind: "address", label: "Citrate Foundation" },
-  router:     { value: SD.L.router.addr, kind: "contract" },
-  treasury:   { value: SD.L.treasury.addr, kind: "contract" },
-  market:     { value: SD.L.market.addr, kind: "contract" },
-  tipblock:   { value: SD.TIP_BLOCK.hash, kind: "block", label: "#" + SD.TIP_BLOCK.height },
-};
-
-// Inline markdown-ish renderer: **bold**, `code`, {{entity}} placeholders, AND raw
-// 0x addresses / tx-or-block hashes the agent cites → clickable EntityChips.
+// Inline markdown-ish renderer: **bold**, `code`, the {{dag}} link, AND raw 0x
+// addresses / tx-or-block hashes the agent cites → clickable EntityChips. (The
+// prototype's {{alice}}-style placeholders pointed at sample data and are gone:
+// the live agent cites real hashes, which become chips.)
 function Inline({ text }) {
   const scan = useScan();
   const parts = String(text)
@@ -37,8 +34,6 @@ function Inline({ text }) {
     let m;
     if ((m = p.match(/^\{\{(\w+)\}\}$/))) {
       if (m[1] === "dag") return <a key={i} className="chip labelled" style={{ display: "inline-flex" }} onClick={() => scan.nav("dag")}>Live DAG</a>;
-      const e = ENT[m[1]];
-      if (e) return <EntityChip key={i} value={e.value} kind={e.kind} label={e.label} noMenu />;
       return <span key={i}>{m[1]}</span>;
     }
     if (/^0x[0-9a-fA-F]{64}$/.test(p)) return <EntityChip key={i} value={p} kind="tx" noMenu />;
@@ -88,17 +83,40 @@ function toolStepsOf(m) {
       const tool = p.type === "dynamic-tool" ? p.toolName : p.type.slice(5);
       const inp = p.input ?? p.args ?? {};
       let args = "";
-      try { args = Object.values(inp).map((v) => (typeof v === "string" && v.length > 18 ? SD.short(v) : v)).join(", "); } catch {}
+      try { args = Object.values(inp).map((v) => (typeof v === "string" && v.length > 18 ? shortHash(v, 6, 4) : v)).join(", "); } catch {}
       const done = p.state === "output-available" || p.state === "result";
       return { tool, args, done };
     });
+}
+
+/** prepare_write results in a message (AI SDK v6 tool parts with output). */
+function preparedOutputsOf(m) {
+  return (m.parts || [])
+    .filter((p) => (p.type === "tool-prepare_write" || (p.type === "dynamic-tool" && p.toolName === "prepare_write")) && p.state === "output-available" && p.output && p.output.prepared)
+    .map((p) => p.output);
+}
+
+/** A stored write event (system message) as one history line. */
+function WriteEventLine({ e }) {
+  const what = { prepared: "Prepared", edited: "Edited", approved: "Approved", rejected: "Rejected", submitted: "Submitted", executed: "Executed", failed: "Failed" }[e.kind] || e.kind;
+  return (
+    <div className="msg assistant">
+      <div className="apv-event">
+        <span className="badge info">{what}</span>{" "}
+        <span className="mono">{e.function}</span> on <EntityChip value={e.target} kind="address" noMenu />
+        {e.valueSalt && e.valueSalt !== "0" ? <span> · {e.valueSalt} SALT</span> : null}
+        {e.txHash ? <span> · <EntityChip value={e.txHash} kind="tx" noMenu /></span> : null}
+        {e.outcome ? <span className="apv-muted"> · {e.outcome}</span> : null}
+      </div>
+    </div>
+  );
 }
 
 function ToolTrace({ steps, busy }) {
   if (!steps.length && !busy) return null;
   return (
     <div className="trace">
-      <div className="trace-h"><span className="ic"><Icon name="terminal" size={13} /></span> tool trace · read-only harness</div>
+      <div className="trace-h"><span className="ic"><Icon name="terminal" size={13} /></span> tool trace · reads + prepare-only</div>
       {steps.map((s, i) => (
         <div className="trace-step" key={i}>
           <span className="tool">{s.tool}</span>
@@ -133,10 +151,18 @@ function relTime(iso) {
   return `${Math.floor(s / 86400)}d`;
 }
 
-export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) {
+export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef, pageContext = null, pageContextLabel = null }) {
   const scan = useScan();
   const auth = useAuth();
   const [context, setContext] = useState(null);
+  // EXP-REDESIGN: the shell's typed AgentContext ({ kind, id, network }, src/explorer/agentContext.ts)
+  // for the page on screen. Read live by the transport below and sent as `pageContext` with each
+  // /api/chat request; the EXP-AGENT lane owns what the agent does with it. Also exposed on agentRef.
+  const pageContextRef = useRef(pageContext);
+  useEffect(() => {
+    pageContextRef.current = pageContext;
+    if (agentRef && agentRef.current) agentRef.current.pageContext = pageContext;
+  }, [pageContext, agentRef]);
   const [input, setInput] = useState("");
   const [token, setToken] = useState(null);
   const scrollRef = useRef(null);
@@ -165,7 +191,7 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
     () => new DefaultChatTransport({
       api: "/api/chat",
       headers: () => (tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : {}),
-      body: () => ({ threadId: convIdRef.current }),
+      body: () => ({ threadId: convIdRef.current, pageContext: pageContextRef.current }),
     }),
     [],
   );
@@ -196,7 +222,7 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
       const r = await fetch(`/api/threads/${id}`, { headers: authHeaders() });
       const j = await r.json();
       const msgs = (j.messages || [])
-        .filter((m) => m.role === "user" || m.role === "assistant")
+        .filter((m) => m.role === "user" || m.role === "assistant" || (m.role === "system" && parseWriteEvent(m.content)))
         .map((m) => ({ id: m.id, role: m.role, parts: [{ type: "text", text: m.content }] }));
       setMessages(msgs);
       setConversationId(id);
@@ -226,6 +252,7 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
     if (!agentRef) return;
     agentRef.current.ask = ask;
     agentRef.current.setContext = (label) => setContext(label);
+    agentRef.current.setAgentContext = (ctx) => { if (ctx && ctx.kind && ctx.network) pageContextRef.current = ctx; };
   }, [agentRef, ask]);
 
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, status]);
@@ -276,20 +303,24 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
           </div>
         )}
       </div>
-      {context && <div className="agent-ctx"><span className="ic"><Icon name="link" size={13} /></span> Context: {context}</div>}
+      {(context || pageContextLabel) && <div className="agent-ctx"><span className="ic"><Icon name="link" size={13} /></span> Context: {context || pageContextLabel}</div>}
       <div className="agent-scroll" ref={scrollRef} role="log" aria-live="polite" aria-relevant="additions text" aria-label="Agent conversation">
         {messages.length === 0 && (
           <div className="agent-empty">
             <div className="spark"><Icon name="spark" size={26} /></div>
             <p>I read the chain live, then answer with the exact tools I called and the data I observed. Every on-chain reference is clickable.</p>
             <div className="ec">
-              {AG.prompts.map((p, i) => (
-                <button key={i} onClick={() => sendMessage({ text: p })}><span className="ic"><Icon name="arrowright" size={15} /></span> {p}</button>
+              {askSuggestions(pageContext || agentContextFromRoute(scan && scan.route ? scan.route : { name: "home" })).map((sg, i) => (
+                <button key={i} title={sg.prompt} onClick={() => sendMessage({ text: sg.prompt })}><span className="ic"><Icon name="arrowright" size={15} /></span> {sg.label}</button>
               ))}
             </div>
           </div>
         )}
         {messages.map((m) => {
+          if (m.role === "system") {
+            const e = parseWriteEvent(textOf(m));
+            return e ? <WriteEventLine key={m.id} e={e} /> : null;
+          }
           if (m.role === "user") {
             return <div className="msg user" key={m.id}><div className="bubble">{textOf(m)}</div></div>;
           }
@@ -299,6 +330,9 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
           return (
             <div className="msg assistant" key={m.id}>
               <ToolTrace steps={steps} busy={streamingThis && !text} />
+              {preparedOutputsOf(m).map((o, i) => (
+                <PreparedWriteCard key={i} output={o} threadId={conversationId} onOpenTx={(h) => scan.nav(`tx/${h}`)} />
+              ))}
               {text && (
                 <div className="bubble">
                   {renderRich(text)}

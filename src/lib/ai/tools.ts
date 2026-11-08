@@ -2,8 +2,10 @@
  * AI SDK v6 tool definitions for "Ask CitrateScan". These wrap the read-only
  * harness ops (src/lib/harness/ops.ts), the indexer repository, and the
  * explainTransaction synthesis so the model works from on-chain ground truth
- * (Rule 11 — never fabricated). All tools are READ-ONLY; there is no write/sign
- * tool by construction.
+ * (Rule 11 — never fabricated). The contract tools (contractTools.ts) add
+ * decoding, reads and `prepare_write`, which only PROPOSES a call: there is no
+ * tool that signs, sends or relays, by construction. A person executes a
+ * prepared write by approving it in the UI and signing in their own wallet.
  *
  * Every invocation is recorded to the audit_log (WP-1.6) for the transparency
  * panel, scoped to the authenticated user when present.
@@ -45,6 +47,7 @@ import { agentSbtSource, lookupAgent } from "@/lib/harness/agentSbt";
 import { parseAgentTokenId } from "@/lib/citrate/agentSbt";
 import { PublicError } from "@/lib/api/errors";
 import { logToolCall } from "./audit";
+import { contractTools, type ContractToolOptions } from "./contractTools";
 
 const addressSchema = z
   .string()
@@ -53,7 +56,7 @@ const hashSchema = z
   .string()
   .regex(/^0x[0-9a-fA-F]{64}$/, "expected a 0x-prefixed 32-byte hash");
 
-export interface ToolOptions {
+export interface ToolOptions extends ContractToolOptions {
   /** Authenticated owner (stable OIDC `subject`), for per-user audit scoping. */
   subject?: string;
 }
@@ -432,6 +435,7 @@ export function citrateTools(opts: ToolOptions = {}) {
         runLedger(items),
       ),
     }),
+    ...contractTools(opts, audited),
   };
 }
 
