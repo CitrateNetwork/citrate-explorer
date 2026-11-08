@@ -27,6 +27,11 @@ describe("agentContextFromRoute", () => {
     expect(agentContextFromRoute({ name: "verify", id: A })).toMatchObject({ kind: "verify", id: A });
     expect(agentContextFromRoute({ name: "nonsense" }).kind).toBe("network");
   });
+  it("drops unsafe ids (the context reaches the model and the write gate)", () => {
+    expect(agentContextFromRoute({ name: "tx", id: "<script>" }).id).toBeNull();
+    expect(agentContextFromRoute({ name: "contract", id: "0x1;drop" }).id).toBeNull();
+    expect(agentContextFromRoute({ name: "contract", id: A }).id).toBe(A);
+  });
 });
 
 describe("agentContextLabel", () => {

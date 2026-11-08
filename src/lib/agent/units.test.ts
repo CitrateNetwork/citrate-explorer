@@ -6,7 +6,7 @@ import { hasWriteIntent, namedTargets, writeGate } from "./writeIntent";
 import { isWrappedUntrusted, neutralize, untrusted, unwrapUntrusted } from "./untrusted";
 import { formatWriteEvent, parseWriteEvent, type WriteEvent } from "./writeLog";
 import { logWriteEvent, type ThreadStore } from "./writeLogServer";
-import { agentContextFromRoute } from "./context";
+import { agentContextFromRoute, CITRATE_NETWORK } from "@/explorer/agentContext";
 import { shapeVerifiedSource } from "@/lib/verify/verifiedSource";
 
 const A = "0x1000000000000000000000000000000000000001";
@@ -152,8 +152,8 @@ describe("write log", () => {
 
 describe("agent context from the route", () => {
   it("maps routes and drops unsafe ids", () => {
-    expect(agentContextFromRoute({ name: "contract", id: A })).toEqual({ kind: "contract", id: A, network: { chainId: 40204, name: "citrate" } });
-    expect(agentContextFromRoute({ name: "settings" }).kind).toBe("other");
-    expect(agentContextFromRoute({ name: "tx", id: "<script>" }).id).toBeUndefined();
+    expect(agentContextFromRoute({ name: "contract", id: A })).toEqual({ kind: "contract", id: A, network: CITRATE_NETWORK });
+    expect(agentContextFromRoute({ name: "settings" }).kind).toBe("settings");
+    expect(agentContextFromRoute({ name: "tx", id: "<script>" }).id).toBeNull();
   });
 });

@@ -145,13 +145,18 @@ describe("prepareWrite", () => {
     expect(p.simulation.from?.toLowerCase()).toBe(ALICE.toLowerCase());
     expect(p.simulation.feeSalt).toBe("0.00005");
     expect(p.risk.elevated).toBe(false);
-    expect(p.id).toBe(preparedWriteId({ from: p.from, to: p.target.address, data: p.call.data, valueWei: 0n }));
+    // requestId is the canonical hash (stable across re-simulation); id is the kit
+    // preparation's own id, unique per preparation, which an approval binds to.
+    expect(p.requestId).toBe(preparedWriteId({ from: p.from, to: p.target.address, data: p.call.data, valueWei: 0n }));
+    const again = await mod().m.prepareWrite({ address: TOKEN, function: "transfer", args: [MALLORY, "10"], from: ALICE, origin: "chat" });
+    expect(again.requestId).toBe(p.requestId);
+    expect(again.id).not.toBe(p.id);
   });
 
   it("decodes the custom-error revert reason and flags it elevated", async () => {
     const p = await mod().m.prepareWrite({ address: TOKEN, function: "transfer", args: [MALLORY, "5000"], from: ALICE, origin: "chat" });
     expect(p.simulation.ok).toBe(false);
-    expect(p.simulation.revertReason).toBe("InsufficientBalance(1000, 5000)");
+    expect(p.simulation.revertReason).toBe("InsufficientBalance(have: 1000, want: 5000)");
     expect(p.risk.flags.map((f) => f.code)).toContain("simulation-reverted");
     expect(p.risk.elevated).toBe(true);
     expect(p.risk.confirmPhrase).toBe("transfer");
@@ -177,14 +182,32 @@ describe("prepareWrite", () => {
 
   it("is not relay-eligible for a non-allowlisted target, and says why", async () => {
     const p = await mod().m.prepareWrite({ address: TOKEN, function: "approve", args: [MALLORY, "1"], from: ALICE, origin: "chat" });
-    expect(p.relay).toEqual({ eligible: false, reason: "relay target is not an allowlisted federation contract", gas: null });
+    expect(p.relay).toEqual({ eligible: false, reason: "The gasless relay only sponsors calls to Citrate federation contracts.", gas: null });
   });
 
   it("is relay-eligible for an allowlisted zero-value call, within the gas cap", async () => {
     process.env.RELAY_TARGET_ALLOWLIST = TOKEN;
     const p = await mod().m.prepareWrite({ address: TOKEN, function: "approve", args: [MALLORY, "1"], from: ALICE, origin: "chat" });
     expect(p.relay.eligible).toBe(true);
-    expect(p.relay.gas).toBe("65000");
+    // The kit signs the relay request with its fixed sponsored gas (GASLESS_GAS), within the relay's cap.
+    expect(p.relay.gas).toBe("300000");
+  });
+
+  it("is not relay-eligible when the target does not trust the Citrate forwarder (ERC-2771)", async () => {
+    process.env.RELAY_TARGET_ALLOWLIST = TOKEN;
+    const f = fakeChain({ forwarder: "0x7100000000000000000000000000000000000071" });
+    const m = createContractModule({ ...f.deps, forwarder: () => "0x7000000000000000000000000000000000000007" });
+    const p = await m.prepareWrite({ address: TOKEN, function: "approve", args: [MALLORY, "1"], from: ALICE, origin: "chat" });
+    expect(p.relay.eligible).toBe(false);
+    expect(p.relay.reason).toMatch(/forwarder/);
+  });
+
+  it("is not relay-eligible when no forwarder is provisioned", async () => {
+    process.env.RELAY_TARGET_ALLOWLIST = TOKEN;
+    const f = fakeChain();
+    const m = createContractModule({ ...f.deps, forwarder: () => null });
+    const p = await m.prepareWrite({ address: TOKEN, function: "approve", args: [MALLORY, "1"], from: ALICE, origin: "chat" });
+    expect(p.relay).toMatchObject({ eligible: false, gas: null });
   });
 
   it("never relays value", async () => {

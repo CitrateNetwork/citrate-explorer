@@ -15,9 +15,9 @@ import {
   type Abi,
 } from "viem";
 import type { Address, Hex } from "@/lib/contracts/types";
-import type { ChainReader, ContractModuleDeps } from "../contractModule";
+import type { ContractModuleDeps } from "../contractModule";
+import type { ChainReader } from "@/lib/contract/types";
 import { shapeVerifiedSource, type VerifiedSource } from "@/lib/verify/verifiedSource";
-import { checkSponsorPolicy } from "@/lib/relay/policy";
 import { keccak256, toBytes } from "viem";
 
 // Computed here (not imported from contractModule) so a test may mock that module
@@ -44,6 +44,7 @@ export const TOKEN_ABI = parseAbi([
   "function deposit() payable",
   "function setLabel(string label)",
   "function transferOwnership(address newOwner)",
+  "function isTrustedForwarder(address forwarder) view returns (bool)",
   "event Transfer(address indexed from, address indexed to, uint256 value)",
   "event Note(string text)",
   "error InsufficientBalance(uint256 have, uint256 want)",
@@ -73,7 +74,12 @@ export class CallReverted extends Error {
 export interface FakeChainOptions {
   tokenName?: string;
   natspecSource?: string;
+  /** The EIP-2771 forwarder the fake TOKEN trusts (isTrustedForwarder), and the module is configured with. */
+  forwarder?: Address | null;
 }
+
+/** The forwarder the fake deployment is configured with by default. */
+export const FORWARDER = "0x7000000000000000000000000000000000000007" as Address;
 
 export function fakeChain(opts: FakeChainOptions = {}) {
   const balances = new Map<string, bigint>([[ALICE.toLowerCase(), 1000n]]);
@@ -99,6 +105,7 @@ export function fakeChain(opts: FakeChainOptions = {}) {
       deposit: () => undefined,
       setLabel: () => undefined,
       transferOwnership: () => undefined,
+      isTrustedForwarder: ([f]) => String(f).toLowerCase() === (opts.forwarder === undefined ? FORWARDER : (opts.forwarder ?? "")).toLowerCase(),
       supportsInterface: () => {
         throw new CallReverted("0x");
       },
@@ -124,17 +131,19 @@ export function fakeChain(opts: FakeChainOptions = {}) {
   });
   contracts.set(CLONE.toLowerCase(), { code: `0x363d3d373d3d3d363d73${IMPL.slice(2)}5af43d82803e903d91602b57fd5bf3` as Hex });
 
+  // The kit's ChainReader (src/lib/contract/types.ts): read-only, no account, no send.
   const reader: ChainReader = {
-    async getCode({ address }) {
+    chainId: 40204,
+    async getCode(address) {
       calls.push({ method: "eth_getCode", args: address });
       return contracts.get(address.toLowerCase())?.code ?? "0x";
     },
-    async getStorageAt({ address, slot: s }) {
+    async getStorageAt(address, s) {
       calls.push({ method: "eth_getStorageAt", args: [address, s] });
-      return contracts.get(address.toLowerCase())?.storage?.[s] ?? `0x${"0".repeat(64)}`;
+      return contracts.get(address.toLowerCase())?.storage?.[s.toLowerCase()] ?? (`0x${"0".repeat(64)}` as Hex);
     },
-    async call({ account, to, data, value }) {
-      calls.push({ method: "eth_call", args: { account, to, data, value } });
+    async call({ from, to, data, value }) {
+      calls.push({ method: "eth_call", args: { account: from, to, data, value } });
       const c = contracts.get(to.toLowerCase());
       if (!c || !c.abi) throw new CallReverted("0x");
       const sel = data.slice(0, 10);
@@ -147,20 +156,20 @@ export function fakeChain(opts: FakeChainOptions = {}) {
       }
       const h = c.handlers?.[decoded.functionName];
       if (!h) throw new CallReverted("0x");
-      const out = h(decoded.args ?? [], { from: account, value: value ?? 0n });
+      const out = h(decoded.args ?? [], { from, value: value ?? 0n });
       const frag = (c.abi as Abi).find((x) => x.type === "function" && x.name === decoded.functionName) as { outputs?: unknown[] };
-      if (!frag?.outputs?.length) return { data: "0x" };
-      return { data: encodeFunctionResult({ abi: c.abi, functionName: decoded.functionName, result: out } as never) };
+      if (!frag?.outputs?.length) return "0x";
+      return encodeFunctionResult({ abi: c.abi, functionName: decoded.functionName, result: out } as never);
     },
     async estimateGas({ to }) {
       calls.push({ method: "eth_estimateGas", args: to });
       return 50_000n;
     },
-    async getGasPrice() {
-      return 1_000_000_000n;
-    },
-    async getBlockNumber() {
+    async blockNumber() {
       return 1234n;
+    },
+    async getLogs() {
+      return [];
     },
   };
 
@@ -189,8 +198,8 @@ export function fakeChain(opts: FakeChainOptions = {}) {
     reader,
     verified: async (a) => verifiedRows[a.toLowerCase()] ?? shapeVerifiedSource(a, null, true),
     label: () => null,
-    relayPolicy: (q) => checkSponsorPolicy(q),
-    relayConfigured: () => true,
+    forwarder: () => (opts.forwarder === undefined ? FORWARDER : opts.forwarder),
+    gasPrice: async () => 1_000_000_000n,
     payableThresholdWei: () => 10n ** 18n,
     now: () => new Date("2026-11-07T12:00:00Z"),
   };
@@ -218,3 +227,29 @@ export function fakeWallet() {
 }
 
 export const encodeWord = (types: string, v: unknown) => encodeAbiParameters([{ type: types }], [v as never]);
+
+/**
+ * Prepare a write against the fake chain through the ONE preparation path the
+ * dialog, the contract page and the agent share (kit prepareFromRequest).
+ */
+export async function kitPrepare(
+  f: ReturnType<typeof fakeChain>,
+  req: { address?: Address; function: string; args: unknown[]; value?: string; from?: Address | null; now?: () => number },
+) {
+  const [{ prepareFromRequest }, { createStoreInfoSource }] = await Promise.all([import("@/lib/contract/request"), import("@/lib/contract/infoSources")]);
+  const out = await prepareFromRequest({
+    reader: f.reader,
+    info: createStoreInfoSource((a) => f.deps.verified(a)),
+    request: { address: req.address ?? TOKEN, function: req.function, args: req.args, value: req.value },
+    from: req.from === undefined ? ALICE : req.from,
+    forwarder: f.deps.forwarder(),
+    payableThresholdWei: f.deps.payableThresholdWei(),
+    now: req.now,
+  });
+  return out.prepared;
+}
+
+/** A user gesture is active (the dialog's click handler), for kit approveWrite in node tests. */
+export const ACTIVATED = { hasUserActivation: () => true } as const;
+/** No user gesture (code running outside a click). */
+export const NOT_ACTIVATED = { hasUserActivation: () => false } as const;

@@ -64,7 +64,7 @@ describe("/api/chat write gate", () => {
   });
 
   it("a write request with the target as the page context: active", async () => {
-    await post([user("stake 10 here")], { context: { kind: "contract", id: TOKEN, network: { chainId: 40204 } } });
+    await post([user("stake 10 here")], { pageContext: { kind: "contract", id: TOKEN, network: { chainId: 40204 } } });
     expect(state.args!.activeTools).toContain("prepare_write");
     expect(String(state.args!.system)).toContain(`viewing contract ${TOKEN} on Citrate (chain 40204)`);
   });
@@ -89,7 +89,7 @@ describe("/api/chat write gate", () => {
   });
 
   it("ignores a malformed page context instead of trusting it", async () => {
-    await post([user("approve it")], { context: { kind: "contract", id: "0x1;drop", network: { chainId: 40204 } } });
+    await post([user("approve it")], { pageContext: { kind: "contract", id: "0x1;drop", network: { chainId: 40204 } } });
     expect(state.args!.activeTools).not.toContain("prepare_write");
     expect(String(state.args!.system)).not.toContain("Page context");
   });

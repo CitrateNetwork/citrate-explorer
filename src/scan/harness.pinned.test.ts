@@ -8,9 +8,18 @@ import { SH } from "./harness";
 
 describe("SH (front-end harness mirror)", () => {
   it("keeps its tool set", () => {
+    // readContract left the front-end mirror with EXP-S3 (#47): it answered from
+    // sample data (SD.CONTRACT), a mock in a production path. Contract reads are
+    // real now, through the contract kit (Read tab) and the agent's contract_read.
     expect(Object.keys(SH.tools).sort()).toEqual(
-      ["exploreDag", "getAddress", "getBlock", "getChainStatus", "getLogs", "getToken", "getTransaction", "isContract", "readContract", "topHolders"].sort(),
+      ["exploreDag", "getAddress", "getBlock", "getChainStatus", "getLogs", "getToken", "getTransaction", "isContract", "topHolders"].sort(),
     );
+  });
+
+  it("contract reads are served by the real kit path, not by the mirror", async () => {
+    const { CONTRACT_TOOL_NAMES } = await import("@/lib/ai/contractTools");
+    expect(CONTRACT_TOOL_NAMES).toContain("contract_read");
+    expect((SH.tools as Record<string, unknown>).readContract).toBeUndefined();
   });
 
   it("refuses forbidden methods before consulting the allowlist", () => {

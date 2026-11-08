@@ -145,11 +145,12 @@ describe("kit.prepareWrite", () => {
       (await prepareWrite({ reader, address: C, abi: std, abiSource, fn, args, from: USER })).risks.map((r) => r.code);
     expect(await codes("approve", [IMPL, 2n ** 256n - 1n])).toEqual(expect.arrayContaining(["token-approval", "unlimited-approval"]));
     expect(await codes("approve", [IMPL, 5n])).not.toContain("unlimited-approval");
-    expect(await codes("setApprovalForAll", [IMPL, true])).toContain("operator-approval");
-    expect(await codes("setApprovalForAll", [IMPL, false])).not.toContain("operator-approval");
+    // One risk vocabulary for the page and the agent (src/lib/contract/risk.ts): operator approval is "approval-for-all".
+    expect(await codes("setApprovalForAll", [IMPL, true])).toContain("approval-for-all");
+    expect(await codes("setApprovalForAll", [IMPL, false])).not.toContain("approval-for-all");
     expect(await codes("transferOwnership", [IMPL])).toContain("ownership-transfer");
     expect(await codes("renounceOwnership", [])).toContain("ownership-renounce");
-    expect(await codes("upgradeToAndCall", [IMPL, "0x"])).toContain("upgrade");
+    expect(await codes("upgradeToAndCall", [IMPL, "0x"])).toContain("proxy-upgrade");
     expect(await codes("approve", [IMPL, 5n], "signature-subset")).toEqual(expect.arrayContaining(["unverified-target", "guessed-abi"]));
   });
 });
@@ -177,7 +178,11 @@ describe("kit.executeWrite: always behind an explicit user approval", () => {
     const reader = memoryReader({ calls: [{ to: C, data: "0x", result: "0x" }] });
     const p = await prepareWrite({ reader, address: C, abi: parseAbi(["function transferOwnership(address newOwner)"]), abiSource: "verified", fn: "transferOwnership", args: [IMPL], from: USER });
     expect(() => approveWrite(p, { path: "wallet", acknowledged: [] }, activated)).toThrow(/ownership-transfer/);
-    expect(approveWrite(p, { path: "wallet", acknowledged: ["ownership-transfer"] }, activated).preparedId).toBe(p.id);
+    // An elevated write also needs the typed confirmation (the agent lane's rule, now in the kit).
+    expect(p.elevated).toBe(true);
+    expect(() => approveWrite(p, { path: "wallet", acknowledged: ["ownership-transfer"] }, activated)).toThrow(/type "transferOwnership"/);
+    expect(() => approveWrite(p, { path: "wallet", acknowledged: ["ownership-transfer"], confirmation: "transferownership" }, activated)).toThrow(/type "transferOwnership"/);
+    expect(approveWrite(p, { path: "wallet", acknowledged: ["ownership-transfer"], confirmation: "transferOwnership" }, activated).preparedId).toBe(p.id);
   });
 
   it("sends once with a matching approval; a reused or mismatched approval is refused", async () => {
@@ -190,6 +195,24 @@ describe("kit.executeWrite: always behind an explicit user approval", () => {
     const other = await prepared();
     await expect(executeWrite(other, approveWrite(p, { path: "wallet", acknowledged: [] }, activated), ex)).rejects.toThrow(/does not match/);
     await expect(executeWrite(p, approveWrite(p, { path: "gasless", acknowledged: [] }, activated), ex)).rejects.toThrow(/path/);
+  });
+
+  it("refuses to approve an object the kit did not prepare (executable flag missing or true)", async () => {
+    const p = await prepared();
+    expect(p.executable).toBe(false);
+    expect(() => approveWrite({ ...p, executable: true } as never, { path: "wallet", acknowledged: [] }, activated)).toThrow(/not a prepared write/);
+    const { executable: _e, ...noFlag } = p;
+    void _e;
+    expect(() => approveWrite(noFlag as never, { path: "wallet", acknowledged: [] }, activated)).toThrow(/not a prepared write/);
+  });
+
+  it("a simulation that could not run (not a revert) is 'unavailable', high risk, and never gasless", async () => {
+    const reader = memoryReader({ calls: [{ to: C, data: "0xf2c298be", result: new Error("fetch failed: ECONNREFUSED") }] });
+    const p = await prepareWrite({ reader, address: C, abi, abiSource: "verified", fn: "register", args: ["harbor"], value: 0n, from: USER });
+    expect(p.simulation.status).toBe("unavailable");
+    expect(p.risks.find((r) => r.code === "simulation-unavailable")?.severity).toBe("high");
+    expect(p.gasless.eligible).toBe(false);
+    expect(p.gas.estimate).toBeNull();
   });
 
   it("refuses a stale preparation", async () => {
