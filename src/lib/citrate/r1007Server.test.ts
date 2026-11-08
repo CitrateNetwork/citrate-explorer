@@ -3,8 +3,15 @@
  * methods the snapshot needs. This backs its entry in the dynamic-method
  * tripwire (src/lib/harness/getlogs-entrypoints.test.ts).
  */
-import { describe, expect, it } from "vitest";
-import { LEDGER_RPC_METHODS, fixedMethodRequester } from "./r1007Server";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const rpc = vi.hoisted(() => ({ citrateRequest: vi.fn(async (_c: unknown, m: string) => `live:${m}`) }));
+vi.mock("./rpc", () => ({ citrateRequest: rpc.citrateRequest }));
+vi.mock("@/lib/harness/client", () => ({ buildHarnessClient: () => ({}) }));
+
+import { LEDGER_RPC_METHODS, fixedMethodRequester, r1007Requester } from "./r1007Server";
 
 describe("fixedMethodRequester", () => {
   const raw = async (m: string) => `ok:${m}`;
@@ -34,5 +41,32 @@ describe("fixedMethodRequester", () => {
         "eth_getBlockByNumber",
       ].sort(),
     );
+  });
+});
+
+// The tests above prove the wrapper. These prove the EXPORTED requester the
+// routes use is that wrapper, and that the module has no other way to reach the
+// node with a dynamic method (so a refactor that unwraps it fails here, not in
+// production).
+describe("r1007Requester (the one the /api/ledger, /api/blocks and /api/tx routes use)", () => {
+  beforeEach(() => rpc.citrateRequest.mockClear());
+
+  it("refuses a non-ledger method before the RPC is touched", async () => {
+    for (const m of ["eth_getLogs", "eth_sendRawTransaction", "eth_call", "citrate_verifyContract"]) {
+      await expect(r1007Requester(m, [])).rejects.toThrow("is not a ledger read");
+    }
+    expect(rpc.citrateRequest).not.toHaveBeenCalled();
+  });
+
+  it("forwards a ledger read unchanged", async () => {
+    await expect(r1007Requester("citrate_getDagStats", [])).resolves.toBe("live:citrate_getDagStats");
+    expect(rpc.citrateRequest).toHaveBeenCalledTimes(1);
+    expect(rpc.citrateRequest.mock.calls[0][1]).toBe("citrate_getDagStats");
+  });
+
+  it("calls citrateRequest exactly once in the source, inside fixedMethodRequester", () => {
+    const src = readFileSync(join(__dirname, "r1007Server.ts"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    expect(src.match(/citrateRequest\(/g)).toHaveLength(1);
+    expect(src).toMatch(/export const r1007Requester: Requester = fixedMethodRequester\(\(method, params\) => citrateRequest\(/);
   });
 });
