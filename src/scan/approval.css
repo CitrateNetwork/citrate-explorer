@@ -1,0 +1,58 @@
+/* EXP-AGENT approval dialog + prepared-transaction card. Uses only the shared
+   tokens (--surface*, --text-*, --border*, --danger*, --warning*, --accent*), so
+   the direction-B kit restyles it by remapping tokens, not by editing this file. */
+
+.apv-modal { width: min(620px, 96vw); max-height: 92vh; overflow-y: auto; padding: 20px 22px; }
+.apv-page { max-width: 680px; margin: 24px auto; padding: 0 16px; }
+.apv-page .apv { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-3); padding: 20px 22px; }
+
+.apv-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.apv-h h3 { margin: 0; font-size: 19px; font-weight: 500; }
+.apv-lead { font-size: 13.5px; color: var(--text-2); margin: 8px 0 14px; line-height: 1.5; }
+
+.apv-sec { border-top: 1px solid var(--border-2, var(--border)); padding: 12px 0; display: flex; flex-direction: column; gap: 8px; }
+.apv-row { display: grid; grid-template-columns: 108px 1fr; gap: 10px; align-items: start; font-size: 13.5px; }
+.apv-k { color: var(--text-3); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; font-family: var(--font-mono); padding-top: 2px; }
+.apv-v { min-width: 0; color: var(--text-1); }
+.apv-badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.apv-muted { color: var(--text-3); }
+.apv-small { font-size: 12px; }
+.apv-break { word-break: break-all; overflow-wrap: anywhere; }
+.apv-ok { color: var(--accent-text, var(--accent)); font-weight: 600; }
+.apv-danger-text { color: var(--danger-text); font-weight: 600; }
+.apv-warn-text { color: var(--warning-text); font-weight: 600; }
+.apv-danger { background: var(--danger-bg); color: var(--danger-text); border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
+
+.apv-args { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.apv-args td { padding: 4px 6px; border-bottom: 1px solid var(--border-2, var(--border)); vertical-align: top; }
+.apv-args td:first-child { padding-left: 0; white-space: nowrap; }
+
+.apv-flags { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.apv-flag { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.45; }
+.apv-flag.elevated { color: var(--danger-text); }
+.apv-explain { margin: 0; font-size: 13.5px; line-height: 1.5; }
+
+.apv-paths { display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.apv-paths label { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-1); cursor: pointer; }
+.apv-paths label.on { border-color: var(--accent); background: var(--accent-tint, var(--surface-sunk)); }
+.apv-paths input:disabled + * , .apv-paths label:has(input:disabled) { color: var(--text-3); cursor: not-allowed; }
+
+.apv-confirm { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--r-1); background: var(--danger-bg); color: var(--danger-text); font-size: 13px; }
+.apv-confirm input, .apv-edit input, .apv-v > input { height: 34px; border: 1px solid var(--border); border-radius: var(--r-1); padding: 0 10px; background: var(--surface); color: var(--text-1); font-size: 13px; width: 100%; }
+.apv-edit { display: flex; flex-direction: column; gap: 8px; }
+.apv-edit label { display: flex; flex-direction: column; gap: 4px; }
+
+.apv-blockers { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--warning-text); }
+.apv-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; padding-top: 14px; border-top: 1px solid var(--border-2, var(--border)); }
+
+.apv-card { margin: 8px 0; padding: 12px 14px; border: 1px solid var(--border); border-left: 3px solid var(--warning); border-radius: var(--r-2); background: var(--surface-2); display: flex; flex-direction: column; gap: 6px; }
+.apv-card-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.apv-card-t { font-weight: 600; font-size: 13.5px; }
+.apv-card-btn { align-self: flex-start; margin-top: 4px; }
+.apv-event { font-size: 12.5px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+
+@media (max-width: 460px) {
+  .apv-modal { padding: 16px; }
+  .apv-row { grid-template-columns: 1fr; gap: 2px; }
+  .apv-actions .btn { flex: 1 1 auto; justify-content: center; }
+}

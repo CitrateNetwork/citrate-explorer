@@ -26,6 +26,7 @@ import { VerifyScreen } from "./screens/verify";
 import { DagView } from "./screens/dag";
 import { AgentsScreen, AgentScreen } from "./screens/agents";
 import { AgentPanel } from "./screens/agent";
+import { ApproveScreen } from "./approval";
 import { SettingsScreen, DevHub } from "./screens/settings";
 
 function CommandPalette({ open, onClose }) {
@@ -162,6 +163,7 @@ function Shell() {
   else if (r.name === "dag") view = <DagView reducedMotion={tweaks.reducedMotion} />;
   else if (r.name === "dev") view = <DevHub />;
   else if (r.name === "settings") view = <SettingsScreen tweaks={tweaks} />;
+  else if (r.name === "approve") view = <ApproveScreen payload={r.id || ""} onDone={() => scan.nav("")} onOpenTx={(h) => scan.nav(`tx/${h}`)} />;
   else view = <Home tweaks={tweaksForScreens} />;
 
   return (

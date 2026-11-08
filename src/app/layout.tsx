@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { Space_Grotesk, Geist, Geist_Mono, Cormorant } from "next/font/google";
 import "../scan/scan.css";
 import "../scan/scan-ui.css";
+import "../scan/approval.css";
 import { ConsentProvider } from "@/lib/consent/client";
 import { ConsentBanner } from "@/components/consent-banner";
 

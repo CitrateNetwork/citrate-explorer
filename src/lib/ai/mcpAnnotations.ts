@@ -51,6 +51,21 @@ export const READ_ONLY_TOOLS: readonly string[] = Object.freeze([
   "saltDistribution",
   "ledger",
   "getAgent",
+  // EXP-AGENT contract tools (2026-11-07). Reviewed: each reads the chain
+  // (eth_getCode, eth_getStorageAt, eth_call, eth_estimateGas, eth_gasPrice)
+  // or the verification store and changes nothing.
+  "contract_identify",
+  "contract_abi",
+  "contract_read",
+  "decode_tx",
+  "decode_calldata",
+  "decode_log",
+  "contract_source",
+  // prepare_write SIMULATES a call (eth_call + eth_estimateGas) and returns a
+  // proposal with executable:false and an approval link. It cannot sign, send
+  // or relay: a person approves in the UI and signs in their own wallet.
+  "prepare_write",
+  "explain_prepared_write",
 ]);
 
 /**
