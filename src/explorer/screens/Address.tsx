@@ -41,7 +41,11 @@ export function Address({ addr }: { addr: string }) {
         ) : (
           <Fig label="Indexed activity" na="Index not provisioned" sub="indexer tables" />
         )}
-        <Fig label="Blocks produced" value={fmtNum(produced.length)} sub={snap ? `in the newest ${snap.window.toHeight - snap.window.fromHeight + 1} heights` : "reading the live window"} />
+        {snap ? (
+          <Fig label="Blocks produced" value={fmtNum(produced.length)} sub={`in the newest ${snap.window.toHeight - snap.window.fromHeight + 1} heights`} />
+        ) : (
+          <Fig label="Blocks produced" na="Reading the live window…" sub="header miner, /api/ledger" />
+        )}
       </div>
 
       <Section title="Overview" source="eth_getBalance, eth_getTransactionCount, eth_getCode">
