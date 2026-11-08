@@ -163,11 +163,19 @@ export async function rawCall(opts: { reader: ChainReader; address: string; data
   }
 }
 
-/** Whether the node serves state at a past block (eth_getStorageAt at head - 1). */
+/**
+ * How far below the tip the historical-state probe reads. 40204 nodes execute
+ * behind the tip (about 1,000 blocks on 2026-11-07) and answer for any block above
+ * their executed head with executed-head state, so a probe close to the tip
+ * proves nothing.
+ */
+export const HISTORICAL_PROBE_DEPTH = 4096n;
+
+/** Whether the node serves state at a past block (eth_getStorageAt well below the tip). */
 export async function supportsHistoricalState(reader: ChainReader, address: string): Promise<{ supported: boolean; reason: string | null }> {
   try {
     const head = await reader.blockNumber();
-    await reader.getStorageAt(address as Address, numberToHex(0, { size: 32 }), head > 0n ? head - 1n : 0n);
+    await reader.getStorageAt(address as Address, numberToHex(0, { size: 32 }), head > HISTORICAL_PROBE_DEPTH ? head - HISTORICAL_PROBE_DEPTH : 0n);
     return { supported: true, reason: null };
   } catch (e) {
     return { supported: false, reason: errorText(e) };

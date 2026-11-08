@@ -109,7 +109,7 @@ export function SelectorsPane({ guess }: { guess: AbiGuess }) {
       </p>
       <div className="cx-tbl-wrap">
         <table className="cx-tbl">
-          <thead><tr><th scope="col">Selector</th><th scope="col">Signature</th><th scope="col">Mutability (from bytecode)</th></tr></thead>
+          <thead><tr><th scope="col">Selector</th><th scope="col">Signature</th><th scope="col">Bytecode hint</th></tr></thead>
           <tbody>
             {guess.functions.map((f) => (
               <tr key={f.selector}>
@@ -118,7 +118,7 @@ export function SelectorsPane({ guess }: { guess: AbiGuess }) {
                   {f.resolved ? functionSignature(f.resolved) : <span className="muted">no match</span>}
                   {f.alternatives.length > 0 && <div className="muted small">also: {f.alternatives.map(functionSignature).join(", ")}</div>}
                 </td>
-                <td className="nw">{f.payable ? "payable" : f.stateMutability ?? "unknown"}</td>
+                <td className="nw muted">{f.payable ? "no CALLVALUE check" : f.stateMutability ?? "unknown"}</td>
               </tr>
             ))}
           </tbody>

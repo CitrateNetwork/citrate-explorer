@@ -186,7 +186,7 @@ function ContractView({ addr }: { addr: string }) {
         {guessed && <span className="cx-tag warn">guessed ABI</span>}
         {tok && <span className="cx-tag info">{tok.standard}</span>}
       </div>
-      {own.note && <p className="muted small" style={{ marginTop: -6 }}>{own.note}</p>}
+      {own.note && hasSource && <p className="muted small" style={{ marginTop: -6 }}>{own.note}</p>}
       <div className="cx-stats">
         <div className="cx-stat"><div className="cx-stat-k">Runtime size</div><div className="cx-stat-v">{runtimeSize.toLocaleString()} bytes</div></div>
         <div className="cx-stat"><div className="cx-stat-k">Code hash</div><div className="cx-stat-v mono" style={{ fontSize: 14 }}>{res.codeHash ? short(res.codeHash) : ""}</div></div>

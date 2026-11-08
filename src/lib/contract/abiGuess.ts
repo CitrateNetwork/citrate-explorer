@@ -6,14 +6,15 @@
  */
 import { abiFromBytecode } from "@shazow/whatsabi";
 import type { Abi, AbiEvent, AbiFunction, Hex } from "viem";
-import { lookupEvent, lookupFunction } from "./signatures";
+import { canonicalSignature, lookupEvent, lookupFunction } from "./signatures";
 
 export interface GuessedFunction {
   selector: Hex;
-  /** The first matching signature from the subset, with whatsabi's payability applied; null if unknown. */
+  /** The first matching signature from the subset (its own mutability); null if unknown. */
   resolved: AbiFunction | null;
-  /** Other signatures in the subset with the same selector. */
+  /** Other signatures in the subset with the same selector and different types. */
   alternatives: AbiFunction[];
+  /** whatsabi's payability hint from the bytecode (unreliable for via-IR code). */
   payable: boolean;
   /** whatsabi's mutability hint, from the bytecode. */
   stateMutability: AbiFunction["stateMutability"] | null;
@@ -42,12 +43,13 @@ export function guessAbi(runtimeCode: string): AbiGuess {
     if (item.type === "function") {
       const selector = item.selector.toLowerCase() as Hex;
       const hits = lookupFunction(selector);
+      // whatsabi's payability is a bytecode hint; via-IR code (no CALLVALUE check before
+      // dispatch) reads as payable everywhere, so the subset's mutability is kept as is.
       const payable = item.payable === true || item.stateMutability === "payable";
-      // The subset's mutability wins (it comes from a real ABI); payability from the code is added when the subset says nonpayable.
-      const first = hits[0]
-        ? ({ ...hits[0], stateMutability: payable && hits[0].stateMutability === "nonpayable" ? "payable" : hits[0].stateMutability } as AbiFunction)
-        : null;
-      functions.push({ selector, resolved: first, alternatives: hits.slice(1), payable, stateMutability: item.stateMutability ?? null });
+      const first = hits[0] ?? null;
+      const firstSig = first ? canonicalSignature(first) : null;
+      const alternatives = hits.slice(1).filter((h) => canonicalSignature(h) !== firstSig);
+      functions.push({ selector, resolved: first, alternatives, payable, stateMutability: item.stateMutability ?? null });
     } else if (item.type === "event") {
       const topic = item.hash.toLowerCase() as Hex;
       eventTopics.push(topic);
