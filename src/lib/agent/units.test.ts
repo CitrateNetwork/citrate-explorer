@@ -89,6 +89,59 @@ describe("write intent", () => {
     expect(hasWriteIntent("what does this contract do?")).toBe(false);
     expect(hasWriteIntent("show the transferred amounts")).toBe(false);
   });
+  // Narrowed 2026-11-07 (#48 flagged that broad verbs like "set"/"call" opened
+  // the gate): only an explicit request to send, execute, sign or write a
+  // transaction, to prepare one, or an imperative state-changing action counts.
+  // Questions about writes are reads. Approval stays required either way.
+  it.each([
+    "what does the set function do?",
+    `who can call upgradeTo on ${A}?`,
+    `call totalSupply on ${A}`,
+    `call balanceOf for ${A}`,
+    "how do I approve a spender?",
+    "how would I send SALT to someone?",
+    "can I withdraw before the lock ends?",
+    `what happens if I stake 10 on ${A}?`,
+    "why did this approve fail?",
+    "is setApprovalForAll dangerous?",
+    "did this address send anything?",
+    `show me the last transfer to ${A}`,
+    "explain this transfer",
+    "list the top holders",
+    "create a summary of this contract",
+    "update me on the latest block",
+    "set me up with the network stats",
+    "prepare a summary of the mergeset",
+    "write a short explanation of this contract",
+    "tell me how to execute a proposal",
+    "ok, and what is its total supply?",
+    "send me the ABI",
+  ])("a read question does not trigger write preparation: %s", (q) => {
+    expect(hasWriteIntent(q)).toBe(false);
+    expect(writeGate(q, { kind: "contract", id: A, network: { chainId: 40204 } }).allowed).toBe(false);
+  });
+
+  it.each([
+    `send 1 SALT to ${A}`,
+    `prepare a transaction that calls setFee(5) on ${A}`,
+    `write a transaction to set the fee to 5 on ${A}`,
+    `please build the tx for transferOwnership on ${A}`,
+    `can you withdraw 3 from ${A}?`,
+    "I want to deposit 2 SALT here",
+    `execute transfer on ${A} to bob`,
+    `go ahead and approve ${A} for 10`,
+    "stake 10 here",
+    `ok, now revoke ${A}`,
+  ])("an explicit request opens the gate (with a target): %s", (q) => {
+    expect(hasWriteIntent(q)).toBe(true);
+    expect(writeGate(q, { kind: "contract", id: A, network: { chainId: 40204 } }).allowed).toBe(true);
+  });
+
+  it("an explicit request without a named or implied target still does not open the gate", () => {
+    expect(writeGate("prepare a transaction to approve the router").allowed).toBe(false);
+    expect(writeGate("prepare a transaction to approve the router", { kind: "tx", id: "0x" + "1".repeat(64), network: { chainId: 40204 } }).allowed).toBe(false);
+  });
+
   it("collects named addresses and the page's address", () => {
     const t = namedTargets(`send to ${A.toUpperCase().replace("0X", "0x")}`, { kind: "token", id: "0x2000000000000000000000000000000000000002", network: { chainId: 40204 } });
     expect([...t].sort()).toEqual([A, "0x2000000000000000000000000000000000000002"]);
