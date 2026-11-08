@@ -84,7 +84,9 @@ sends or relays. MCP annotates all nine `readOnlyHint: true` (`mcpAnnotations.ts
 value), chain 40204, target (address, label, has code, verification, contract name,
 ABI source, proxy), call (function, signature, selector, decoded args, calldata),
 value (wei and SALT), simulation (ok, sender, revert reason, gas, gas price, fee,
-block), risk (flags, `elevated`, `confirmPhrase`), relay eligibility (with the gas the
+block), risk (flags with severity info/warn/high, `elevated`, `confirmPhrase`), `id` (the
+kit preparation's id, unique per preparation) and `requestId` (stable across
+re-simulation), relay eligibility (with the gas the
 relay request is signed with), origin (chat, mcp, ui) and `executable: false`, always.
 
 ## 3. Approvals
@@ -97,9 +99,12 @@ Nothing signs automatically. The agent can only prepare.
    only the request (target, function, args, value), never the simulation or the
    risk verdict.
 2. **Review.** The card's "Review and approve" button, or the link, opens the
-   approval dialog (`src/scan/approval.tsx`, view `approval-view.tsx`). The dialog
-   calls `POST /api/agent/prepare` with the connected wallet as `from`, so what is
-   shown was simulated from the user's own address at the current head. It shows the
+   approval dialog (`src/scan/approval.tsx`, view `approval-view.tsx`), the same
+   dialog the contract page's Write tab uses. The dialog prepares the request in the
+   browser through the contract kit (`prepareFromRequest`, `src/lib/contract/request.ts`)
+   with the connected wallet as `from`, so what is shown was simulated from the user's
+   own address at the current head. `POST /api/agent/prepare` runs the same kit path
+   on the server for clients that want a prepare-only result. It shows the
    network (Citrate, chain 40204), target with verification and proxy, method and
    selector, decoded arguments, value in SALT, simulation outcome or revert reason,
    gas estimate and fee, risk flags, and the deterministic explanation.
@@ -107,10 +112,13 @@ Nothing signs automatically. The agent can only prepare.
    for payable functions) and re-simulates; the new proposal has a new id and any
    earlier approval is void. Approve is disabled until every rule in
    `approvalBlockers()` (`src/lib/agent/approval.ts`) passes: chain 40204, a
-   connected wallet, a simulation from that wallet, the typed confirmation when the
-   call is elevated, relay eligibility when the relay is chosen.
-4. **Sign.** `execute()` is the only function that reaches the wallet, and it refuses
-   any state not approved for exactly the PreparedWrite on screen. The user signs in
+   connected wallet, a simulation from that wallet no older than 120 s, every high
+   risk acknowledged, the typed confirmation when the call is elevated, gasless
+   eligibility when gasless is chosen. The click then calls kit `approveWrite`, which
+   also requires a real user gesture.
+4. **Sign.** `execute()` is the only function that reaches the wallet, through kit
+   `executeWrite`: the approval must be for exactly this preparation, unused, on the
+   same path, within 120 s (`src/lib/contract/writePaths.test.ts` pins this). The user signs in
    their own wallet (wagmi `sendTransaction`, chain 40204), or, where the existing
    relay policy allows the call (value 0, allowlisted target, gas within the cap),
    signs an EIP-712 ForwardRequest for `/api/relay`.
@@ -126,7 +134,8 @@ permit, setApprovalForAll(true), ownership or admin/role changes, proxy upgrades
 payable value above `AGENT_PAYABLE_WARN_SALT` (default 1 SALT), unverified or
 partial-match targets, unknown verification status, a signature outside a verified
 ABI, an address with no code, and any simulation that reverted or could not run.
-Matching is by selector and by name (`src/lib/agent/risk.ts`).
+Matching is by selector and by name (`src/lib/contract/risk.ts`, shared with the
+contract page). Every high flag also needs its own "I understand" box.
 
 **MCP:** write tools return prepare-only results plus the approval link. No MCP tool
 can sign, send or relay.
@@ -144,7 +153,9 @@ answers as on `/api/mcp`); write events 2/s per owner.
   and the delimiter characters replaced inside the text (`src/lib/agent/untrusted.ts`).
   GUARDRAILS tells the model these blocks are data.
 - **Write gate** (`src/lib/agent/writeIntent.ts`): in chat, `prepare_write` is in
-  `activeTools` only when the user's own latest message asks for a write, and the
+  `activeTools` only when the user's own latest message explicitly asks for one (an
+  imperative state-changing action, or to send, execute, sign, write or prepare a
+  transaction; questions about writes are reads), and the
   tool accepts only a target the user named or the page they are viewing. Both come
   from user input, never from tool output. The tool re-checks the gate itself.
 - The explanation and the dialog are built from decoded calldata and simulation, not
@@ -154,15 +165,13 @@ answers as on `/api/mcp`); write events 2/s per owner.
 
 ## 5. Integration notes and known limits
 
-- **EXP-CONTRACT:** `src/lib/agent/contractModule.ts` implements the shared
-  `ContractModule`. Swap `defaultContractModule()` for EXP-CONTRACT's module; the
-  tools, route and dialog use only the interface. Keep `PreparedWrite.executable`
-  `false` and the risk codes, which the dialog and logs depend on.
-- **EXP-REDESIGN:** the drawer sends `context: AgentContext` with every chat
-  request, derived from the route (`src/lib/agent/context.ts`); the Ask slot can set
-  it directly through `agentRef.current.setAgentContext(ctx)`. The dialog and card
-  use only shared CSS tokens (`src/scan/approval.css`) so the direction-B kit
-  restyles them by remapping tokens.
+- **Contract kit (integrated):** `src/lib/agent/contractModule.ts` is an adapter
+  over the kit (`src/lib/contract/`); `src/lib/agent/wire.ts` maps kit results to
+  the JSON shapes above. There is no second preparation, simulation or risk path.
+- **Shell:** the Ask panel sends the shell's `AgentContext`
+  (`src/explorer/agentContext.ts`) as `pageContext` with every chat request; the
+  chat route validates it. Empty-state suggestions come from
+  `src/explorer/askSuggestions.ts`. The dialog uses the kit's `.cx` components.
 - **Verification v2:** `contract_source(pc)` needs a stored deployed source map;
   wire `sourceMap` in `contractTools.ts` `liveDeps()` to the v2 store's
   `deployedSourceMap` when that lands.
