@@ -427,6 +427,7 @@ describe("getLogs source tripwire", () => {
     // Reviewed call sites whose method variable is NOT caller-controlled.
     const REVIEWED_DYNAMIC = new Set([
       "lib/citrate/rpc.ts", // getDagBlock: method is one of two eth_getBlockBy* literals
+      "lib/citrate/r1007Server.ts", // fixedMethodRequester: deny-by-default LEDGER_RPC_METHODS, never request-supplied (r1007Server.test.ts)
     ]);
     const offenders = files
       .filter(({ text }) => /citrateRequest(<[^>]*>)?\(\s*[^,]+,\s*[A-Za-z_$][\w$]*\s*[,)]/.test(text))

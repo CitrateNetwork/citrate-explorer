@@ -133,10 +133,18 @@ function relTime(iso) {
   return `${Math.floor(s / 86400)}d`;
 }
 
-export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) {
+export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef, pageContext = null, pageContextLabel = null }) {
   const scan = useScan();
   const auth = useAuth();
   const [context, setContext] = useState(null);
+  // EXP-REDESIGN: the shell's typed AgentContext ({ kind, id, network }, src/explorer/agentContext.ts)
+  // for the page on screen. Read live by the transport below and sent as `pageContext` with each
+  // /api/chat request; the EXP-AGENT lane owns what the agent does with it. Also exposed on agentRef.
+  const pageContextRef = useRef(pageContext);
+  useEffect(() => {
+    pageContextRef.current = pageContext;
+    if (agentRef && agentRef.current) agentRef.current.pageContext = pageContext;
+  }, [pageContext, agentRef]);
   const [input, setInput] = useState("");
   const [token, setToken] = useState(null);
   const scrollRef = useRef(null);
@@ -165,7 +173,7 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
     () => new DefaultChatTransport({
       api: "/api/chat",
       headers: () => (tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : {}),
-      body: () => ({ threadId: convIdRef.current }),
+      body: () => ({ threadId: convIdRef.current, pageContext: pageContextRef.current }),
     }),
     [],
   );
@@ -276,7 +284,7 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef }) 
           </div>
         )}
       </div>
-      {context && <div className="agent-ctx"><span className="ic"><Icon name="link" size={13} /></span> Context: {context}</div>}
+      {(context || pageContextLabel) && <div className="agent-ctx"><span className="ic"><Icon name="link" size={13} /></span> Context: {context || pageContextLabel}</div>}
       <div className="agent-scroll" ref={scrollRef} role="log" aria-live="polite" aria-relevant="additions text" aria-label="Agent conversation">
         {messages.length === 0 && (
           <div className="agent-empty">

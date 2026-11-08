@@ -10,7 +10,7 @@
  *   served; nothing is inferred from depth or position;
  * - finality is read from `citrate_getFinalityStatus` only (CV-8), never depth.
  */
-import type { FinalityStatus } from "@/lib/citrate/r1007";
+import type { AcceptingBlock, FinalityStatus } from "@/lib/citrate/r1007";
 
 export interface LedgerBlock {
   hash: string;
@@ -273,4 +273,46 @@ export function anticoneInWindow(hash: string, blocks: LedgerBlock[]): string[] 
   const past = walk(hash, parents);
   const future = walk(hash, (h) => children.get(h) ?? []);
   return blocks.map((b) => b.hash).filter((h) => h !== hash && !past.has(h) && !future.has(h));
+}
+
+export interface InclusionView {
+  included: { hash: string | null; height: number | null; color: BlockColor; source: "acceptingBlock" | "receipt" };
+  accepted: { hash: string; height: number | null } | null;
+  /** accepted: a chain block executed it; pending: not yet; unsupported: the node has no citrate_getAcceptingBlock. */
+  state: "accepted" | "pending" | "unsupported";
+  /** Other inclusions of the same signed tx that were skipped (spec 06 §5.4). */
+  duplicates: Array<{ hash: string; height: number | null; outcome: string }>;
+}
+
+const INCLUSION_COLOR: Record<string, BlockColor> = { selected_parent: "chain", blue: "blue", red: "red", unaccepted: "unmerged" };
+
+/** "Included in block X, accepted by chain block Y" for the tx page. */
+export function inclusionView(
+  receipt: { blockHash: string | null; blockNumber: string | number | null },
+  acceptance: AcceptingBlock | null,
+  supported: boolean,
+): InclusionView {
+  if (!supported || !acceptance) {
+    const n = receipt.blockNumber === null || receipt.blockNumber === undefined ? null : Number(receipt.blockNumber);
+    return {
+      included: { hash: receipt.blockHash, height: Number.isFinite(n) ? n : null, color: "unknown", source: "receipt" },
+      accepted: null,
+      state: "unsupported",
+      duplicates: [],
+    };
+  }
+  const exec = acceptance.inclusions.find((i) => i.outcome === "executed") ?? acceptance.inclusions[0] ?? null;
+  return {
+    included: {
+      hash: exec?.blockHash ?? receipt.blockHash,
+      height: exec?.dagHeight ?? null,
+      color: exec ? (INCLUSION_COLOR[exec.color] ?? "unknown") : "unknown",
+      source: "acceptingBlock",
+    },
+    accepted: acceptance.acceptingBlockHash ? { hash: acceptance.acceptingBlockHash, height: acceptance.acceptingHeight } : null,
+    state: acceptance.acceptingBlockHash ? "accepted" : "pending",
+    duplicates: acceptance.inclusions
+      .filter((i) => i !== exec && i.outcome.startsWith("skipped"))
+      .map((i) => ({ hash: i.blockHash, height: i.dagHeight, outcome: i.outcome })),
+  };
 }
