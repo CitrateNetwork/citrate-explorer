@@ -416,6 +416,7 @@ describe("getLogs source tripwire", () => {
     const REVIEWED = new Set([
       "lib/harness/ops.ts", // bounded + chunked (assertLogRange)
       "lib/harness/agentSbt.ts", // one contract + Transfer topic + token id, window <= MAX_LOG_BLOCK_RANGE, chunked
+      "lib/contract/rpcReader.ts", // EXP-S3 contract pages: assertLogRequest (one address, span <= 1000, <= 4 topics), callers page newest-first
     ]);
     const hits = files
       .filter(({ text }) => /\bc(lient)?\.getLogs\(|harnessClient\(\)\.getLogs\(|request\(\s*\{\s*method:\s*["']eth_getLogs/.test(text))

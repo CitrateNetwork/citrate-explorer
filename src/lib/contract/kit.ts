@@ -144,6 +144,25 @@ export async function readCall(opts: {
   }
 }
 
+export type RawCallResult = { ok: true; raw: Hex; words: Hex[] } | { ok: false; revert: RevertInfo | null; error: string };
+
+/**
+ * eth_call with caller-supplied calldata, for selectors with no known signature.
+ * The result is raw 32-byte words; nothing is decoded or trusted.
+ */
+export async function rawCall(opts: { reader: ChainReader; address: string; data: Hex; block?: BlockSelector; from?: Address }): Promise<RawCallResult> {
+  if (!/^0x([0-9a-fA-F]{2}){4,}$/.test(opts.data)) return { ok: false, revert: null, error: "Calldata must be 0x hex with at least a 4-byte selector." };
+  try {
+    const raw = await opts.reader.call({ to: opts.address as Address, data: opts.data, from: opts.from, block: opts.block });
+    const words = (raw.slice(2).match(/.{1,64}/g) ?? []).map((w) => ("0x" + w) as Hex);
+    return { ok: true, raw, words };
+  } catch (e) {
+    const data = revertDataOf(e);
+    const revert = data ? decodeRevert(data, null) : null;
+    return { ok: false, revert, error: revert ? revert.message : errorText(e) };
+  }
+}
+
 /** Whether the node serves state at a past block (eth_getStorageAt at head - 1). */
 export async function supportsHistoricalState(reader: ChainReader, address: string): Promise<{ supported: boolean; reason: string | null }> {
   try {

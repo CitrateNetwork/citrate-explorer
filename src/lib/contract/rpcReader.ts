@@ -10,6 +10,18 @@ import { createPublicClient, http, numberToHex, type Address, type Hex, type Pub
 import { citrate } from "@/lib/citrate/chain";
 import type { BlockSelector, ChainReader, RawLog } from "./types";
 
+/** The largest eth_getLogs span this reader sends (the 40204 node cap). */
+export const MAX_LOG_SPAN = 1000n;
+
+/** Refuse an unbounded eth_getLogs request (PBA-L3c-039 tripwire). */
+export function assertLogRequest(req: { address: string; fromBlock: bigint; toBlock: bigint; topics?: unknown[] }): void {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(req.address)) throw new Error("eth_getLogs needs one contract address");
+  if (req.fromBlock < 0n || req.toBlock < req.fromBlock) throw new Error("eth_getLogs needs a forward block range");
+  if (req.toBlock - req.fromBlock + 1n > MAX_LOG_SPAN) throw new Error(`eth_getLogs spans at most ${MAX_LOG_SPAN} blocks`);
+  if (req.topics && req.topics.length > 4) throw new Error("eth_getLogs takes at most 4 topic positions");
+  for (const t of req.topics ?? []) if (Array.isArray(t) && t.length > 4) throw new Error("at most 4 alternatives per topic");
+}
+
 const blockTag = (b?: BlockSelector) => (b === undefined || b === "latest" ? "latest" : numberToHex(b));
 
 interface RpcLog {
@@ -48,6 +60,8 @@ export function createRpcReader(client?: PublicClient): ChainReader {
       return BigInt((await request({ method: "eth_blockNumber", params: [] })) as Hex);
     },
     async getLogs(req): Promise<RawLog[]> {
+      // PBA-L3c-039: bounded before the client is touched (one address, explicit range, capped span and topics).
+      assertLogRequest(req);
       const filter: Record<string, unknown> = { address: req.address, fromBlock: numberToHex(req.fromBlock), toBlock: numberToHex(req.toBlock) };
       if (req.topics) filter.topics = req.topics;
       const logs = (await request({ method: "eth_getLogs", params: [filter] })) as RpcLog[];

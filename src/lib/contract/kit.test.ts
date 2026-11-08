@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { encodeErrorResult, encodeFunctionData, encodeFunctionResult, pad, parseAbi, type Abi, type Hex } from "viem";
 import { memoryReader } from "./testReader.testutil";
 import { EIP1967_IMPLEMENTATION_SLOT } from "./proxy";
-import { approveWrite, executeWrite, prepareWrite, readCall, resolveAbi, supportsHistoricalState, type WriteExecutor } from "./kit";
+import { approveWrite, executeWrite, prepareWrite, rawCall, readCall, resolveAbi, supportsHistoricalState, type WriteExecutor } from "./kit";
 import type { ContractInfo, ContractInfoSource } from "./types";
 import fixture from "./__fixtures__/registry.json";
 
@@ -202,5 +202,14 @@ describe("kit.executeWrite: always behind an explicit user approval", () => {
     const p = await prepared();
     const a = approveWrite(p, { path: "gasless", acknowledged: [] }, activated);
     await expect(executeWrite(p, a, { path: "gasless", send: vi.fn() })).rejects.toThrow(/gasless/);
+  });
+});
+
+describe("kit.rawCall", () => {
+  it("returns raw 32-byte words and refuses malformed calldata", async () => {
+    const reader = memoryReader({ calls: [{ to: C, data: "0x12345678", result: ("0x" + "00".repeat(31) + "05" + "ff".repeat(32)) as Hex }] });
+    const r = await rawCall({ reader, address: C, data: "0x12345678" });
+    expect(r).toMatchObject({ ok: true, words: ["0x" + "00".repeat(31) + "05", "0x" + "ff".repeat(32)] });
+    expect(await rawCall({ reader, address: C, data: "0x12" as Hex })).toMatchObject({ ok: false });
   });
 });
