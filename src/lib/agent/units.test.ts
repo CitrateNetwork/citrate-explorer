@@ -137,6 +137,23 @@ describe("write intent", () => {
     expect(writeGate(q, { kind: "contract", id: A, network: { chainId: 40204 } }).allowed).toBe(true);
   });
 
+  it.each([
+    `I'd like to approve ${A} for 10`,
+    `I would like to withdraw 3 from ${A}`,
+    `i need you to revoke ${A}`,
+    `I  want   you to   stake 10 on ${A}`,
+  ])("the \"I want/like/need to\" opener still turns an action into a request: %s", (q) => {
+    expect(hasWriteIntent(q)).toBe(true);
+    expect(writeGate(q, { kind: "contract", id: A, network: { chainId: 40204 } }).allowed).toBe(true);
+  });
+
+  it("the opener regex stays linear on long whitespace runs after \"i\" (CodeQL js/polynomial-redos)", () => {
+    const hostile = "i" + " ".repeat(50_000) + "x" + "i\t".repeat(50_000);
+    const t0 = performance.now();
+    expect(hasWriteIntent(hostile)).toBe(false);
+    expect(performance.now() - t0).toBeLessThan(1_000);
+  });
+
   it("an explicit request without a named or implied target still does not open the gate", () => {
     expect(writeGate("prepare a transaction to approve the router").allowed).toBe(false);
     expect(writeGate("prepare a transaction to approve the router", { kind: "tx", id: "0x" + "1".repeat(64), network: { chainId: 40204 } }).allowed).toBe(false);

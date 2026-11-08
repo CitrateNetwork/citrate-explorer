@@ -36,7 +36,10 @@ const QUESTION_START = /^(what|whats|what's|why|how|when|where|who|whom|which|wh
 const REQUEST_OPENERS = [
   /^(please|pls|kindly)\s+/,
   /^(can|could|would|will)\s+you\s+(please\s+)?/,
-  /^i\s*('d|would)?\s*(want|like|need)\s+(you\s+)?to\s+/,
+  // Each optional piece is anchored by a literal ("'d", "would", "you") so no two
+  // whitespace runs can both match the same spaces: no polynomial backtracking
+  // (CodeQL js/polynomial-redos) even if the input were not whitespace-collapsed.
+  /^i(?:\s*'d|\s+would)?\s+(?:want|like|need)\s+(?:you\s+)?to\s+/,
   /^i\s+want\s+you\s+to\s+/,
   /^(let'?s|let\s+me|help\s+me|go\s+ahead\s+and|now|then|also)\s+/,
 ];
