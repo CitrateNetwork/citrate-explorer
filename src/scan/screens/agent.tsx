@@ -10,7 +10,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { SD } from "@/scan/data";
+import { askSuggestions } from "@/explorer/askSuggestions";
+import { agentContextFromRoute } from "@/explorer/agentContext";
+import { shortHash } from "@/explorer/format";
 import { Icon } from "@/scan/icons";
 import { EntityChip } from "@/scan/components";
 import { useScan } from "@/scan/context";
@@ -19,20 +21,10 @@ import { parseRichBlocks } from "@/lib/markdown/richBlocks";
 import { parseWriteEvent } from "@/lib/agent/writeLog";
 import { PreparedWriteCard } from "@/scan/approval";
 
-const AG = SD.AGENT;
-
-const ENT = {
-  alice:      { value: SD.L.alice.addr, kind: "address" },
-  bob:        { value: SD.L.bob.addr, kind: "address" },
-  foundation: { value: SD.L.foundation.addr, kind: "address", label: "Citrate Foundation" },
-  router:     { value: SD.L.router.addr, kind: "contract" },
-  treasury:   { value: SD.L.treasury.addr, kind: "contract" },
-  market:     { value: SD.L.market.addr, kind: "contract" },
-  tipblock:   { value: SD.TIP_BLOCK.hash, kind: "block", label: "#" + SD.TIP_BLOCK.height },
-};
-
-// Inline markdown-ish renderer: **bold**, `code`, {{entity}} placeholders, AND raw
-// 0x addresses / tx-or-block hashes the agent cites → clickable EntityChips.
+// Inline markdown-ish renderer: **bold**, `code`, the {{dag}} link, AND raw 0x
+// addresses / tx-or-block hashes the agent cites → clickable EntityChips. (The
+// prototype's {{alice}}-style placeholders pointed at sample data and are gone:
+// the live agent cites real hashes, which become chips.)
 function Inline({ text }) {
   const scan = useScan();
   const parts = String(text)
@@ -42,8 +34,6 @@ function Inline({ text }) {
     let m;
     if ((m = p.match(/^\{\{(\w+)\}\}$/))) {
       if (m[1] === "dag") return <a key={i} className="chip labelled" style={{ display: "inline-flex" }} onClick={() => scan.nav("dag")}>Live DAG</a>;
-      const e = ENT[m[1]];
-      if (e) return <EntityChip key={i} value={e.value} kind={e.kind} label={e.label} noMenu />;
       return <span key={i}>{m[1]}</span>;
     }
     if (/^0x[0-9a-fA-F]{64}$/.test(p)) return <EntityChip key={i} value={p} kind="tx" noMenu />;
@@ -93,7 +83,7 @@ function toolStepsOf(m) {
       const tool = p.type === "dynamic-tool" ? p.toolName : p.type.slice(5);
       const inp = p.input ?? p.args ?? {};
       let args = "";
-      try { args = Object.values(inp).map((v) => (typeof v === "string" && v.length > 18 ? SD.short(v) : v)).join(", "); } catch {}
+      try { args = Object.values(inp).map((v) => (typeof v === "string" && v.length > 18 ? shortHash(v, 6, 4) : v)).join(", "); } catch {}
       const done = p.state === "output-available" || p.state === "result";
       return { tool, args, done };
     });
@@ -320,8 +310,8 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef, pa
             <div className="spark"><Icon name="spark" size={26} /></div>
             <p>I read the chain live, then answer with the exact tools I called and the data I observed. Every on-chain reference is clickable.</p>
             <div className="ec">
-              {AG.prompts.map((p, i) => (
-                <button key={i} onClick={() => sendMessage({ text: p })}><span className="ic"><Icon name="arrowright" size={15} /></span> {p}</button>
+              {askSuggestions(pageContext || agentContextFromRoute(scan && scan.route ? scan.route : { name: "home" })).map((sg, i) => (
+                <button key={i} title={sg.prompt} onClick={() => sendMessage({ text: sg.prompt })}><span className="ic"><Icon name="arrowright" size={15} /></span> {sg.label}</button>
               ))}
             </div>
           </div>
