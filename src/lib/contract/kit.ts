@@ -22,7 +22,6 @@ import {
   concat,
   encodeAbiParameters,
   keccak256,
-  maxUint256,
   numberToHex,
   type Abi,
   type AbiFunction,
@@ -44,11 +43,14 @@ import {
   type RevertInfo,
 } from "./codec";
 import { detectProxy, type ProxyInfo } from "./proxy";
+import { assessRisk, payableThresholdWei, type RiskCode, type RiskFlag } from "./risk";
 import { isSponsorableTarget } from "@/lib/relay/policy";
-import type { BlockSelector, ChainReader, ContractInfo, ContractInfoSource } from "./types";
+import type { BlockSelector, ChainReader, ContractInfo, ContractInfoSource, VerificationStatus } from "./types";
 
 export { detectProxy } from "./proxy";
 export type { ProxyInfo } from "./proxy";
+export type { RiskCode, RiskFlag, RiskSeverity } from "./risk";
+export { assessRisk, payableThresholdWei } from "./risk";
 
 /* ------------------------------------------------------------------ ABI */
 
@@ -58,6 +60,8 @@ export type AbiSource =
   | "similar-match"
   | "proxy-implementation"
   | "signature-subset"
+  /** built from a function signature the caller supplied (the agent); nothing verified it */
+  | "signature"
   | "none";
 
 export interface ResolvedAbi {
@@ -184,29 +188,11 @@ export async function supportsHistoricalState(reader: ChainReader, address: stri
 
 /* ------------------------------------------------------------------ writes */
 
-export type RiskCode =
-  | "payable"
-  | "value-transfer"
-  | "token-approval"
-  | "unlimited-approval"
-  | "operator-approval"
-  | "ownership-transfer"
-  | "ownership-renounce"
-  | "upgrade"
-  | "unverified-target"
-  | "guessed-abi"
-  | "proxy-target"
-  | "simulation-reverted";
-
-export interface RiskFlag {
-  code: RiskCode;
-  severity: "info" | "warn" | "high";
-  message: string;
-}
-
 export type SimulationOutcome =
   | { status: "ok"; returnData: Hex }
   | { status: "reverted"; revert: RevertInfo | null; error: string }
+  /** The simulation could not run (RPC unreachable, not a revert): the outcome is unknown. */
+  | { status: "unavailable"; error: string }
   | { status: "skipped"; reason: string };
 
 export interface PreparedWrite {
@@ -220,12 +206,20 @@ export interface PreparedWrite {
   method: { name: string; signature: string; selector: Hex; stateMutability: AbiFunction["stateMutability"] };
   args: { name: string; type: string; value: unknown; display: string }[];
   abiSource: AbiSource;
+  /** What is known about the target when it was prepared. */
+  target: { isContract: boolean; verification: VerificationStatus; proxy: ProxyInfo | null };
   simulation: SimulationOutcome;
   gas: { estimate: bigint | null; error: string | null };
   risks: RiskFlag[];
+  /** True when any risk is high: approval then needs every high risk acknowledged AND the typed confirmation. */
+  elevated: boolean;
+  /** What the user types to confirm an elevated write (the function name); null when not elevated. */
+  confirmPhrase: string | null;
   gasless: { eligible: boolean; reason: string };
   /** ms since epoch. A preparation older than PREPARED_WRITE_TTL_MS must be prepared again. */
   preparedAt: number;
+  /** Always false: a PreparedWrite is a proposal. Only approveWrite (a user click) + executeWrite sends it. */
+  executable: false;
 }
 
 /** A simulation is only as fresh as the state it ran on. */
@@ -233,9 +227,18 @@ export const PREPARED_WRITE_TTL_MS = 120_000;
 /** The gas the explorer's gasless client signs (use-sponsored-write.ts). */
 export const GASLESS_GAS = 300_000n;
 
-const HALF_MAX = maxUint256 / 2n;
+/** Map a simulation outcome to the risk input's shape. */
+function simulationForRisk(sim: SimulationOutcome | undefined, from: Address | null): { ok: boolean; from: string | null; revertReason: string | null } {
+  if (!sim || sim.status === "ok" || sim.status === "skipped") return { ok: true, from, revertReason: null };
+  if (sim.status === "reverted") return { ok: false, from, revertReason: sim.revert?.message ?? sim.error };
+  return { ok: false, from, revertReason: null };
+}
 
-/** Risk flags for one call. Pure. */
+/**
+ * Risk flags for one call: the shared assessment in risk.ts, fed with the kit's
+ * facts. Pure. `verification` defaults from `abiVerified`; `hasCode` defaults to
+ * true (the kit is only handed calls against code it resolved).
+ */
 export function riskFlags(input: {
   fn: AbiFunction;
   args: readonly unknown[];
@@ -243,35 +246,35 @@ export function riskFlags(input: {
   abiSource: AbiSource;
   abiVerified: boolean;
   viaProxy?: boolean;
+  proxy?: ProxyInfo | null;
   simulation?: SimulationOutcome;
+  verification?: VerificationStatus;
+  hasCode?: boolean;
+  from?: Address | null;
+  thresholdWei?: bigint;
 }): RiskFlag[] {
-  const { fn, args, value } = input;
-  const out: RiskFlag[] = [];
-  const sig = functionSignature(fn);
-  if (fn.stateMutability === "payable") out.push({ code: "payable", severity: "info", message: "This function accepts SALT with the call." });
-  if (value > 0n) out.push({ code: "value-transfer", severity: "warn", message: "This call sends SALT from your wallet to the contract." });
-  if (sig === "approve(address,uint256)" || sig === "increaseAllowance(address,uint256)") {
-    out.push({ code: "token-approval", severity: "warn", message: "This lets another address spend your tokens." });
-    const amount = args[1];
-    if (typeof amount === "bigint" && amount >= HALF_MAX) out.push({ code: "unlimited-approval", severity: "high", message: "The approval amount is effectively unlimited." });
-  }
-  if (sig === "setApprovalForAll(address,bool)" && args[1] === true) {
-    out.push({ code: "operator-approval", severity: "high", message: "This lets another address move ALL of your tokens in this collection." });
-  }
-  if (sig === "transferOwnership(address)" || sig === "changeAdmin(address)") {
-    out.push({ code: "ownership-transfer", severity: "high", message: "This hands control of the contract to another address." });
-  }
-  if (sig === "renounceOwnership()") out.push({ code: "ownership-renounce", severity: "high", message: "This removes the owner permanently. It cannot be undone." });
-  if (sig === "upgradeTo(address)" || sig === "upgradeToAndCall(address,bytes)") {
-    out.push({ code: "upgrade", severity: "high", message: "This replaces the contract's code with a new implementation." });
-  }
-  if (!input.abiVerified) out.push({ code: "unverified-target", severity: "warn", message: "The contract's source is not verified, so what this call does cannot be checked." });
-  if (input.abiSource === "signature-subset") out.push({ code: "guessed-abi", severity: "warn", message: "The function was identified from its selector only; argument meaning is a guess." });
-  if (input.viaProxy) out.push({ code: "proxy-target", severity: "info", message: "The call goes through a proxy to its current implementation." });
-  if (input.simulation?.status === "reverted") {
-    out.push({ code: "simulation-reverted", severity: "high", message: `The simulation reverted: ${input.simulation.revert?.message ?? input.simulation.error}` });
-  }
-  return out;
+  return assessWrite(input).flags;
+}
+
+function assessWrite(input: Parameters<typeof riskFlags>[0]) {
+  const { fn } = input;
+  const proxy = input.proxy ?? null;
+  return assessRisk({
+    functionName: fn.name,
+    selector: functionSelector(fn),
+    stateMutability: fn.stateMutability,
+    args: input.args,
+    valueWei: input.value,
+    target: {
+      isContract: input.hasCode ?? true,
+      verification: input.verification ?? (input.abiVerified ? "verified" : "unverified"),
+      abiSource: input.abiSource,
+      proxy: { isProxy: !!(proxy || input.viaProxy), kind: proxy?.kind ?? null, implementation: proxy?.implementation ?? null },
+    },
+    // `from` undefined = the caller did not say (pure risk check): do not flag a missing sender.
+    simulation: { ...simulationForRisk(input.simulation, input.from === undefined ? ("0x" as Address) : input.from) },
+    thresholdWei: input.thresholdWei ?? payableThresholdWei(),
+  });
 }
 
 function randomHex(bytes: number): Hex {
@@ -292,7 +295,7 @@ async function gaslessEligibility(
 ): Promise<{ eligible: boolean; reason: string }> {
   if (!forwarder) return { eligible: false, reason: "The gasless forwarder is not deployed on this network yet." };
   if (!from) return { eligible: false, reason: "Connect a wallet to sign a gasless request." };
-  if (value !== 0n) return { eligible: false, reason: "The gasless relay does not sponsor calls that send SALT." };
+  if (value !== 0n) return { eligible: false, reason: "The gasless relay does not sponsor calls that send SALT (the value must be 0)." };
   if (!isSponsorableTarget(to)) return { eligible: false, reason: "The gasless relay only sponsors calls to Citrate federation contracts." };
   if (gas !== null && gas > GASLESS_GAS) return { eligible: false, reason: `The call needs more gas than the relay sponsors (${GASLESS_GAS}).` };
   try {
@@ -326,6 +329,14 @@ export async function prepareWrite(opts: {
   viaProxy?: boolean;
   /** The EIP-2771 forwarder, when gasless writes are configured (PROJECT_ADDRESSES.forwarder). */
   forwarder?: Address | null;
+  /** The target's verification status (from resolveAbi's info). Defaults from abiVerified. */
+  verification?: VerificationStatus;
+  /** Whether the target has code (resolveAbi's hasCode). Defaults to true. */
+  hasCode?: boolean;
+  /** The proxy the call goes through, when known (resolveAbi's proxy). */
+  proxy?: ProxyInfo | null;
+  /** Payable value above this is a high risk. Defaults to AGENT_PAYABLE_WARN_SALT or 1 SALT. */
+  payableThresholdWei?: bigint;
   now?: () => number;
 }): Promise<PreparedWrite> {
   const fn = pickFunction(opts.abi, opts.fn);
@@ -344,10 +355,13 @@ export async function prepareWrite(opts: {
   } catch (e) {
     const rd = revertDataOf(e);
     const revert = rd ? decodeRevert(rd, opts.abi) : null;
-    simulation = { status: "reverted", revert, error: revert ? revert.message : errorText(e) };
+    simulation = revert || mentionsRevert(e)
+      ? { status: "reverted", revert, error: revert ? revert.message : errorText(e) }
+      : { status: "unavailable", error: errorText(e) };
   }
   let gas: PreparedWrite["gas"];
   if (simulation.status === "reverted") gas = { estimate: null, error: "Not estimated: the simulation reverted." };
+  else if (simulation.status === "unavailable") gas = { estimate: null, error: "Not estimated: the simulation could not run." };
   else {
     try {
       gas = { estimate: await opts.reader.estimateGas({ to, data, value, from: from ?? undefined }), error: null };
@@ -356,9 +370,24 @@ export async function prepareWrite(opts: {
     }
   }
   const abiVerified = opts.abiVerified ?? (opts.abiSource === "verified" || opts.abiSource === "proxy-implementation");
-  const risks = riskFlags({ fn, args: opts.args, value, abiSource: opts.abiSource, abiVerified, viaProxy: opts.viaProxy, simulation });
-  const gasless = simulation.status === "reverted"
-    ? { eligible: false, reason: "Not offered: the simulation reverted." }
+  const verification: VerificationStatus = opts.verification ?? (abiVerified ? "verified" : "unverified");
+  const hasCode = opts.hasCode ?? true;
+  const risk = assessWrite({
+    fn,
+    args: opts.args,
+    value,
+    abiSource: opts.abiSource,
+    abiVerified,
+    viaProxy: opts.viaProxy,
+    proxy: opts.proxy ?? null,
+    simulation,
+    verification,
+    hasCode,
+    from,
+    thresholdWei: opts.payableThresholdWei,
+  });
+  const gasless = simulation.status === "reverted" || simulation.status === "unavailable"
+    ? { eligible: false, reason: `Not offered: the simulation ${simulation.status === "reverted" ? "reverted" : "could not run"}.` }
     : await gaslessEligibility(opts.reader, to, value, gas.estimate, from, opts.forwarder);
   const preparedAt = (opts.now ?? Date.now)();
   const id = keccak256(
@@ -380,11 +409,15 @@ export async function prepareWrite(opts: {
     method: { name: fn.name, signature: functionSignature(fn), selector: functionSelector(fn), stateMutability: fn.stateMutability },
     args: fn.inputs.map((p, i) => ({ name: p.name ?? `arg${i}`, type: p.type, value: opts.args[i], display: formatValue(p, opts.args[i]) })),
     abiSource: opts.abiSource,
+    target: { isContract: hasCode, verification, proxy: opts.proxy ?? null },
     simulation,
     gas,
-    risks,
+    risks: risk.flags,
+    elevated: risk.elevated,
+    confirmPhrase: risk.confirmPhrase,
     gasless,
     preparedAt,
+    executable: false as const,
   });
 }
 
@@ -427,15 +460,30 @@ const used = new WeakSet<WriteApproval>();
  */
 export function approveWrite(
   prepared: PreparedWrite,
-  choice: { path: WritePath; acknowledged: readonly RiskCode[] },
+  choice: { path: WritePath; acknowledged: readonly RiskCode[]; confirmation?: string },
   env: ApprovalEnv = browserEnv,
 ): WriteApproval {
   if (!env.hasUserActivation()) throw new Error("A write can only be approved from a user gesture in the approval dialog.");
+  if ((prepared as { executable?: unknown }).executable !== false) throw new Error("This is not a prepared write the kit produced.");
   const missing = prepared.risks.filter((r) => r.severity === "high" && !choice.acknowledged.includes(r.code)).map((r) => r.code);
   if (missing.length) throw new Error(`Acknowledge these risks before approving: ${missing.join(", ")}`);
+  if (prepared.elevated && (choice.confirmation ?? "").trim() !== (prepared.confirmPhrase ?? "")) {
+    throw new Error(`This call is flagged: type "${prepared.confirmPhrase}" to confirm.`);
+  }
   const a: WriteApproval = Object.freeze({ preparedId: prepared.id, path: choice.path, acknowledged: Object.freeze([...choice.acknowledged]), approvedAt: Date.now() });
   issued.add(a);
   return a;
+}
+
+function mentionsRevert(err: unknown): boolean {
+  let e: unknown = err;
+  for (let depth = 0; e && typeof e === "object" && depth < 8; depth++) {
+    const o = e as { shortMessage?: unknown; message?: unknown; details?: unknown; cause?: unknown };
+    const m = [o.shortMessage, o.message, o.details].filter((x) => typeof x === "string").join(" ");
+    if (/revert|out of gas|invalid opcode/i.test(m)) return true;
+    e = o.cause;
+  }
+  return false;
 }
 
 /** Send a PreparedWrite. Requires an approval from approveWrite for this exact preparation; each approval works once. */

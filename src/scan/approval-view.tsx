@@ -1,34 +1,52 @@
 "use client";
 /**
- * The approval dialog's view (EXP-AGENT). Presentational only: every fact it
- * shows comes from a PreparedWrite the server just prepared from the user's
- * wallet (POST /api/agent/prepare), never from model text. State and the rules
- * for when Approve is allowed live in src/lib/agent/approval.ts; the container
+ * The ONE approval dialog's view, for every explorer write: the contract page's
+ * Write tab, the chat "Prepared transaction" card and MCP approval links.
+ * Presentational only. Every fact comes from a kit PreparedWrite prepared in the
+ * browser from the user's connected wallet (src/lib/contract/request.ts), never
+ * from model text. The rules for when Approve is allowed live in
+ * src/lib/agent/approval.ts over kit approveWrite / executeWrite; the container
  * with the wallet hooks is src/scan/approval.tsx.
  *
- * Shows: target (verified or not, proxy), decoded method and args, value in
- * SALT, simulation outcome, gas estimate, risk flags, and the network (Citrate,
- * chain 40204). Elevated flags require typing the confirmation phrase.
+ * Shows: the network (Citrate, chain 40204), the target (verified or not, proxy),
+ * the decoded method and args, the value in SALT, the simulation outcome or
+ * revert reason, the gas estimate, calldata, and the risk flags. Every high risk
+ * has an "I understand" box (kit rule) and an elevated write also needs the
+ * function name typed (agent rule). Built from the kit's components and `.cx`
+ * classes (src/scan/contract/).
  */
 import type { ReactNode } from "react";
 import type { ApprovalState, ExecutionPath } from "@/lib/agent/approval";
 import type { WriteExplanation } from "@/lib/agent/explain";
 import { unwrapUntrusted } from "@/lib/agent/untrusted";
-import type { DecodedValue, PreparedWrite } from "@/lib/contracts/types";
+import type { RiskCode } from "@/lib/contract/kit";
+import { PreparedSummary, SevTag } from "./contract/PreparedSummary";
+
+/** Facts about the target that the kit's resolution knows and the PreparedWrite does not carry. */
+export interface TargetFacts {
+  label: string | null;
+  contractName: string | null;
+  /** True when the call is encoded with a proxy's implementation ABI. */
+  viaImplementation: boolean;
+}
 
 export interface ApprovalViewProps {
   state: ApprovalState | null;
+  target: TargetFacts | null;
   explanation: WriteExplanation | null;
   connected: string | null;
   blockers: string[];
   loading: boolean;
   error: string | null;
   busy: boolean;
+  /** The call can be edited here (agent requests); the contract page edits in its own form. */
+  editable: boolean;
   editing: boolean;
   editArgs: string[];
   editValue: string;
   relayAvailable: boolean;
   onTyped(v: string): void;
+  onAck(code: RiskCode, on: boolean): void;
   onPath(p: ExecutionPath): void;
   onApprove(): void;
   onReject(): void;
@@ -42,147 +60,109 @@ export interface ApprovalViewProps {
   onOpenTx?(hash: string): void;
 }
 
-const text = (v: unknown): string => {
-  if (typeof v === "string") return unwrapUntrusted(v);
-  try {
-    return JSON.stringify(v);
-  } catch {
-    return String(v);
-  }
-};
+const text = (v: unknown): string => (typeof v === "string" ? unwrapUntrusted(v) : String(v ?? ""));
 
-function VerificationBadge({ p }: { p: PreparedWrite }) {
-  const t = p.target;
-  if (!t.isContract) return <span className="badge red">No contract code</span>;
-  if (t.abiSource === "implementation") {
-    return t.verification === "verified" ? <span className="badge green">Proxy · implementation verified</span> : <span className="badge amber">Proxy · implementation not verified</span>;
+function VerificationBadge({ s, t }: { s: ApprovalState; t: TargetFacts | null }) {
+  const p = s.prepared;
+  if (!p.target.isContract) return <span className="cx-tag bad">No contract code</span>;
+  const v = p.target.verification;
+  if (t?.viaImplementation) {
+    return v === "verified" ? <span className="cx-tag ok">Proxy · implementation verified</span> : <span className="cx-tag warn">Proxy · implementation not verified</span>;
   }
-  if (t.verification === "verified") return <span className="badge green">Verified</span>;
-  if (t.verification === "partial-match") return <span className="badge amber">Partial match · not verified</span>;
-  if (t.verification === "unavailable") return <span className="badge amber">Verification unknown</span>;
-  return <span className="badge red">Unverified</span>;
+  if (p.abiSource === "signature") return <span className="cx-tag warn">Encoded from a supplied signature</span>;
+  if (v === "verified") return <span className="cx-tag ok">Verified</span>;
+  if (v === "partial-match" || v === "similar-match") return <span className="cx-tag warn">{v === "partial-match" ? "Partial match" : "Similar match"} · not verified</span>;
+  if (v === "unavailable") return <span className="cx-tag warn">Verification unknown</span>;
+  return <span className="cx-tag bad">Unverified</span>;
 }
 
 function Row({ k, children }: { k: string; children: ReactNode }) {
   return (
-    <div className="apv-row">
-      <div className="apv-k">{k}</div>
-      <div className="apv-v">{children}</div>
+    <div className="cx-kv-r">
+      <dt>{k}</dt>
+      <dd>{children}</dd>
     </div>
   );
 }
 
-function ArgsTable({ args }: { args: DecodedValue[] }) {
-  if (args.length === 0) return <span className="apv-muted">no arguments</span>;
-  return (
-    <table className="apv-args">
-      <tbody>
-        {args.map((a, i) => (
-          <tr key={i}>
-            <td className="mono">{a.name || `arg${i}`}</td>
-            <td className="mono apv-muted">{a.type}</td>
-            <td className="mono apv-break">{text(a.value)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
 export function ApprovalView(props: ApprovalViewProps) {
-  const { state, explanation, connected, blockers, loading, error, busy } = props;
+  const { state, target, explanation, connected, blockers, loading, error, busy } = props;
   const p = state?.prepared ?? null;
   const done = state && (state.phase === "submitted" || state.phase === "executed" || state.phase === "failed" || state.phase === "rejected");
 
   return (
-    <div className="apv" role="dialog" aria-modal="true" aria-labelledby="apv-title">
-      <div className="apv-h">
+    <div className="cx-approval-body" role="dialog" aria-modal="true" aria-labelledby="apv-title">
+      <div className="cx-row" style={{ justifyContent: "space-between" }}>
         <h3 id="apv-title">Review transaction</h3>
-        <span className="badge info" title="Citrate network">Citrate · chain 40204</span>
+        <span className="cx-tag info" title="Citrate network">Citrate · chain 40204</span>
       </div>
-      <p className="apv-lead">
-        Nothing has been sent. CitrateScan prepared this call and simulated it; you decide. Approving opens your wallet to sign.
+      <p className="muted small" style={{ margin: 0 }}>
+        Nothing has been sent. This call was prepared and simulated from your wallet; you decide. Approving opens your wallet to sign.
       </p>
 
-      {loading && <div className="note">Simulating from your wallet…</div>}
-      {error && <div className="note apv-danger" role="alert">{error}</div>}
+      {loading && <div className="cx-result">Simulating from your wallet…</div>}
+      {error && <div className="cx-result bad" role="alert">{error}</div>}
 
-      {p && (
+      {p && state && (
         <>
-          <section className="apv-sec" aria-label="Target">
-            <Row k="Network">Citrate (chain {p.chainId})</Row>
-            <Row k="Target">
-              <span className="mono apv-break">{p.target.address}</span>
-              {p.target.label && <span className="apv-muted"> · {text(p.target.label)}</span>}
-              <div className="apv-badges">
-                <VerificationBadge p={p} />
-                {p.target.contractName && <span className="apv-muted mono">{text(p.target.contractName)}</span>}
+          <dl className="cx-kv tight" aria-label="Target">
+            <Row k="network">Citrate (chain {p.chainId})</Row>
+            <Row k="target">
+              <span className="mono brk">{p.to}</span>
+              {target?.label && <span className="muted"> · {text(target.label)}</span>}
+              <div className="cx-row" style={{ marginTop: 6 }}>
+                <VerificationBadge s={state} t={target} />
+                {target?.contractName && <span className="muted mono">{text(target.contractName)}</span>}
               </div>
-              {p.target.proxy.isProxy && (
-                <div className="apv-muted apv-small">
-                  {p.target.proxy.kind} proxy → implementation <span className="mono">{p.target.proxy.implementation ?? "unreadable"}</span>
+              {p.target.proxy && (
+                <div className="muted small">
+                  {p.target.proxy.kind} proxy → implementation <span className="mono">{p.target.proxy.implementation}</span>
                 </div>
               )}
             </Row>
-            <Row k="Method">
-              <span className="mono">{p.call.signature}</span> <span className="apv-muted mono">{p.call.selector}</span>
-            </Row>
-            <Row k="Arguments">
-              {props.editing ? (
-                <div className="apv-edit">
-                  {p.call.args.map((a, i) => (
-                    <label key={i}>
-                      <span className="mono apv-small">
-                        {a.name || `arg${i}`} ({a.type})
-                      </span>
-                      <input className="mono" value={props.editArgs[i] ?? ""} onChange={(e) => props.onEditArg(i, e.target.value)} />
-                    </label>
-                  ))}
-                </div>
-              ) : (
-                <ArgsTable args={p.call.args} />
-              )}
-            </Row>
-            <Row k="Value">
-              {props.editing && p.call.stateMutability === "payable" ? (
-                <input className="mono" aria-label="Value in SALT" value={props.editValue} onChange={(e) => props.onEditValue(e.target.value)} />
-              ) : (
-                <span className="mono">{p.value.salt} SALT</span>
-              )}
-            </Row>
-            <Row k="Simulation">
-              {p.simulation.ok ? (
-                <span className="apv-ok">Succeeds</span>
-              ) : p.simulation.revertReason ? (
-                <span className="apv-danger-text">Reverts: {text(p.simulation.revertReason)}</span>
-              ) : (
-                <span className="apv-warn-text">Could not simulate</span>
-              )}
-              <div className="apv-muted apv-small">
-                from <span className="mono">{p.simulation.from ?? "no sender"}</span> at block {p.simulation.blockNumber ?? "?"}
-              </div>
-            </Row>
-            <Row k="Gas">
-              {p.simulation.gasEstimate ? (
-                <span className="mono">
-                  {p.simulation.gasEstimate} gas{p.simulation.feeSalt ? ` ≈ ${p.simulation.feeSalt} SALT` : ""}
-                </span>
-              ) : (
-                <span className="apv-muted">no estimate</span>
-              )}
-            </Row>
-          </section>
+          </dl>
 
-          <section className="apv-sec" aria-label="Risks">
-            <div className="apv-k">Risk flags</div>
-            {p.risk.flags.length === 0 ? (
-              <div className="apv-muted">No specific risk flags.</div>
+          {props.editing ? (
+            <div className="cx-group" aria-label="Edit the call">
+              {p.args.map((a, i) => (
+                <div className="cx-field" key={i}>
+                  <label htmlFor={`apv-arg-${i}`} className="mono small">{a.name} ({a.type})</label>
+                  <input id={`apv-arg-${i}`} className="mono" value={props.editArgs[i] ?? ""} onChange={(e) => props.onEditArg(i, e.target.value)} />
+                </div>
+              ))}
+              {p.method.stateMutability === "payable" && (
+                <div className="cx-field">
+                  <label htmlFor="apv-value" className="mono small">value (SALT)</label>
+                  <input id="apv-value" className="mono" aria-label="Value in SALT" value={props.editValue} onChange={(e) => props.onEditValue(e.target.value)} />
+                </div>
+              )}
+            </div>
+          ) : (
+            <PreparedSummary p={p} />
+          )}
+
+          <section aria-label="Risks">
+            {p.risks.length === 0 ? (
+              <div className="muted small">No specific risk flags.</div>
             ) : (
-              <ul className="apv-flags">
-                {p.risk.flags.map((f, i) => (
-                  <li key={i} className={`apv-flag ${f.severity}`}>
-                    <span className={`badge ${f.severity === "elevated" ? "red" : f.severity === "warn" ? "amber" : "info"}`}>{f.severity === "elevated" ? "high" : f.severity}</span>
-                    <span>{f.message}</span>
+              <ul className="cx-risks">
+                {p.risks.map((r) => (
+                  <li className="cx-risk" key={r.code}>
+                    <SevTag sev={r.severity} />
+                    {r.severity === "high" && !done ? (
+                      <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                        <input
+                          type="checkbox"
+                          style={{ width: "auto" }}
+                          checked={state.acknowledged.includes(r.code)}
+                          onChange={(e) => props.onAck(r.code, e.target.checked)}
+                          aria-label={`I understand: ${r.code}`}
+                        />
+                        <span>{text(r.message)} I understand.</span>
+                      </label>
+                    ) : (
+                      <span>{text(r.message)}</span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -190,41 +170,34 @@ export function ApprovalView(props: ApprovalViewProps) {
           </section>
 
           {explanation && (
-            <section className="apv-sec" aria-label="What this does">
-              <div className="apv-k">What this does</div>
-              <p className="apv-explain">{explanation.summary}</p>
-              <p className="apv-explain apv-muted">{explanation.cost}</p>
+            <section aria-label="What this does">
+              <p className="small" style={{ margin: 0 }}>{explanation.summary}</p>
+              <p className="muted small" style={{ margin: "4px 0 0" }}>{explanation.cost}</p>
             </section>
           )}
 
           {!done && !props.editing && (
-            <section className="apv-sec" aria-label="How to send">
-              <div className="apv-k">Send with</div>
-              <div className="apv-paths" role="radiogroup">
-                <label className={state?.path === "wallet" ? "on" : ""}>
-                  <input type="radio" name="apv-path" checked={state?.path === "wallet"} onChange={() => props.onPath("wallet")} /> Your wallet (you pay gas)
+            <section aria-label="How to send" style={{ display: "grid", gap: 8 }}>
+              <div role="radiogroup" aria-label="Send with" style={{ display: "grid", gap: 8 }}>
+                <label className="cx-choice">
+                  <input type="radio" name="apv-path" checked={state.path === "wallet"} onChange={() => props.onPath("wallet")} />
+                  <span><strong>Your wallet pays gas</strong> <span className="muted">· {connected ? `from ${connected.slice(0, 8)}…${connected.slice(-6)}` : "connect a wallet first"}</span></span>
                 </label>
-                <label className={state?.path === "relay" ? "on" : ""} title={p.relay.eligible ? "" : (p.relay.reason ?? "")}>
-                  <input
-                    type="radio"
-                    name="apv-path"
-                    disabled={!p.relay.eligible || !props.relayAvailable}
-                    checked={state?.path === "relay"}
-                    onChange={() => props.onPath("relay")}
-                  />{" "}
-                  Gasless relay {p.relay.eligible ? "(you sign, the Foundation pays gas)" : `(unavailable: ${p.relay.reason})`}
+                <label className="cx-choice" aria-disabled={!p.gasless.eligible || !props.relayAvailable}>
+                  <input type="radio" name="apv-path" disabled={!p.gasless.eligible || !props.relayAvailable} checked={state.path === "gasless"} onChange={() => props.onPath("gasless")} />
+                  <span><strong>Gasless</strong> <span className="muted">· {p.gasless.reason}</span></span>
                 </label>
               </div>
-              {p.risk.elevated && (
-                <label className="apv-confirm">
-                  <span>
-                    This call is flagged. Type <strong className="mono">{p.risk.confirmPhrase}</strong> to confirm.
+              {p.elevated && (
+                <label className="cx-field">
+                  <span className="small">
+                    This call is flagged. Type <strong className="mono">{p.confirmPhrase}</strong> to confirm.
                   </span>
-                  <input className="mono" aria-label="Confirmation" value={state?.typed ?? ""} onChange={(e) => props.onTyped(e.target.value)} autoComplete="off" spellCheck={false} />
+                  <input className="mono" aria-label="Confirmation" value={state.typed} onChange={(e) => props.onTyped(e.target.value)} autoComplete="off" spellCheck={false} />
                 </label>
               )}
               {blockers.length > 0 && (
-                <ul className="apv-blockers" aria-label="Before you can approve">
+                <ul className="cx-blockers small" aria-label="Before you can approve">
                   {blockers.map((b, i) => (
                     <li key={i}>{b}</li>
                   ))}
@@ -233,50 +206,52 @@ export function ApprovalView(props: ApprovalViewProps) {
             </section>
           )}
 
-          {state && state.txHash && (
-            <section className="apv-sec" aria-label="Result">
-              <Row k="Transaction">
-                <a className="mono apv-break" onClick={() => props.onOpenTx?.(state.txHash!)}>
+          {state.txHash && (
+            <dl className="cx-kv tight" aria-label="Result">
+              <Row k="transaction">
+                <button type="button" className="cx-link mono brk" onClick={() => props.onOpenTx?.(state.txHash!)}>
                   {state.txHash}
-                </a>
+                </button>
               </Row>
-              <Row k="Status">{state.phase === "executed" ? "Executed" : state.phase === "failed" ? `Failed${state.error ? `: ${state.error}` : ""}` : "Submitted, waiting for the receipt…"}</Row>
-            </section>
+              <Row k="status">{state.phase === "executed" ? "Executed" : state.phase === "failed" ? `Failed${state.error ? `: ${state.error}` : ""}` : "Submitted, waiting for the receipt…"}</Row>
+            </dl>
           )}
-          {state && state.phase === "failed" && !state.txHash && <div className="note apv-danger">Not sent: {state.error}</div>}
-          {state && state.phase === "rejected" && <div className="note">Rejected. Nothing was sent.</div>}
+          {state.phase === "failed" && !state.txHash && <div className="cx-result bad">Not sent: {state.error}</div>}
+          {state.phase === "rejected" && <div className="cx-result">Rejected. Nothing was sent.</div>}
         </>
       )}
 
-      <div className="apv-actions">
+      <div className="actions">
         {done || !p ? (
-          <button className="btn" onClick={props.onClose}>
+          <button type="button" className="cx-btn" onClick={props.onClose}>
             Close
           </button>
         ) : props.editing ? (
           <>
-            <button className="btn" onClick={props.onCancelEdit} disabled={busy}>
+            <button type="button" className="cx-btn ghost" onClick={props.onCancelEdit} disabled={busy}>
               Cancel edit
             </button>
-            <button className="btn primary" onClick={props.onResimulate} disabled={busy}>
+            <button type="button" className="cx-btn primary" onClick={props.onResimulate} disabled={busy}>
               Re-simulate
             </button>
           </>
         ) : (
           <>
-            <button className="btn" onClick={props.onReject} disabled={busy}>
+            <button type="button" className="cx-btn ghost" onClick={props.onReject} disabled={busy}>
               Reject
             </button>
-            <button className="btn" onClick={props.onEdit} disabled={busy}>
-              Edit
-            </button>
+            {props.editable && (
+              <button type="button" className="cx-btn" onClick={props.onEdit} disabled={busy}>
+                Edit
+              </button>
+            )}
             {!connected ? (
-              <button className="btn primary" onClick={props.onConnect}>
+              <button type="button" className="cx-btn primary" onClick={props.onConnect}>
                 Connect wallet
               </button>
             ) : (
-              <button className="btn primary" onClick={props.onApprove} disabled={busy || blockers.length > 0}>
-                {busy ? "Waiting for your wallet…" : "Approve and sign"}
+              <button type="button" className="cx-btn primary" onClick={props.onApprove} disabled={busy || blockers.length > 0}>
+                {busy ? "Waiting for your wallet…" : state?.path === "gasless" ? "Approve and sign request" : "Approve and sign"}
               </button>
             )}
           </>

@@ -13,22 +13,20 @@ import { clientIp } from "@/lib/api/keys";
 import { createThread, createThreadWithId, ownsThread, appendMessage } from "@/lib/db/conversations";
 import { checkSameOrigin } from "@/lib/security/sameOrigin";
 import { writeGate, GATED_WRITE_TOOLS } from "@/lib/agent/writeIntent";
-import { CITRATE_WRITE_CHAIN_ID, type AgentContext } from "@/lib/contracts/types";
+import { CITRATE_WRITE_CHAIN_ID } from "@/lib/contracts/types";
+import { AGENT_CONTEXT_ID_RE, AGENT_CONTEXT_KINDS, type AgentContext, type AgentContextKind } from "@/explorer/agentContext";
 import { z } from "zod";
 
 /**
- * The page the user is on (EXP-REDESIGN's persistent "Ask" slot sends it).
+ * The page the user is on: the direction-B shell's AgentContext
+ * (src/explorer/agentContext.ts), sent by the Ask panel as `pageContext`.
  * Client input: validated, and only ever used to (a) tell the model what the
  * user is looking at and (b) name an address the write gate accepts as a target.
  */
 const contextSchema = z
   .object({
-    kind: z.enum(["home", "block", "tx", "address", "contract", "token", "agent", "dag", "verify", "other"]),
-    id: z
-      .string()
-      .max(80)
-      .regex(/^[0-9A-Za-z:_-]*$/)
-      .optional(),
+    kind: z.enum(AGENT_CONTEXT_KINDS as [AgentContextKind, ...AgentContextKind[]]),
+    id: z.string().regex(AGENT_CONTEXT_ID_RE).nullish(),
     network: z.object({ chainId: z.number().int(), name: z.string().max(40).optional() }),
   })
   .nullish();
@@ -80,10 +78,10 @@ export async function POST(req: Request) {
     );
   }
 
-  const body: { messages: UIMessage[]; threadId?: string; context?: unknown } = await req.json();
+  const body: { messages: UIMessage[]; threadId?: string; pageContext?: unknown } = await req.json();
   const { messages } = body;
-  const ctxParsed = contextSchema.safeParse(body.context);
-  const context: AgentContext | null = ctxParsed.success ? (ctxParsed.data ?? null) : null;
+  const ctxParsed = contextSchema.safeParse(body.pageContext);
+  const context: AgentContext | null = ctxParsed.success && ctxParsed.data ? { ...ctxParsed.data, id: ctxParsed.data.id ?? null } : null;
 
   let provider;
   try {

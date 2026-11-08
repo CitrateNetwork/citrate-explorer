@@ -215,6 +215,13 @@ button.cx-op:hover { background: var(--cx-paper-2); }
 .cx-choice[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
 .cx-choice input { width: auto; margin-top: 2px; }
 
+/* the one approval dialog (src/scan/approval.tsx) carries the kit tokens wherever it opens */
+.cx.cx-approval { padding: 0; margin: 0; max-width: none; }
+.cx.cx-approval.inline { max-width: 680px; margin: 24px auto; padding: 0 16px; }
+.cx.cx-approval.inline .cx-modal { width: 100%; max-height: none; }
+.cx-approval-body { display: grid; gap: 12px; min-width: 0; }
+.cx-blockers { margin: 0; padding-left: 18px; color: var(--cx-yellow-text); }
+
 /* ---------- tables ---------- */
 .cx-tbl-wrap { overflow-x: auto; }
 .cx-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }

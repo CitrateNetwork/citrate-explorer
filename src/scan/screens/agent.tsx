@@ -16,7 +16,6 @@ import { EntityChip } from "@/scan/components";
 import { useScan } from "@/scan/context";
 import { useAuth } from "@/lib/auth/client";
 import { parseRichBlocks } from "@/lib/markdown/richBlocks";
-import { agentContextFromRoute } from "@/lib/agent/context";
 import { parseWriteEvent } from "@/lib/agent/writeLog";
 import { PreparedWriteCard } from "@/scan/approval";
 
@@ -198,17 +197,11 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef, pa
   const convIdRef = useRef(conversationId);
   useEffect(() => { convIdRef.current = conversationId; }, [conversationId]);
 
-  // The page the user is on travels with every request (AgentContext), read live
-  // from a ref like the token. EXP-REDESIGN's Ask slot can set it directly via
-  // agentRef.current.setAgentContext; until then it follows the route.
-  const ctxRef = useRef(agentContextFromRoute(scan && scan.route));
-  useEffect(() => { ctxRef.current = agentContextFromRoute(scan && scan.route); }, [scan && scan.route]);
-
   const transport = useMemo(
     () => new DefaultChatTransport({
       api: "/api/chat",
       headers: () => (tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : {}),
-      body: () => ({ threadId: convIdRef.current, pageContext: pageContextRef.current, context: ctxRef.current }),
+      body: () => ({ threadId: convIdRef.current, pageContext: pageContextRef.current }),
     }),
     [],
   );
@@ -269,7 +262,7 @@ export function AgentPanel({ open, setOpen, defaultOpen, verbosity, agentRef, pa
     if (!agentRef) return;
     agentRef.current.ask = ask;
     agentRef.current.setContext = (label) => setContext(label);
-    agentRef.current.setAgentContext = (ctx) => { if (ctx && ctx.kind && ctx.network) ctxRef.current = ctx; };
+    agentRef.current.setAgentContext = (ctx) => { if (ctx && ctx.kind && ctx.network) pageContextRef.current = ctx; };
   }, [agentRef, ask]);
 
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, status]);

@@ -49,6 +49,7 @@ const ABI_LABEL: Record<AbiSource, string> = {
   "similar-match": "the similar-match ABI",
   "proxy-implementation": "the implementation's ABI",
   "signature-subset": "the guessed ABI",
+  signature: "a supplied signature",
   none: "no ABI",
 };
 
@@ -223,7 +224,17 @@ function ContractView({ addr }: { addr: string }) {
         {tab === "selectors" && res.guess && <SelectorsPane guess={res.guess} />}
         {tab === "read" && <ReadPane address={addr} abi={abi} reader={reader} unverified={guessed} />}
         {tab === "write" && (
-          <WritePane address={addr} abi={abi} abiSource={abiSource} abiVerified={abiVerified} viaProxy={useImpl} reader={reader} onOpenTx={(h) => scan.nav(`tx/${h}`)} />
+          <WritePane
+            address={addr}
+            abi={abi}
+            abiSource={abiSource}
+            abiVerified={abiVerified}
+            viaProxy={useImpl}
+            verification={useImpl ? (implInfo?.status ?? "unverified") : own.status}
+            proxy={useImpl ? proxy : null}
+            reader={reader}
+            onOpenTx={(h) => scan.nav(`tx/${h}`)}
+          />
         )}
         {tab === "events" && <EventsPane address={addr} abi={abi.length ? abi : null} reader={reader} nav={scan.nav} abiLabel={ABI_LABEL[abiSource]} />}
         {tab === "decompiled" && res.codeHash && <DecompiledPane chainId={reader.chainId} address={addr} codeHash={res.codeHash} />}

@@ -13,7 +13,9 @@
  * browser bundle. The server half that writes is writeLogServer.ts.
  */
 import { z } from "zod";
+import { formatEther } from "viem";
 import type { PreparedWrite } from "@/lib/contracts/types";
+import type { PreparedWrite as KitPreparedWrite } from "@/lib/contract/kit";
 
 export const WRITE_EVENT_TAG = "[citrate-write-event]";
 
@@ -30,7 +32,8 @@ export const writeEventSchema = z.object({
   valueSalt: z.string().max(80),
   riskCodes: z.array(z.string().max(40)).max(20),
   origin: z.enum(["chat", "mcp", "ui"]),
-  path: z.enum(["wallet", "relay"]).optional(),
+  /** "relay" is the older name for the gasless path; both are accepted when reading history. */
+  path: z.enum(["wallet", "gasless", "relay"]).optional(),
   txHash: z
     .string()
     .regex(/^0x[0-9a-fA-F]{64}$/)
@@ -43,7 +46,7 @@ export type WriteEvent = z.infer<typeof writeEventSchema>;
 export function writeEventFrom(
   kind: WriteEventKind,
   p: PreparedWrite,
-  extra: { path?: "wallet" | "relay"; txHash?: string; outcome?: string; at?: string } = {},
+  extra: { path?: "wallet" | "gasless" | "relay"; txHash?: string; outcome?: string; at?: string } = {},
 ): WriteEvent {
   return {
     kind,
@@ -55,6 +58,30 @@ export function writeEventFrom(
     valueSalt: p.value.salt,
     riskCodes: p.risk.flags.map((f) => f.code),
     origin: p.origin,
+    ...(extra.path ? { path: extra.path } : {}),
+    ...(extra.txHash ? { txHash: extra.txHash } : {}),
+    ...(extra.outcome ? { outcome: extra.outcome.slice(0, 300) } : {}),
+    at: extra.at ?? new Date().toISOString(),
+  };
+}
+
+/** The same event from the kit's PreparedWrite (the approval dialog holds the kit object). */
+export function writeEventFromKit(
+  kind: WriteEventKind,
+  p: KitPreparedWrite,
+  origin: WriteEvent["origin"],
+  extra: { path?: "wallet" | "gasless"; txHash?: string; outcome?: string; at?: string } = {},
+): WriteEvent {
+  return {
+    kind,
+    preparedId: p.id,
+    chainId: 40204,
+    target: p.to,
+    function: p.method.name.slice(0, 200),
+    signature: p.method.signature.slice(0, 600),
+    valueSalt: formatEther(p.value),
+    riskCodes: p.risks.map((f) => f.code),
+    origin,
     ...(extra.path ? { path: extra.path } : {}),
     ...(extra.txHash ? { txHash: extra.txHash } : {}),
     ...(extra.outcome ? { outcome: extra.outcome.slice(0, 300) } : {}),

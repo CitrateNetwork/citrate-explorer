@@ -23,12 +23,24 @@ export type AgentContextKind =
   | "developer"
   | "settings";
 
+/**
+ * The page the reader is on. One definition for the shell, the agent panel and
+ * the chat route (which re-validates it: it is untrusted client input).
+ */
 export interface AgentContext {
   kind: AgentContextKind;
   /** The entity on screen: block height or hash, tx hash, address, agent id. */
   id: string | null;
-  network: typeof CITRATE_NETWORK;
+  network: { chainId: number; name?: string };
 }
+
+/** All kinds, for the server's validation of a client-sent context. */
+export const AGENT_CONTEXT_KINDS: readonly AgentContextKind[] = [
+  "network", "dag", "block", "tx", "address", "contract", "token", "verify", "agents", "agent", "developer", "settings",
+];
+
+/** Ids a route may carry into the context: heights, hashes, addresses, token/agent ids. Anything else is dropped. */
+export const AGENT_CONTEXT_ID_RE = /^[0-9A-Za-z:_-]{1,80}$/;
 
 const ROUTE_KIND: Record<string, AgentContextKind> = {
   home: "network",
@@ -49,7 +61,8 @@ const ROUTE_KIND: Record<string, AgentContextKind> = {
 export function agentContextFromRoute(route: { name: string; id?: string | null }): AgentContext {
   const kind = ROUTE_KIND[route.name] ?? "network";
   const keepsId = kind !== "network" && kind !== "developer" && kind !== "settings";
-  return { kind, id: keepsId && route.id ? route.id : null, network: CITRATE_NETWORK };
+  const id = keepsId && route.id && AGENT_CONTEXT_ID_RE.test(route.id) ? route.id : null;
+  return { kind, id, network: CITRATE_NETWORK };
 }
 
 const NOUN: Record<AgentContextKind, string> = {

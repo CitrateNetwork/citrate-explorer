@@ -353,7 +353,7 @@ export function contractTools(opts: ContractToolOptions, audited: Audited) {
 // ---------------------------------------------------------------------------
 
 const decodedValueSchema = z.object({ name: z.string(), type: z.string(), value: z.unknown() });
-const riskFlagSchema = z.object({ code: z.string(), severity: z.enum(["info", "warn", "elevated"]), message: z.string() });
+const riskFlagSchema = z.object({ code: z.string(), severity: z.enum(["info", "warn", "high"]), message: z.string() });
 const proxySchema = z.object({
   isProxy: z.boolean(),
   kind: z.string().nullable(),
@@ -364,6 +364,7 @@ const proxySchema = z.object({
 });
 export const preparedWriteSchema = z.object({
   id: hashSchema,
+  requestId: hashSchema,
   chainId: z.literal(40204),
   network: z.literal("citrate"),
   from: addressSchema.nullable(),
@@ -371,7 +372,7 @@ export const preparedWriteSchema = z.object({
     address: addressSchema,
     label: z.string().nullable(),
     isContract: z.boolean(),
-    verification: z.enum(["verified", "partial-match", "unverified", "unavailable"]),
+    verification: z.enum(["verified", "partial-match", "similar-match", "unverified", "unavailable"]),
     contractName: z.string().nullable(),
     abiSource: z.enum(["verified", "partial-match", "implementation", "signature", "none"]),
     proxy: proxySchema,

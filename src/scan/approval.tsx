@@ -1,21 +1,28 @@
 "use client";
 /**
- * Approval UX for agent-prepared contract writes (EXP-AGENT).
+ * The one approval dialog for every explorer write.
  *
+ *   ApprovalDialog    — modal (or inline page). Prepares the call in the browser
+ *                       through the contract kit from the CONNECTED wallet, shows
+ *                       the facts, enforces the approval rules, then (and only
+ *                       then) asks the wallet to sign. Used by the contract page's
+ *                       Write tab, the chat card and MCP approval links.
  *   PreparedWriteCard — the card a `prepare_write` tool result renders in chat.
- *   ApprovalDialog    — modal: re-prepares from the connected wallet, shows the
- *                       facts, enforces the approval rules, then (and only then)
- *                       asks the wallet to sign; logs each step to history.
  *   ApproveScreen     — `#/approve/<payload>`: the page an MCP approval link opens.
  *
  * Nothing here signs without a click on Approve: the only call that reaches the
- * wallet is `execute()` in src/lib/agent/approval.ts, which refuses any state
- * that was not approved for exactly the PreparedWrite on screen.
+ * wallet is `execute()` in src/lib/agent/approval.ts → kit executeWrite, which
+ * refuses anything but a fresh, single-use kit approval (made by approveWrite in
+ * the Approve click handler) for exactly the PreparedWrite on screen.
+ *
+ * Data sources (Rule 7): the Citrate RPC (kit createRpcReader), the verification
+ * store (GET /api/contract/{a}/source via createApiSourceV1), the user's wallet
+ * (wagmi), POST /api/relay for gasless sends, and POST /api/agent/write-events for
+ * the thread history.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAccount, useConnect, useSendTransaction, useSwitchChain } from "wagmi";
-import { injected } from "wagmi/connectors";
-import { createPublicClient, http } from "viem";
+import { useConnect, useConnection, useConnectors, useSendTransaction, useSwitchChain } from "wagmi";
+import { createPublicClient, http, formatEther, type Address, type Hex } from "viem";
 import { citrate } from "@/lib/citrate/chain";
 import { useAuth } from "@/lib/auth/client";
 import { useSponsoredWrite } from "@/lib/citrate/use-sponsored-write";
@@ -27,6 +34,7 @@ import {
   initialApproval,
   reject,
   replacePrepared,
+  setAcknowledged,
   setPath,
   setTyped,
   settle,
@@ -37,11 +45,20 @@ import {
 import { parseApprovalPayload, type ApprovalRequest } from "@/lib/agent/deepLink";
 import type { WriteExplanation } from "@/lib/agent/explain";
 import { unwrapUntrusted } from "@/lib/agent/untrusted";
-import { writeEventFrom, type WriteEventKind } from "@/lib/agent/writeLog";
-import { CITRATE_WRITE_CHAIN_ID, type Address, type Hex, type PreparedWrite } from "@/lib/contracts/types";
-import { ApprovalView } from "./approval-view";
+import { approvalFacts } from "@/lib/agent/wire";
+import { writeEventFromKit, type WriteEventKind } from "@/lib/agent/writeLog";
+import type { PreparedWrite as WirePreparedWrite } from "@/lib/contracts/types";
+import { createApiSourceV1 } from "@/lib/contract/infoSources";
+import type { PreparedWrite } from "@/lib/contract/kit";
+import { prepareFromRequest } from "@/lib/contract/request";
+import { createRpcReader } from "@/lib/contract/rpcReader";
+import { ApprovalView, type TargetFacts } from "./approval-view";
+import "@/scan/contract/contract.css";
 
 export type WriteRequest = Omit<ApprovalRequest, "v">;
+
+/** How the dialog gets its PreparedWrite: always the kit, from the connected wallet. */
+export type Preparer = (from: Address | null) => Promise<{ prepared: PreparedWrite; target: TargetFacts; explanation: WriteExplanation | null }>;
 
 function useAuthHeaders() {
   const auth = useAuth();
@@ -59,30 +76,59 @@ function useAuthHeaders() {
 
 function editableValue(v: unknown): string {
   if (typeof v === "string") return unwrapUntrusted(v);
-  return JSON.stringify(v);
+  if (typeof v === "bigint") return v.toString();
+  return JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x));
+}
+
+/** A Preparer for a request (chat card, MCP link): kit prepareFromRequest over the browser reader. */
+export function requestPreparer(req: WriteRequest): Preparer {
+  const reader = createRpcReader();
+  const info = createApiSourceV1();
+  return async (from) => {
+    const out = await prepareFromRequest({
+      reader,
+      info,
+      request: { address: req.address, function: req.function, args: req.args, value: req.value },
+      from,
+      forwarder: (PROJECT_ADDRESSES.forwarder as Address | undefined) ?? null,
+    });
+    return { prepared: out.prepared, ...approvalFacts(out, req.origin) };
+  };
 }
 
 export function ApprovalDialog({
+  preparer,
   request,
+  origin = "ui",
   threadId,
   onClose,
   onOpenTx,
+  onSent,
   inline = false,
 }: {
-  request: WriteRequest;
+  /** The contract page passes its own kit preparation; a request (chat/MCP) uses requestPreparer. */
+  preparer?: Preparer;
+  /** An agent/MCP request. Makes the call editable here. */
+  request?: WriteRequest;
+  origin?: WirePreparedWrite["origin"];
   threadId?: string | null;
   onClose: () => void;
   onOpenTx?: (hash: string) => void;
+  onSent?: (hash: Hex, path: ExecutionPath) => void;
   inline?: boolean;
 }) {
-  const { address, chainId } = useAccount();
-  const { connect } = useConnect();
-  const { mutateAsync: sendTransactionAsync } = useSendTransaction();
-  const { mutateAsync: switchChainAsync } = useSwitchChain();
-  const { sponsor } = useSponsoredWrite();
+  const { address, chainId } = useConnection();
+  const connectors = useConnectors();
+  const connect = useConnect();
+  const send = useSendTransaction();
+  const switchChain = useSwitchChain();
+  const sponsored = useSponsoredWrite();
   const headers = useAuthHeaders();
 
+  const [current, setCurrent] = useState<WriteRequest | null>(request ?? null);
+  const prep = useMemo<Preparer | null>(() => preparer ?? (current ? requestPreparer(current) : null), [preparer, current]);
   const [state, setState] = useState<ApprovalState | null>(null);
+  const [target, setTarget] = useState<TargetFacts | null>(null);
   const [explanation, setExplanation] = useState<WriteExplanation | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -91,8 +137,7 @@ export function ApprovalDialog({
   const [editArgs, setEditArgs] = useState<string[]>([]);
   const [editValue, setEditValue] = useState("0");
   const [historyThread, setHistoryThread] = useState<string | null>(threadId ?? null);
-  const [current, setCurrent] = useState<WriteRequest>(request);
-  const opened = useRef(false);
+  const evOrigin = request ? (request.origin ?? origin) : origin;
 
   const log = useCallback(
     async (kind: WriteEventKind, p: PreparedWrite, extra: { path?: ExecutionPath; txHash?: string; outcome?: string } = {}) => {
@@ -100,7 +145,7 @@ export function ApprovalDialog({
         const r = await fetch("/api/agent/write-events", {
           method: "POST",
           headers: { "content-type": "application/json", ...headers() },
-          body: JSON.stringify({ threadId: historyThread, event: writeEventFrom(kind, p, extra) }),
+          body: JSON.stringify({ threadId: historyThread, event: writeEventFromKit(kind, p, evOrigin, extra) }),
         });
         const j = await r.json().catch(() => ({}));
         if (j.threadId) setHistoryThread(j.threadId);
@@ -108,63 +153,64 @@ export function ApprovalDialog({
         /* history is best-effort; it never blocks the dialog */
       }
     },
-    [headers, historyThread],
+    [headers, historyThread, evOrigin],
   );
 
-  const prepare = useCallback(
-    async (req: WriteRequest, reason: "open" | "edited" | "refresh") => {
+  const runPrepare = useCallback(
+    async (p: Preparer, reason: "open" | "edited" | "refresh") => {
       setLoading(true);
       setError(null);
       try {
-        const r = await fetch("/api/agent/prepare", {
-          method: "POST",
-          headers: { "content-type": "application/json", ...headers() },
-          body: JSON.stringify({ v: 1, ...req, from: address ?? null, threadId: historyThread, reason }),
-        });
-        const j = await r.json();
-        if (!r.ok) {
-          setError(j.error ?? `could not prepare (${r.status})`);
-          return;
-        }
-        if (j.threadId) setHistoryThread(j.threadId);
-        setExplanation(j.explanation);
-        setState((prev) => (prev && reason !== "open" ? replacePrepared(prev, j.prepared) : initialApproval(j.prepared)));
-      } catch {
-        setError("could not reach CitrateScan to simulate this call");
+        const out = await p((address as Address | undefined) ?? null);
+        setTarget(out.target);
+        setExplanation(out.explanation);
+        setState((prev) => (prev && reason !== "open" ? replacePrepared(prev, out.prepared) : initialApproval(out.prepared)));
+        if (reason !== "refresh") void log(reason === "edited" ? "edited" : "prepared", out.prepared);
+      } catch (e) {
+        setError((e as Error).message || "could not simulate this call");
       } finally {
         setLoading(false);
       }
     },
-    [address, headers, historyThread],
+    [address, log],
   );
 
   // Prepare on open, and re-simulate whenever the connected wallet changes, so
   // what the user approves was always simulated from their own address.
+  const opened = useRef(false);
   useEffect(() => {
-    void prepare(current, opened.current ? "refresh" : "open");
+    if (!prep) return;
+    void runPrepare(prep, opened.current ? "refresh" : "open");
     opened.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address]);
 
   const connected = (address as Address | undefined) ?? null;
-  const blockers = useMemo(() => (state ? approvalBlockers(state, connected) : []), [state, connected]);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 5_000);
+    return () => clearInterval(t);
+  }, []);
+  const blockers = useMemo(() => (state ? approvalBlockers(state, connected, now) : []), [state, connected, now]);
 
   const signer: Signer = useMemo(
     () => ({
       sendTransaction: async (tx) => {
-        if (chainId !== CITRATE_WRITE_CHAIN_ID) await switchChainAsync({ chainId: CITRATE_WRITE_CHAIN_ID });
-        return (await sendTransactionAsync({ to: tx.to, data: tx.data, value: tx.value, chainId: CITRATE_WRITE_CHAIN_ID })) as Hex;
+        if (chainId !== citrate.id) await switchChain.mutateAsync({ chainId: citrate.id });
+        // The wallet shows its own confirmation; the user signs there.
+        return (await send.mutateAsync({ to: tx.to, data: tx.data, value: tx.value, chainId: citrate.id, gas: tx.gas })) as Hex;
       },
       sponsor: async (tx) => {
-        const gas = state?.prepared.relay.gas ? BigInt(state.prepared.relay.gas) : undefined;
-        const h = await sponsor({ to: tx.to, data: tx.data, value: tx.value, gas });
-        if (!h) throw new Error("the gasless relay did not accept this request");
+        // The wallet asks the user to sign the EIP-712 ForwardRequest; the relayer pays gas.
+        const h = await sponsored.sponsor({ to: tx.to, data: tx.data, value: 0n });
+        if (!h) throw new Error(sponsored.error ?? "The gasless relay did not accept the request.");
         return h as Hex;
       },
     }),
-    [chainId, sendTransactionAsync, switchChainAsync, sponsor, state],
+    [chainId, send, switchChain, sponsored],
   );
 
+  // Runs inside the Approve button's click handler, so kit approveWrite sees the user gesture.
   const onApprove = async () => {
     if (!state) return;
     let s: ApprovalState;
@@ -185,6 +231,7 @@ export function ApprovalDialog({
       return;
     }
     void log("submitted", s.prepared, { path: s.path, txHash: s.txHash });
+    onSent?.(s.txHash, s.path);
     try {
       const client = createPublicClient({ chain: citrate, transport: http() });
       const receipt = await client.waitForTransactionReceipt({ hash: s.txHash, timeout: 120_000 });
@@ -206,23 +253,23 @@ export function ApprovalDialog({
 
   const onEdit = () => {
     if (!state) return;
-    setEditArgs(state.prepared.call.args.map((a) => editableValue(a.value)));
-    setEditValue(state.prepared.value.salt);
+    setEditArgs(state.prepared.args.map((a) => editableValue(a.value)));
+    setEditValue(formatEther(state.prepared.value));
     setEditing(true);
   };
 
   const onResimulate = async () => {
-    if (!state) return;
+    if (!state || !current) return;
     const next: WriteRequest = {
       ...current,
-      address: state.prepared.target.address,
-      function: state.prepared.call.signature,
+      address: state.prepared.to,
+      function: state.prepared.method.signature,
       args: editArgs,
-      value: state.prepared.call.stateMutability === "payable" ? editValue : undefined,
+      value: state.prepared.method.stateMutability === "payable" ? editValue : undefined,
     };
     setBusy(true);
     setCurrent(next);
-    await prepare(next, "edited");
+    await runPrepare(requestPreparer(next), "edited");
     setEditing(false);
     setBusy(false);
   };
@@ -230,17 +277,20 @@ export function ApprovalDialog({
   const view = (
     <ApprovalView
       state={state}
+      target={target}
       explanation={explanation}
       connected={connected}
       blockers={blockers}
       loading={loading}
       error={error}
       busy={busy}
+      editable={!!current && !preparer}
       editing={editing}
       editArgs={editArgs}
       editValue={editValue}
       relayAvailable={Boolean(PROJECT_ADDRESSES.forwarder)}
       onTyped={(v) => state && setState(setTyped(state, v))}
+      onAck={(code, on) => state && setState(setAcknowledged(state, code, on))}
       onPath={(p) => state && setState(setPath(state, p))}
       onApprove={onApprove}
       onReject={onReject}
@@ -249,35 +299,43 @@ export function ApprovalDialog({
       onEditValue={setEditValue}
       onResimulate={onResimulate}
       onCancelEdit={() => setEditing(false)}
-      onConnect={() => connect({ connector: injected() })}
+      onConnect={() => connectors[0] && connect.mutate({ connector: connectors[0] })}
       onClose={onClose}
       onOpenTx={onOpenTx}
     />
   );
-  if (inline) return <div className="apv-page">{view}</div>;
+  if (inline) {
+    return (
+      <div className="cx cx-approval inline">
+        <div className="cx-modal">{view}</div>
+      </div>
+    );
+  }
   return (
-    <div className="modal-scrim" onClick={busy ? undefined : onClose}>
-      <div className="modal apv-modal" onClick={(e) => e.stopPropagation()}>
-        {view}
+    <div className="cx cx-approval">
+      <div className="cx-scrim" role="presentation" onClick={busy ? undefined : onClose}>
+        <div className="cx-modal" onClick={(e) => e.stopPropagation()}>
+          {view}
+        </div>
       </div>
     </div>
   );
 }
 
-/** The chat card for a `prepare_write` result. */
+/** The chat card for a `prepare_write` result (the agent's wire PreparedWrite, executable: false). */
 export function PreparedWriteCard({
   output,
   threadId,
   onOpenTx,
 }: {
-  output: { prepared?: PreparedWrite; request?: WriteRequest; explanation?: WriteExplanation };
+  output: { prepared?: WirePreparedWrite; request?: WriteRequest; explanation?: WriteExplanation };
   threadId?: string | null;
   onOpenTx?: (hash: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const p = output?.prepared;
   if (!p || !output.request) return null;
-  const high = p.risk.flags.filter((f) => f.severity === "elevated").length;
+  const high = p.risk.flags.filter((f) => f.severity === "high").length;
   return (
     <div className="apv-card">
       <div className="apv-card-h">
@@ -304,10 +362,10 @@ export function ApproveScreen({ payload, onDone, onOpenTx }: { payload: string; 
   const parsed = useMemo(() => parseApprovalPayload(payload), [payload]);
   if (!parsed.ok) {
     return (
-      <div className="apv-page">
-        <div className="apv">
+      <div className="cx cx-approval inline">
+        <div className="cx-modal">
           <h3>Review transaction</h3>
-          <div className="note apv-danger">{parsed.error}</div>
+          <div className="cx-result bad">{parsed.error}</div>
         </div>
       </div>
     );

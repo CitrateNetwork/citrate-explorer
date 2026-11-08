@@ -1,20 +1,16 @@
 /**
- * Shared contract-module interfaces (r1007 explorer lanes, 2026-11-07).
+ * The agent's contract interfaces (r1007 explorer lanes, integrated 2026-11-07).
  *
- * Three lanes meet here:
- *   - EXP-CONTRACT owns the contract module: ABI resolution, read
- *     encode/execute/decode, `PreparedWrite` with simulation and risk flags,
- *     proxy detection, and the contract page's own approval-gated write.
- *   - EXP-REDESIGN owns the direction-B shell and the page-context "Ask" slot,
- *     which hands the agent an `AgentContext`.
- *   - EXP-AGENT (this file's author) owns the agent: tools, prompts, MCP tools
- *     and the approval UX, built against these interfaces.
- *
- * Neither of the other lanes had pushed when this was written, so the types are
- * defined here exactly as the lane briefs describe them, and EXP-AGENT ships an
- * implementation (`src/lib/agent/contractModule.ts`) that satisfies
- * `ContractModule`. The integrator swaps in EXP-CONTRACT's implementation by
- * changing one factory (`defaultContractModule()`), not the agent.
+ *   - The contract kit (src/lib/contract/, EXP-CONTRACT) is the one
+ *     implementation: ABI resolution, proxy detection, reads, write preparation
+ *     with simulation and risk flags, and the approval-gated send.
+ *   - The direction-B shell (EXP-REDESIGN) owns the page context the Ask slot
+ *     hands the agent (`AgentContext`, src/explorer/agentContext.ts).
+ *   - The agent (EXP-AGENT) consumes the kit through `ContractModule`
+ *     (src/lib/agent/contractModule.ts is an adapter over the kit, not a second
+ *     implementation). The types below are the JSON-safe shapes its tools return
+ *     to chat and MCP; `PreparedWrite` here is the wire form of the kit's
+ *     PreparedWrite (bigints as decimal strings, `executable: false`).
  *
  * Types only: no runtime code, so importing this file has no side effects.
  */
@@ -26,24 +22,16 @@ export type Hex = `0x${string}`;
 export type Address = `0x${string}`;
 
 // ---------------------------------------------------------------------------
-// Page context (EXP-REDESIGN → agent)
+// Page context (EXP-REDESIGN → agent): one definition, the shell's.
 // ---------------------------------------------------------------------------
 
-export type AgentContextKind = "home" | "block" | "tx" | "address" | "contract" | "token" | "agent" | "dag" | "verify" | "other";
-
-/** What the user is looking at when they ask. Untrusted input from the client. */
-export interface AgentContext {
-  kind: AgentContextKind;
-  /** The entity id on that page: a block height or hash, tx hash, address, token id. */
-  id?: string;
-  network: { chainId: number; name?: string };
-}
+export type { AgentContext, AgentContextKind } from "@/explorer/agentContext";
 
 // ---------------------------------------------------------------------------
 // Identification, ABI, proxies
 // ---------------------------------------------------------------------------
 
-export type VerificationStatus = "verified" | "partial-match" | "unverified" | "unavailable";
+export type VerificationStatus = "verified" | "partial-match" | "similar-match" | "unverified" | "unavailable";
 
 export type ProxyKind = "eip1967" | "eip1967-beacon" | "eip1822" | "eip1167" | null;
 
@@ -170,32 +158,9 @@ export interface DecodedLog {
 // Prepared writes
 // ---------------------------------------------------------------------------
 
-export type RiskSeverity = "info" | "warn" | "elevated";
-
-export type RiskCode =
-  | "token-approval"
-  | "unlimited-approval"
-  | "permit"
-  | "approval-for-all"
-  | "ownership-transfer"
-  | "admin-transfer"
-  | "proxy-upgrade"
-  | "payable-above-threshold"
-  | "value-transfer"
-  | "unverified-target"
-  | "partial-match-target"
-  | "proxy-target"
-  | "eoa-target"
-  | "simulation-reverted"
-  | "simulation-unavailable"
-  | "no-sender";
-
-export interface RiskFlag {
-  code: RiskCode;
-  severity: RiskSeverity;
-  /** One plain sentence the approval dialog shows. */
-  message: string;
-}
+/** The kit's risk vocabulary (src/lib/contract/risk.ts): one set of codes for the page and the agent. */
+export type { RiskCode, RiskFlag, RiskSeverity } from "@/lib/contract/risk";
+import type { RiskFlag } from "@/lib/contract/risk";
 
 export interface Simulation {
   /** True when eth_call succeeded from `from`. */
@@ -222,8 +187,10 @@ export interface RelayEligibility {
 }
 
 export interface PreparedWrite {
-  /** keccak256 of the canonical (chainId, from, to, data, value); stable across re-simulation. */
+  /** The kit preparation's id: unique per preparation; an approval is bound to it and used once. */
   id: Hex;
+  /** keccak256 of the canonical (chainId, from, to, data, value); stable across re-simulation. */
+  requestId: Hex;
   chainId: typeof CITRATE_WRITE_CHAIN_ID;
   network: "citrate";
   from: Address | null;
@@ -248,7 +215,7 @@ export interface PreparedWrite {
   simulation: Simulation;
   risk: {
     flags: RiskFlag[];
-    /** True when any flag is elevated: the dialog then requires a typed confirmation. */
+    /** True when any flag is high: the dialog then requires a typed confirmation. */
     elevated: boolean;
     /** What the user must type to confirm an elevated write. */
     confirmPhrase: string | null;

@@ -58,7 +58,7 @@ export function explainPreparedWrite(p: PreparedWrite): WriteExplanation {
     ? `About ${p.simulation.gasEstimate} gas` + (p.simulation.feeSalt ? `, roughly ${p.simulation.feeSalt} SALT at the current price.` : ".")
     : "Gas could not be estimated.";
 
-  const risks = p.risk.flags.map((f) => `${f.severity === "elevated" ? "High" : f.severity === "warn" ? "Note" : "Info"}: ${f.message}`);
+  const risks = p.risk.flags.map((f) => `${f.severity === "high" ? "High" : f.severity === "warn" ? "Note" : "Info"}: ${f.message}`);
   if (risks.length === 0) risks.push("No specific risk flags for this call.");
 
   const nextStep =

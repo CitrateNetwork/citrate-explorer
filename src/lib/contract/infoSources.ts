@@ -54,7 +54,7 @@ function base(address: string, status: VerificationStatus, note: string, origin:
 const STATUSES: VerificationStatus[] = ["verified", "partial-match", "similar-match", "unverified", "unavailable"];
 
 /** The JSON GET /api/contract/{a}/source returns (src/lib/verify/verifiedSource.ts VerifiedSource). */
-interface V1SourceJson {
+export interface V1SourceJson {
   address?: string;
   status?: string;
   verified?: boolean;
@@ -83,23 +83,48 @@ export function createApiSourceV1(opts: { fetch?: typeof fetch; baseUrl?: string
       } catch {
         return base(a, "unavailable", "The verification lookup could not be reached, so it is unknown whether this contract is verified.", "api-source-v1");
       }
-      const status = STATUSES.includes(j.status as VerificationStatus) ? (j.status as VerificationStatus) : "unavailable";
-      const info = base(a, status, j.note ?? "", "api-source-v1");
-      const name = j.contractName ?? null;
-      const sources: SourceFile[] = j.source ? [{ path: `${name ?? "Contract"}.sol`, content: j.source }] : [];
-      const mt = j.matchType === "full" || j.matchType === "partial" || j.matchType === "similar" ? j.matchType : null;
-      return {
-        ...info,
-        verified: status === "verified" && j.verified === true,
-        matchType: mt,
-        contractName: name,
-        compilerVersion: j.compilerVersion ?? null,
-        abi: parseAbi(j.abi),
-        sources,
-        runtimeMatch: mt === "full" || mt === "partial" ? mt : null,
-        verifiedAt: j.verifiedAt ?? null,
-        note: j.sourceTruncated ? `${info.note} The source was truncated by the lookup.` : info.note,
-      };
+      return contractInfoFromV1(a, j);
+    },
+  };
+}
+
+/** Map one v1 VerifiedSource record (the route's JSON, or the store's object) to ContractInfo. */
+export function contractInfoFromV1(address: string, j: V1SourceJson): ContractInfo {
+  const a = address.toLowerCase();
+  const status = STATUSES.includes(j.status as VerificationStatus) ? (j.status as VerificationStatus) : "unavailable";
+  const info = base(a, status, j.note ?? "", "api-source-v1");
+  const name = j.contractName ?? null;
+  const sources: SourceFile[] = j.source ? [{ path: `${name ?? "Contract"}.sol`, content: j.source }] : [];
+  const mt = j.matchType === "full" || j.matchType === "partial" || j.matchType === "similar" ? j.matchType : null;
+  return {
+    ...info,
+    verified: status === "verified" && j.verified === true,
+    matchType: mt,
+    contractName: name,
+    compilerVersion: j.compilerVersion ?? null,
+    abi: parseAbi(j.abi),
+    sources,
+    runtimeMatch: mt === "full" || mt === "partial" ? mt : null,
+    verifiedAt: j.verifiedAt ?? null,
+    note: j.sourceTruncated ? `${info.note} The source was truncated by the lookup.` : info.note,
+  };
+}
+
+/**
+ * The same v1 record read in-process on the server (the agent, /api/agent/prepare):
+ * `load` is getVerifiedSource from src/lib/verify/verifiedSource.ts. Data source
+ * (Rule 7): the `contract_verifications` table. A failing lookup is "unavailable",
+ * never "unverified".
+ */
+export function createStoreInfoSource(load: (address: string) => Promise<V1SourceJson>): ContractInfoSource {
+  return {
+    origin: "api-source-v1",
+    async load(address) {
+      try {
+        return contractInfoFromV1(address, await load(address));
+      } catch {
+        return base(address, "unavailable", "The verification store could not be read, so it is unknown whether this contract is verified.", "api-source-v1");
+      }
     },
   };
 }

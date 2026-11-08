@@ -4,169 +4,45 @@
  * Write Contract (EXP-S3): ABI-generated forms, SALT value for payable functions,
  * then the contract kit's prepareWrite (calldata, eth_call simulation with the
  * revert reason, gas, risk flags, gasless eligibility). Sending always goes through
- * the approval dialog: approveWrite runs in its click handler, and executeWrite
- * hands the PreparedWrite to the user's wallet (eth_sendTransaction) or to the
- * gasless relay (EIP-712 ForwardRequest signed in the wallet). Nothing auto-signs.
+ * the one approval dialog (src/scan/approval.tsx), shared with the agent: it
+ * re-prepares from the connected wallet, kit approveWrite runs in its Approve
+ * click handler, and kit executeWrite hands the PreparedWrite to the user's wallet
+ * (eth_sendTransaction) or to the gasless relay (EIP-712 ForwardRequest signed in
+ * the wallet). Nothing auto-signs.
  *
  * Data sources (Rule 7): the Citrate RPC (simulation, gas), the user's wallet via
  * wagmi (src/lib/citrate/config.ts), and POST /api/relay for gasless sends.
  */
 import { useMemo, useState } from "react";
-import { formatEther, parseEther, type Abi, type AbiFunction, type Address, type Hex } from "viem";
-import { useConnect, useConnection, useConnectors, useSendTransaction, useSwitchChain } from "wagmi";
+import { parseEther, type Abi, type AbiFunction, type Address, type Hex } from "viem";
+import { useConnect, useConnection, useConnectors } from "wagmi";
 import { emptyValue, parseArgs, type FormValue } from "@/lib/contract/abiForm";
 import { functionSignature } from "@/lib/contract/codec";
-import {
-  approveWrite,
-  executeWrite,
-  prepareWrite,
-  type AbiSource,
-  type PreparedWrite,
-  type RiskCode,
-  type WriteExecutor,
-  type WritePath,
-} from "@/lib/contract/kit";
-import type { ChainReader } from "@/lib/contract/types";
-import { citrate } from "@/lib/citrate/chain";
+import { prepareWrite, type AbiSource, type PreparedWrite, type ProxyInfo, type WritePath } from "@/lib/contract/kit";
+import type { ChainReader, VerificationStatus } from "@/lib/contract/types";
 import { PROJECT_ADDRESSES } from "@/lib/citrate/addresses";
-import { useSponsoredWrite } from "@/lib/citrate/use-sponsored-write";
+import { ApprovalDialog, type Preparer } from "@/scan/approval";
 import { AbiInput } from "./AbiInput";
+import { PreparedSummary } from "./PreparedSummary";
+
+export { PreparedSummary } from "./PreparedSummary";
 
 const short = (a: string) => `${a.slice(0, 8)}…${a.slice(-6)}`;
 
-function sevTag(sev: "info" | "warn" | "high") {
-  return <span className={"cx-tag sev " + (sev === "high" ? "bad" : sev === "warn" ? "warn" : "info")}>{sev}</span>;
-}
-
-export function PreparedSummary({ p }: { p: PreparedWrite }) {
-  return (
-    <dl className="cx-kv tight">
-      <div className="cx-kv-r"><dt>method</dt><dd className="mono">{p.method.signature} <span className="muted">{p.method.selector}</span></dd></div>
-      {p.args.map((a) => (
-        <div className="cx-kv-r" key={a.name}><dt className="mono" style={{ textTransform: "none", letterSpacing: 0 }}>{a.name}</dt><dd className="mono brk">{a.display} <span className="muted">{a.type}</span></dd></div>
-      ))}
-      <div className="cx-kv-r"><dt>to</dt><dd className="mono brk">{p.to}</dd></div>
-      <div className="cx-kv-r"><dt>from</dt><dd className="mono brk">{p.from ?? "no wallet connected"}</dd></div>
-      <div className="cx-kv-r"><dt>value</dt><dd className="mono">{formatEther(p.value)} SALT</dd></div>
-      <div className="cx-kv-r"><dt>gas</dt><dd className="mono">{p.gas.estimate !== null ? p.gas.estimate.toLocaleString() : <span className="muted">{p.gas.error}</span>}</dd></div>
-      <div className="cx-kv-r"><dt>simulation</dt><dd>
-        {p.simulation.status === "ok" && <span className="cx-tag ok">succeeds at latest</span>}
-        {p.simulation.status === "reverted" && <span className="cx-err mono">reverts: {p.simulation.revert?.message ?? p.simulation.error}</span>}
-        {p.simulation.status === "skipped" && <span className="muted">{p.simulation.reason}</span>}
-      </dd></div>
-      <div className="cx-kv-r"><dt>data</dt><dd><pre className="cx-pre">{p.data}</pre></dd></div>
-    </dl>
-  );
-}
-
-function ApprovalDialog({ p, onClose, onSent }: { p: PreparedWrite; onClose: () => void; onSent: (hash: Hex, path: WritePath) => void }) {
-  const { address, chainId } = useConnection();
-  const send = useSendTransaction();
-  const switchChain = useSwitchChain();
-  const sponsored = useSponsoredWrite();
-  const highs = p.risks.filter((r) => r.severity === "high");
-  const [ack, setAck] = useState<Set<RiskCode>>(new Set());
-  const [path, setPath] = useState<WritePath>(p.gasless.eligible ? "gasless" : "wallet");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const walletExecutor: WriteExecutor = {
-    path: "wallet",
-    async send(w) {
-      if (chainId !== citrate.id) await switchChain.mutateAsync({ chainId: citrate.id });
-      // The wallet shows its own confirmation; the user signs there.
-      return send.mutateAsync({ to: w.to, data: w.data, value: w.value, chainId: citrate.id, gas: w.gas.estimate !== null ? (w.gas.estimate * 12n) / 10n : undefined });
-    },
-  };
-  const gaslessExecutor: WriteExecutor = {
-    path: "gasless",
-    async send(w) {
-      // The wallet asks the user to sign the EIP-712 ForwardRequest; the relayer pays gas.
-      const hash = await sponsored.sponsor({ to: w.to, data: w.data, value: 0n });
-      if (!hash) throw new Error(sponsored.error ?? "The gasless relay did not accept the request.");
-      return hash as Hex;
-    },
-  };
-
-  const approve = async () => {
-    setErr(null);
-    let approval;
-    try {
-      // Runs inside this click handler, so the approval is tied to a real user gesture.
-      approval = approveWrite(p, { path, acknowledged: [...ack] });
-    } catch (e) {
-      setErr((e as Error).message);
-      return;
-    }
-    setBusy(true);
-    try {
-      const hash = await executeWrite(p, approval, path === "gasless" ? gaslessExecutor : walletExecutor);
-      onSent(hash, path);
-    } catch (e) {
-      const m = e as { shortMessage?: string; message?: string };
-      setErr(m.shortMessage ?? m.message ?? String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const ready = highs.every((r) => ack.has(r.code)) && !!address && !busy;
-  return (
-    <div className="cx-scrim" role="presentation" onClick={onClose}>
-      <div className="cx-modal" role="dialog" aria-modal="true" aria-labelledby="cx-approve-h" onClick={(e) => e.stopPropagation()}>
-        <h3 id="cx-approve-h">Review this transaction</h3>
-        <p className="muted small" style={{ margin: 0 }}>Nothing is sent until you approve here and then sign in your wallet.</p>
-        <PreparedSummary p={p} />
-        {p.risks.length > 0 && (
-          <ul className="cx-risks">
-            {p.risks.map((r) => (
-              <li className="cx-risk" key={r.code}>
-                {sevTag(r.severity)}
-                {r.severity === "high" ? (
-                  <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                    <input type="checkbox" style={{ width: "auto" }} checked={ack.has(r.code)} onChange={(e) => { const n = new Set(ack); if (e.target.checked) n.add(r.code); else n.delete(r.code); setAck(n); }} />
-                    <span>{r.message} I understand.</span>
-                  </label>
-                ) : (
-                  <span>{r.message}</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-        <div role="radiogroup" aria-label="How to send" style={{ display: "grid", gap: 8 }}>
-          <label className="cx-choice" aria-disabled={!p.gasless.eligible}>
-            <input type="radio" name="cx-path" checked={path === "gasless"} disabled={!p.gasless.eligible} onChange={() => setPath("gasless")} />
-            <span><strong>Gasless</strong> <span className="muted">· {p.gasless.reason}</span></span>
-          </label>
-          <label className="cx-choice">
-            <input type="radio" name="cx-path" checked={path === "wallet"} onChange={() => setPath("wallet")} />
-            <span><strong>Your wallet pays gas</strong> <span className="muted">· {address ? `from ${short(address)}` : "connect a wallet first"}</span></span>
-          </label>
-        </div>
-        {err && <div className="cx-result bad" role="alert">{err}</div>}
-        <div className="actions">
-          <button type="button" className="cx-btn ghost" onClick={onClose}>Cancel</button>
-          <button type="button" className="cx-btn primary" onClick={approve} disabled={!ready}>
-            {busy ? "Waiting for your wallet" : path === "gasless" ? "Approve and sign request" : "Approve and sign transaction"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function WriteFn({ fn, index, address, abi, abiSource, abiVerified, viaProxy, reader, onSent }: {
-  fn: AbiFunction;
-  index: number;
+interface WriteTarget {
   address: string;
   abi: Abi;
   abiSource: AbiSource;
   abiVerified: boolean;
   viaProxy: boolean;
+  /** Verification status of the code whose ABI encodes the call. */
+  verification: VerificationStatus;
+  proxy: ProxyInfo | null;
   reader: ChainReader;
-  onSent: (hash: Hex, path: WritePath) => void;
-}) {
+}
+
+function WriteFn({ fn, index, target, onSent }: { fn: AbiFunction; index: number; target: WriteTarget; onSent: (hash: Hex, path: WritePath) => void }) {
+  const { address, abi, abiSource, abiVerified, viaProxy, reader } = target;
   const { address: from } = useConnection();
   const [open, setOpen] = useState(false);
   const [vals, setVals] = useState<FormValue[]>(() => fn.inputs.map(emptyValue));
@@ -176,6 +52,34 @@ function WriteFn({ fn, index, address, abi, abiSource, abiVerified, viaProxy, re
   const [dialog, setDialog] = useState(false);
   const [busy, setBusy] = useState(false);
   const payable = fn.stateMutability === "payable";
+
+  const kitPrepare = (args: readonly unknown[], wei: bigint, sender: Address | null) =>
+    prepareWrite({
+      reader,
+      address,
+      abi,
+      abiSource,
+      abiVerified,
+      fn,
+      args,
+      value: wei,
+      from: sender,
+      viaProxy,
+      proxy: target.proxy,
+      verification: target.verification,
+      hasCode: true,
+      forwarder: (PROJECT_ADDRESSES.forwarder as Address | undefined) ?? null,
+    });
+
+  // The dialog re-prepares this exact call (same args and value) from whichever wallet is connected.
+  const preparer: Preparer | null = prepared
+    ? (sender) =>
+        kitPrepare(
+          prepared.args.map((a) => a.value),
+          prepared.value,
+          sender,
+        ).then((p) => ({ prepared: p, target: { label: null, contractName: null, viaImplementation: viaProxy && abiSource === "proxy-implementation" }, explanation: null }))
+    : null;
 
   const prepare = async () => {
     const p = parseArgs(fn.inputs, vals);
@@ -193,7 +97,7 @@ function WriteFn({ fn, index, address, abi, abiSource, abiVerified, viaProxy, re
     if (!p.ok || errs.length) return setPrepared(null);
     setBusy(true);
     try {
-      setPrepared(await prepareWrite({ reader, address, abi, abiSource, abiVerified, fn, args: p.args, value: wei, from: (from as Address | undefined) ?? null, viaProxy, forwarder: PROJECT_ADDRESSES.forwarder ?? null }));
+      setPrepared(await kitPrepare(p.args, wei, (from as Address | undefined) ?? null));
     } catch (e) {
       setErrors([{ path: fn.name, error: (e as Error).message }]);
       setPrepared(null);
@@ -237,22 +141,14 @@ function WriteFn({ fn, index, address, abi, abiSource, abiVerified, viaProxy, re
           )}
         </form>
       )}
-      {dialog && prepared && (
-        <ApprovalDialog p={prepared} onClose={() => setDialog(false)} onSent={(h, path) => { setDialog(false); setPrepared(null); onSent(h, path); }} />
+      {dialog && preparer && (
+        <ApprovalDialog preparer={preparer} origin="ui" onClose={() => setDialog(false)} onSent={(h, path) => { setPrepared(null); onSent(h, path); }} />
       )}
     </div>
   );
 }
 
-export function WritePane(props: {
-  address: string;
-  abi: Abi;
-  abiSource: AbiSource;
-  abiVerified: boolean;
-  viaProxy: boolean;
-  reader: ChainReader;
-  onOpenTx: (hash: string) => void;
-}) {
+export function WritePane(props: WriteTarget & { onOpenTx: (hash: string) => void }) {
   const { address: from, isConnected } = useConnection();
   const connectors = useConnectors();
   const connect = useConnect();
@@ -292,18 +188,7 @@ export function WritePane(props: {
       ) : (
         <div className="cx-fnlist">
           {writes.map((fn, i) => (
-            <WriteFn
-              key={functionSignature(fn)}
-              fn={fn}
-              index={i}
-              address={props.address}
-              abi={props.abi}
-              abiSource={props.abiSource}
-              abiVerified={props.abiVerified}
-              viaProxy={props.viaProxy}
-              reader={props.reader}
-              onSent={(hash, path) => setSent({ hash, path })}
-            />
+            <WriteFn key={functionSignature(fn)} fn={fn} index={i} target={props} onSent={(hash, path) => setSent({ hash, path })} />
           ))}
         </div>
       )}
