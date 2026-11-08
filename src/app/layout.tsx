@@ -12,6 +12,7 @@ import "../scan/approval.css";
 import { ConsentProvider } from "@/lib/consent/client";
 import { ConsentBanner } from "@/components/consent-banner";
 import { TestnetResetBanner } from "@/components/testnet-reset-banner";
+import { DESCRIPTION, KEYWORDS, TITLE, TWITTER_DESCRIPTION } from "@/lib/site/metadata";
 
 // The design system's three faces, self-hosted via next/font (no external
 // request, so the CSP stays tight): Space Grotesk for display, Geist for the UI,
@@ -22,27 +23,6 @@ const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono"
 const fontVars = `${spaceGrotesk.variable} ${geist.variable} ${geistMono.variable}`;
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://explorer.citrate.ai";
-const TITLE = "CitrateScan: the block explorer for the Citrate Network";
-const DESCRIPTION =
-  "CitrateScan is the AI-native block explorer for the Citrate Network, a GHOSTDAG " +
-  "BlockDAG built for AI. Track on-chain models, LoRA adapters, federated learning " +
-  "rounds, autonomous agents, x402 payments and DePIN compute; search any address, " +
-  "tx or block; watch the live DAG; verify contracts; or just ask the built-in agent " +
-  "in plain English. EVM-compatible and gasless, with an Etherscan-compatible API and " +
-  "an MCP endpoint so your own agents can read the chain.";
-
-// Broad but honest term coverage. The product really does touch all of these —
-// it's an explorer for an AI/DePIN L1 in the orbit of these ecosystems.
-const KEYWORDS = [
-  "CitrateScan", "Citrate", "Citrate Network", "block explorer", "blockchain explorer",
-  "GHOSTDAG", "BlockDAG", "SALT", "chain 40204", "EVM", "smart contracts",
-  "contract verification", "Etherscan", "Etherscan-compatible API", "MCP", "web3",
-  "AI blockchain", "AI-native blockchain", "decentralized AI", "on-chain AI", "AI agents",
-  "autonomous agents", "agentic", "inference", "model registry", "LoRA", "LoRA adapters",
-  "federated learning", "DePIN", "x402", "micropayments", "compute marketplace",
-  "Ethereum", "Solana", "Akash", "Render", "Bittensor", "crypto", "L1",
-];
-
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: { default: TITLE, template: "%s · CitrateScan" },
@@ -65,9 +45,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: TITLE,
-    description:
-      "The AI-native explorer for the Citrate Network, a GHOSTDAG BlockDAG for AI: " +
-      "models, LoRAs, federated learning, agents, x402, DePIN. Ask the chain in plain English.",
+    description: TWITTER_DESCRIPTION,
   },
   robots: { index: true, follow: true, googleBot: { index: true, follow: true, "max-image-preview": "large" } },
 };

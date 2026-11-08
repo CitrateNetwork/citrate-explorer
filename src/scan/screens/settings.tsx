@@ -201,7 +201,7 @@ export function SettingsScreen({ tweaks }) {
 
           {sec === "keys" && (
             <React.Fragment>
-              <h2>API Keys</h2><div className="lede">Use a key with the REST API (<span className="mono">/api/v1</span>, Etherscan-compatible) and the MCP server (<span className="mono">/api/mcp</span>). Keys are hashed at rest — shown once.</div>
+              <h2>API Keys</h2><div className="lede">Use a key with the REST API (<span className="mono">/api/v1</span>, the standard explorer module/action format) and the MCP server (<span className="mono">/api/mcp</span>). Keys are hashed at rest — shown once.</div>
               <div className="card"><div className="card-bd">
                 {!auth.authenticated && <div className="empty" style={{ padding: 24 }}><p>Sign in to manage API keys.</p></div>}
                 {auth.authenticated && keys.map((k) => (
@@ -215,7 +215,7 @@ export function SettingsScreen({ tweaks }) {
                 {auth.authenticated && keys.length === 0 && <div className="empty" style={{ padding: 30 }}><p>No keys yet.</p></div>}
               </div></div>
               <button className="btn primary" style={{ marginTop: 16 }} onClick={createKey}><Icon name="plus" size={15} /> Create API key</button>
-              <div className="codeblock" style={{ marginTop: 18 }}><pre>{`# REST (Etherscan-compatible)
+              <div className="codeblock" style={{ marginTop: 18 }}><pre>{`# REST (standard explorer module/action format)
 curl "https://citratescan.ai/api/v1?module=account&action=balance&address=0xf78c…2d915&apikey=YOUR_KEY"
 
 # MCP (for agents)
@@ -430,10 +430,10 @@ export function DevSection({ inline }) {
     <React.Fragment>
       {!inline && <h1 style={{ fontSize: 30, marginBottom: 6 }}>Developer hub</h1>}
       {inline ? <h2>Developer</h2> : null}
-      <div className="lede" style={{ marginBottom: 20 }}>Two programmatic surfaces over one read-only harness: an Etherscan-compatible REST API and an MCP endpoint for agents. Add Citrate to your wallet below.</div>
+      <div className="lede" style={{ marginBottom: 20 }}>Two programmatic surfaces over one read-only harness: a standard explorer REST API (module/action) and an MCP endpoint for agents. Add Citrate to your wallet below.</div>
       <div className="set-block"><div className="h">Endpoints</div>
         <div className="grid" style={{ gridTemplateColumns: "1fr" }}>
-          <div className="endpoint"><span className="meth">REST</span><span className="url">/api/v1</span><span className="desc">Etherscan-compatible JSON</span></div>
+          <div className="endpoint"><span className="meth">REST</span><span className="url">/api/v1</span><span className="desc">module/action JSON</span></div>
           <div className="endpoint"><span className="meth">MCP</span><span className="url">/api/mcp</span><span className="desc">tool surface for agents</span></div>
           <div className="endpoint"><span className="meth">RPC</span><span className="url">https://rpc.citrate.ai</span><span className="desc">read methods only</span></div>
           <div className="endpoint"><span className="meth">WSS</span><span className="url">wss://rpc.citrate.ai</span><span className="desc">DAG stream</span></div>
