@@ -14,25 +14,33 @@
  * contrast on the warning wash, a keyboard-reachable dismiss button with an
  * accessible name. Dismissal is remembered in localStorage per reset date.
  */
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { testnetResetNotice } from "@/lib/notice/testnetReset";
+
+function subscribe(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
+}
+
+function readDismissed(key: string): boolean {
+  try {
+    return window.localStorage.getItem(key) === "1";
+  } catch {
+    return false; // Storage blocked: the notice simply stays visible.
+  }
+}
 
 export function TestnetResetBanner({ resetDate }: { resetDate?: string }) {
   const n = testnetResetNotice(resetDate);
-  const [hidden, setHidden] = useState(false);
-
-  useEffect(() => {
-    try {
-      if (window.localStorage.getItem(n.dismissKey) === "1") setHidden(true);
-    } catch {
-      // Storage blocked: the notice simply stays visible.
-    }
-  }, [n.dismissKey]);
+  // Server render: not dismissed. Client: the stored choice for this reset date.
+  const stored = useSyncExternalStore(subscribe, () => readDismissed(n.dismissKey), () => false);
+  const [dismissedNow, setDismissedNow] = useState(false);
+  const hidden = stored || dismissedNow;
 
   if (hidden) return null;
 
   const dismiss = () => {
-    setHidden(true);
+    setDismissedNow(true);
     try {
       window.localStorage.setItem(n.dismissKey, "1");
     } catch {
