@@ -89,6 +89,34 @@ CREATE TRIGGER "verified_contracts_append_only" BEFORE UPDATE OR DELETE ON "veri
 --> statement-breakpoint
 CREATE TRIGGER "contract_proxies_append_only" BEFORE UPDATE OR DELETE ON "contract_proxies" FOR EACH ROW EXECUTE FUNCTION "verification_append_only"();
 --> statement-breakpoint
+-- Row triggers do not fire on TRUNCATE; refuse it with statement triggers.
+CREATE TRIGGER "verified_contracts_no_truncate" BEFORE TRUNCATE ON "verified_contracts" FOR EACH STATEMENT EXECUTE FUNCTION "verification_append_only"();
+--> statement-breakpoint
+CREATE TRIGGER "contract_proxies_no_truncate" BEFORE TRUNCATE ON "contract_proxies" FOR EACH STATEMENT EXECUTE FUNCTION "verification_append_only"();
+--> statement-breakpoint
+-- Privileges for the production roles, whatever the default privileges say. Roles that
+-- do not exist here (dev, CI) are skipped. Neither role owns these tables, so neither
+-- can disable the triggers above.
+--   citratescan_web    (the web app): reads; only enqueues jobs.
+--   citratescan_verify (the verify worker): appends records, moves job state, reads the
+--                      indexer's creations. Never edits, deletes or empties records.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'citratescan_web') THEN
+    REVOKE ALL ON "verification_jobs", "verified_contracts", "contract_proxies", "verification_state" FROM "citratescan_web";
+    GRANT SELECT ON "verification_jobs", "verified_contracts", "contract_proxies" TO "citratescan_web";
+    GRANT INSERT ON "verification_jobs" TO "citratescan_web";
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'citratescan_verify') THEN
+    REVOKE ALL ON "verification_jobs", "verified_contracts", "contract_proxies", "verification_state" FROM "citratescan_verify";
+    GRANT SELECT, INSERT ON "verification_jobs", "verified_contracts", "contract_proxies" TO "citratescan_verify";
+    GRANT UPDATE ("status", "worker_id", "locked_at", "started_at", "attempts", "finished_at", "result_code", "result_message", "match_type", "verified_contract_id") ON "verification_jobs" TO "citratescan_verify";
+    GRANT SELECT, INSERT, UPDATE ON "verification_state" TO "citratescan_verify";
+    GRANT SELECT ON "transactions", "receipts" TO "citratescan_verify";
+  END IF;
+END
+$$;
+--> statement-breakpoint
 -- Carry contract_verifications forward. The old table is left in place, untouched.
 -- Every old guid stays pollable as a finished job.
 INSERT INTO "verification_jobs" ("id", "kind", "status", "origin", "chain_id", "genesis_hash", "address", "request", "source_hash", "created_at", "finished_at", "result_code", "result_message", "match_type", "verified_contract_id")
