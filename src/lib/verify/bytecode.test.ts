@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { stripMetadata, maskImmutables, matchBytecode } from "./bytecode";
+import { hasMetadataHash, stripMetadata, maskImmutables, matchBytecode } from "./bytecode";
 
 /** solc's CBOR map {solc: 0.8.26} (bytecodeHash none) + its 2-byte length. */
 const SOLC_ONLY = "a164736f6c634300081a" + "000a";
@@ -21,6 +21,15 @@ describe("verify/bytecode — metadata + immutable handling", () => {
 
   it("no PARTIAL match for different code without metadata whose last bytes read as lengths", () => {
     expect(matchBytecode("0x6001aabbcc0003", "0x600160026003010005")).toBe("none");
+  });
+
+  it("a metadata hash counts only as a map key (ipfs / bzzr0 / bzzr1), not as bytes inside a value", () => {
+    expect(hasMetadataHash("0x00" + ipfsMeta("55"))).toBe(true);
+    // {solc: h'6469706673'}: the bytes of "ipfs" appear, but only inside the solc value.
+    expect(hasMetadataHash("0x00" + "a164736f6c63456469706673" + "000c")).toBe(false);
+    // {bzzr1: <32 bytes>, solc: 0.5.17}: a swarm hash key.
+    expect(hasMetadataHash("0x00" + "a265627a7a72315820" + "66".repeat(32) + "64736f6c6343000511" + "0032")).toBe(true);
+    expect(hasMetadataHash("0x00" + SOLC_ONLY)).toBe(false);
   });
 
   it("masks immutable byte ranges (placeholder vs baked value)", () => {

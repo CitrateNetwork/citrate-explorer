@@ -38,10 +38,30 @@ describe("migration 0006 privileges", () => {
   afterAll(async () => client.close());
 
   it("the web role reads the verification tables and can only enqueue jobs", async () => {
-    expect(await privs("citratescan_web", "verification_jobs")).toEqual(["SELECT", "INSERT"]);
+    // INSERT is column-level (request columns only; see the next test), so not table-wide.
+    expect(await privs("citratescan_web", "verification_jobs")).toEqual(["SELECT"]);
     expect(await privs("citratescan_web", "verified_contracts")).toEqual(["SELECT"]);
     expect(await privs("citratescan_web", "contract_proxies")).toEqual(["SELECT"]);
     expect(await privs("citratescan_web", "verification_state")).toEqual([]);
+  });
+
+  it("the web role inserts only the request columns of a job, never its outcome", async () => {
+    for (const c of ["id", "kind", "origin", "chain_id", "genesis_hash", "address", "request", "source_hash"]) {
+      expect(await col("citratescan_web", "verification_jobs", c, "INSERT")).toBe(true);
+    }
+    for (const c of ["status", "verified_contract_id", "match_type", "result_code", "result_message", "attempts", "worker_id", "locked_at", "started_at", "finished_at", "created_at"]) {
+      expect(await col("citratescan_web", "verification_jobs", c, "INSERT")).toBe(false);
+    }
+    // As the web role: an enqueue the way store.enqueueJob writes it works; one that sets an outcome is refused.
+    await client.exec("set role citratescan_web");
+    try {
+      await client.exec(`insert into verification_jobs (id, kind, origin, chain_id, genesis_hash, address, request, source_hash) values ('w1', 'verify', 'etherscan', 40204, null, '0x01', '{}', null)`);
+      await expect(client.exec(`insert into verification_jobs (id, origin, chain_id, address, request, status, verified_contract_id) values ('w2', 'etherscan', 40204, '0x01', '{}', 'pass', 'x')`)).rejects.toThrow(/permission denied/);
+    } finally {
+      await client.exec("reset role");
+    }
+    const { rows } = await client.query<{ id: string; status: string }>("select id, status from verification_jobs order by id");
+    expect(rows).toEqual([{ id: "w1", status: "pending" }]);
   });
 
   it("the worker role appends records and moves job state, but cannot edit, delete or empty anything", async () => {
