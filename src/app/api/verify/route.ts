@@ -6,9 +6,10 @@ import { compileGateFromEnv } from "@/lib/verify/concurrency";
 import type { Address } from "viem";
 import { publicMessage } from "@/lib/api/errors";
 
-// Recompile-and-diff runs inline: loading the exact solc build + compiling can
-// take tens of seconds, so give it room (Vercel Fluid).
-export const maxDuration = 300;
+// EXP-S2: this route validates and enqueues; the verify worker compiles in a
+// capped child process. It waits up to CITRATE_VERIFY_SYNC_WAIT_MS (default 20 s)
+// for the verdict so Citrate Core's one-shot call still gets one, else 202 + guid.
+export const maxDuration = 60;
 
 // FUA-EXPLORER-03 / FWA-C12-03/04: /api/verify is unauthenticated and each call
 // fetches an arbitrary solc build and compiles attacker-supplied source inline —
@@ -37,13 +38,15 @@ const schema = z.object({
   constructorArguments: z.string().optional(),
   optimizationRuns: z.number().int().optional(),
   evmVersion: z.string().optional(),
+  contractName: z.string().max(512).optional(),
+  creationTxHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
 });
 
 /**
- * Verify a contract by recompiling its source and diffing the bytecode against
- * the on-chain code. Runs the engine inline and returns the verdict
- * (pass/fail + full/partial match). The result is persisted; poll
- * GET /api/verify/{guid} or read it on the contract page.
+ * Verify a contract: the source is queued for the verify worker, which recompiles
+ * it and diffs the bytecode against the on-chain code. Returns the verdict
+ * (pass/fail + full/partial match) when the worker finishes within the wait,
+ * else 202 with the guid to poll at GET /api/verify/{guid}.
  */
 export async function POST(req: Request) {
   // FUA-EXPLORER-03: rate-limit per trusted IP before any expensive work.
@@ -78,7 +81,11 @@ export async function POST(req: Request) {
       ...parsed.data,
       address: parsed.data.address as Address,
     });
-    return Response.json(result, { status: result.status === "pass" ? 200 : 422 });
+    if (result.busy) {
+      return Response.json(result, { status: 503, headers: { "retry-after": "10" } });
+    }
+    const status = result.status === "pass" ? 200 : result.status === "pending" ? 202 : 422;
+    return Response.json(result, { status });
   } catch (err) {
     return Response.json({ error: publicMessage(err, "api.verify", "verification failed; please retry") }, { status: 500 });
   } finally {

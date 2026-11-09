@@ -1,0 +1,9 @@
+# Verification tool fixture project (EXP-S2). Compiled only by
+# scripts/verify/capture-tool-fixtures.mjs, never by the repo's root forge build.
+[profile.default]
+src = "src"
+out = "out"
+solc_version = "0.8.26"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200

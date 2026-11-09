@@ -3,17 +3,20 @@
  * verified-source facts only through `ContractInfoSource`, so the store behind it
  * can change without touching the UI.
  *
- *  - createApiSourceV1: today's GET /api/contract/{a}/source (Data source, Rule 7:
- *    the `contract_verifications` table via src/lib/verify/verifiedSource.ts).
- *    One file, no source map.
- *  - fromV2Response / createV2InfoSource: the verification v2 record shape
- *    (`verified_contracts` + `contract_proxies`), defined as types in v2Types.ts.
- *    Wired to a route when v2 lands publicly; until then the page uses v1.
+ *  - createApiSourceV2 (the contract page and the approval view): GET
+ *    /api/contract/{a}/verified, the verification v2 record (`verified_contracts` +
+ *    `contract_proxies`) mapped by fromV2Response: every source file, the deployed
+ *    source map, settings, the creation match.
+ *  - createApiSourceV1: the lean GET /api/contract/{a}/source lookup (one display
+ *    source, no source map), kept for callers that want the small shape (citrate-core's
+ *    get_verified_source tool). Since verification v2 it also reads `verified_contracts`
+ *    (src/lib/verify/verifiedSource.ts).
  */
 import type { Abi, Hex } from "viem";
 import { sourceIndexByIdFromNames } from "./sourceMap";
 import type { ContractInfo, ContractInfoSource, SourceFile, VerificationStatus } from "./types";
 import type { VerifiedContractRecordV2, VerifiedContractResponseV2 } from "./v2Types";
+import { isLegacyRecord } from "@/lib/verify/legacy";
 
 /** Upper bound the v1 route accepts for returned source (MAX_SOURCE_CHARS_LIMIT). */
 const V1_MAX_SOURCE_CHARS = 400_000;
@@ -51,7 +54,7 @@ function base(address: string, status: VerificationStatus, note: string, origin:
   };
 }
 
-const STATUSES: VerificationStatus[] = ["verified", "partial-match", "similar-match", "unverified", "unavailable"];
+const STATUSES: VerificationStatus[] = ["verified", "partial-match", "similar-match", "legacy-unconfirmed", "unverified", "unavailable"];
 
 /** The JSON GET /api/contract/{a}/source returns (src/lib/verify/verifiedSource.ts VerifiedSource). */
 export interface V1SourceJson {
@@ -113,7 +116,7 @@ export function contractInfoFromV1(address: string, j: V1SourceJson): ContractIn
 /**
  * The same v1 record read in-process on the server (the agent, /api/agent/prepare):
  * `load` is getVerifiedSource from src/lib/verify/verifiedSource.ts. Data source
- * (Rule 7): the `contract_verifications` table. A failing lookup is "unavailable",
+ * (Rule 7): the `verified_contracts` table (verification v2, through engine.getVerifiedContract). A failing lookup is "unavailable",
  * never "unverified".
  */
 export function createStoreInfoSource(load: (address: string) => Promise<V1SourceJson>): ContractInfoSource {
@@ -148,6 +151,7 @@ const NOTES: Record<VerificationStatus, string> = {
   verified: "Verified: the recompiled bytecode matches the deployed code exactly, metadata included.",
   "partial-match": "Partial match: the code matches only after stripping metadata, so the shown source may differ from what was deployed. This is not a verified match.",
   "similar-match": "Similar match: this address runs code identical to a contract verified at another address; the source shown is that contract's. Not verified at this address.",
+  "legacy-unconfirmed": "Legacy record, not confirmed for the current code: this source was recorded before verification v2, which did not record the chain or the code it matched. Not verified.",
   unverified: "Not verified: no source has been verified for this address. Do not assume what its code does.",
   unavailable: "The verification store is unavailable right now, so it is unknown whether this contract is verified.",
 };
@@ -157,7 +161,15 @@ export function fromV2Response(resp: VerifiedContractResponseV2): ContractInfo {
   const r = resp.record;
   if (!resp.storeAvailable) return base(r?.address ?? "", "unavailable", NOTES.unavailable, "verified-contracts-v2");
   if (!r) return base("", "unverified", NOTES.unverified, "verified-contracts-v2");
-  const status: VerificationStatus = r.matchType === "full" ? "verified" : r.matchType === "partial" ? "partial-match" : "similar-match";
+  // A record copied forward from the v1 store never names the chain or code it matched.
+  const legacy = r.legacy === true || isLegacyRecord(r);
+  const status: VerificationStatus = legacy
+    ? "legacy-unconfirmed"
+    : r.matchType === "full"
+      ? "verified"
+      : r.matchType === "partial"
+        ? "partial-match"
+        : "similar-match";
   // A similar match carries the original's source; fall back to it field by field.
   const src: VerifiedContractRecordV2 = r.matchType === "similar" && resp.original ? resp.original : r;
   const std = parseStd(r.stdJsonInput) ?? parseStd(src.stdJsonInput);
@@ -184,7 +196,8 @@ export function fromV2Response(resp: VerifiedContractResponseV2): ContractInfo {
     address: r.address.toLowerCase(),
     status,
     verified: status === "verified",
-    matchType: r.matchType,
+    // A legacy record's old match types were never checked against this code.
+    matchType: legacy ? null : r.matchType,
     contractName: r.contractName ?? src.contractName,
     compilerVersion: r.solcLongVersion ?? r.compilerVersion ?? src.compilerVersion,
     abi: parseAbi(r.abi) ?? parseAbi(src.abi),
@@ -192,8 +205,8 @@ export function fromV2Response(resp: VerifiedContractResponseV2): ContractInfo {
     sourceIndexById,
     deployedSourceMap: r.deployedSourceMap ?? src.deployedSourceMap,
     settings,
-    runtimeMatch: r.runtimeMatch,
-    creationMatch: r.creationMatch,
+    runtimeMatch: legacy ? null : r.runtimeMatch,
+    creationMatch: legacy ? null : r.creationMatch,
     constructorArgs: (r.constructorArgs as Hex | null) ?? null,
     verifiedAt: r.createdAt,
     note: NOTES[status],
@@ -214,4 +227,20 @@ export function createV2InfoSource(fetchRecord: (address: string) => Promise<Ver
       }
     },
   };
+}
+
+/**
+ * The contract page's source of verified facts: GET /api/contract/{a}/verified (the
+ * verification v2 record, src/app/api/contract/[addr]/verified/route.ts). Data source
+ * (Rule 7): the `verified_contracts` / `contract_proxies` tables for the address's live
+ * code. Any HTTP failure (rate limit, 5xx) or unreachable route is "unavailable".
+ */
+export function createApiSourceV2(opts: { fetch?: typeof fetch; baseUrl?: string } = {}): ContractInfoSource {
+  const f = opts.fetch ?? fetch;
+  const baseUrl = opts.baseUrl ?? "";
+  return createV2InfoSource(async (a) => {
+    const res = await f(`${baseUrl}/api/contract/${a}/verified`);
+    if (!res.ok) throw new Error(`verified record lookup failed (HTTP ${res.status})`);
+    return (await res.json()) as VerifiedContractResponseV2;
+  });
 }

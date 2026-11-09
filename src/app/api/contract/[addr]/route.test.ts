@@ -63,6 +63,15 @@ describe("/api/contract/[addr] verified badge (FWA-C12-05)", () => {
     expect(body.verification.status).toBe("verified");
   });
 
+  it("a record copied forward from the v1 store is NOT verified, even as a full match", async () => {
+    getVerifiedContract.mockResolvedValue({ ...row("full"), legacy: true });
+    const res = await GET(new Request(`http://x/api/contract/${ADDR}`), ctx);
+    const body = await res.json();
+    expect(body.verification.verified).toBe(false);
+    expect(body.verification.status).toBe("legacy-unconfirmed");
+    expect(body.verification.matchType).toBeNull();
+  });
+
   it("a legacy pass row with null matchType is NOT verified (fail closed)", async () => {
     getVerifiedContract.mockResolvedValue(row(null));
     const res = await GET(new Request(`http://x/api/contract/${ADDR}`), ctx);

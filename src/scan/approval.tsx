@@ -16,7 +16,7 @@
  * the Approve click handler) for exactly the PreparedWrite on screen.
  *
  * Data sources (Rule 7): the Citrate RPC (kit createRpcReader), the verification
- * store (GET /api/contract/{a}/source via createApiSourceV1), the user's wallet
+ * store (GET /api/contract/{a}/verified via createApiSourceV2), the user's wallet
  * (wagmi), POST /api/relay for gasless sends, and POST /api/agent/write-events for
  * the thread history.
  */
@@ -48,7 +48,7 @@ import { unwrapUntrusted } from "@/lib/agent/untrusted";
 import { approvalFacts } from "@/lib/agent/wire";
 import { writeEventFromKit, type WriteEventKind } from "@/lib/agent/writeLog";
 import type { PreparedWrite as WirePreparedWrite } from "@/lib/contracts/types";
-import { createApiSourceV1 } from "@/lib/contract/infoSources";
+import { createApiSourceV2 } from "@/lib/contract/infoSources";
 import type { PreparedWrite } from "@/lib/contract/kit";
 import { prepareFromRequest } from "@/lib/contract/request";
 import { createRpcReader } from "@/lib/contract/rpcReader";
@@ -83,7 +83,7 @@ function editableValue(v: unknown): string {
 /** A Preparer for a request (chat card, MCP link): kit prepareFromRequest over the browser reader. */
 export function requestPreparer(req: WriteRequest): Preparer {
   const reader = createRpcReader();
-  const info = createApiSourceV1();
+  const info = createApiSourceV2();
   return async (from) => {
     const out = await prepareFromRequest({
       reader,

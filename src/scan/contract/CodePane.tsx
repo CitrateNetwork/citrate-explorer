@@ -60,8 +60,8 @@ function Settings({ info, runtimeSize }: { info: ContractInfo; runtimeSize: numb
     ["Optimizer", s?.optimizer ? (s.optimizer.enabled ? `on, ${s.optimizer.runs ?? 200} runs` : "off") : "not recorded"],
     ["EVM version", s?.evmVersion ?? "compiler default"],
     ["Via IR", s?.viaIR === undefined ? "not recorded" : s.viaIR ? "yes" : "no"],
-    ["Runtime match", info.runtimeMatch ?? "not recorded"],
-    ["Creation match", info.creationMatch ?? (info.origin === "api-source-v1" ? "not compared (verification v1)" : "no creation transaction compared")],
+    ["Runtime match", info.status === "legacy-unconfirmed" ? "not confirmed (legacy record)" : (info.runtimeMatch ?? "not recorded")],
+    ["Creation match", info.status === "legacy-unconfirmed" ? "not confirmed (legacy record)" : info.creationMatch ?? (info.origin === "api-source-v1" ? "not compared (verification v1)" : "no creation transaction compared")],
     ["Runtime size", `${runtimeSize.toLocaleString()} bytes`],
   ];
   return (

@@ -49,7 +49,12 @@ export interface SourceFile {
  * How far the contract's source can be trusted, from the verification store.
  * Only `verified` earns the green badge (FWA-C12-05).
  */
-export type VerificationStatus = "verified" | "partial-match" | "similar-match" | "unverified" | "unavailable";
+/**
+ * "legacy-unconfirmed": a record copied forward from the pre-v2 store, which never
+ * recorded the chain or the code it matched. Its source is shown, but it is not
+ * confirmed for the code at the address now, so it is never verified.
+ */
+export type VerificationStatus = "verified" | "partial-match" | "similar-match" | "legacy-unconfirmed" | "unverified" | "unavailable";
 
 /**
  * Everything the contract page knows about an address's verified source. Produced

@@ -1,7 +1,7 @@
 import { getVerificationByGuid } from "@/lib/verify/engine";
 import { limitPublicRead } from "@/lib/api/publicRead";
 
-/** Poll a verification by guid — the persisted recompile-and-diff result. */
+/** Poll a verification by guid: the job status from the v2 queue (any door: /api/verify, /api, /v2). */
 export async function GET(
   req: Request,
   ctx: { params: Promise<{ guid: string }> },

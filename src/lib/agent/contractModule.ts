@@ -61,7 +61,7 @@ import { coerceArgs, decodedValues, fragmentFromSignature, pickFunction as pickK
 import { payableThresholdWei } from "@/lib/contract/risk";
 import type { ChainReader, ContractInfoSource } from "@/lib/contract/types";
 
-import { NO_PROXY, toWirePrepared, wireAbiSource, wireProxy } from "./wire";
+import { NO_PROXY, toWirePrepared, wireAbiSource, wireProxy, wireVerification } from "./wire";
 
 export { coerceArg, coerceArgs, decodedValues, fragmentFromSignature, jsonValue } from "@/lib/contract/request";
 // Kit → wire mapping lives in ./wire.ts (pure; the approval dialog uses it too).
@@ -165,7 +165,7 @@ export function createContractModule(deps: ContractModuleDeps): ContractModule &
   /** The kit's resolution in the agent's shape. A selector-only guess is reported as "no ABI". */
   function wireResolved(k: KitResolvedAbi): ResolvedAbi {
     const source = wireAbiSource(k.abiSource);
-    const status: VerificationStatus = k.hasCode ? (verificationOf(k) as VerificationStatus) : "unverified";
+    const status: VerificationStatus = k.hasCode ? wireVerification(verificationOf(k)) : "unverified";
     const proxy = wireProxy(k.proxy);
     if (source === "none") {
       return {
@@ -320,7 +320,7 @@ export function createContractModule(deps: ContractModuleDeps): ContractModule &
       codeSize: (k.runtimeCode.length - 2) / 2,
       codeHash: k.codeHash,
       label: deps.label(address),
-      verification: { status: k.info.status as VerificationStatus, contractName: k.info.contractName, compilerVersion: k.info.compilerVersion },
+      verification: { status: wireVerification(k.info.status), contractName: k.info.contractName, compilerVersion: k.info.compilerVersion },
       proxy,
       interfaces: ifs.support,
       token: ifs.token,

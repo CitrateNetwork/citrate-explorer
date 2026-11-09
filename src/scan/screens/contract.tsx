@@ -11,8 +11,9 @@
  * same code the explorer agent calls. Data sources (Rule 7):
  *   - the Citrate RPC (eth_getCode, eth_getStorageAt, eth_call, eth_estimateGas,
  *     eth_getLogs) through createRpcReader();
- *   - verified source through a ContractInfoSource: today GET /api/contract/{a}/source;
- *     the verification v2 adapter (infoSources.ts) is wired when v2 is public;
+ *   - verified source through a ContractInfoSource: GET /api/contract/{a}/verified,
+ *     the verification v2 record (createApiSourceV2: every source file, the deployed
+ *     source map, settings, creation match; v1 records copied forward read as one file);
  *   - token facts and the known-address label from GET /api/contract/{a}.
  */
 import "@/scan/contract/contract.css";
@@ -20,7 +21,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Abi } from "viem";
 import { useScan } from "@/scan/context";
 import { createRpcReader } from "@/lib/contract/rpcReader";
-import { createApiSourceV1 } from "@/lib/contract/infoSources";
+import { createApiSourceV2 } from "@/lib/contract/infoSources";
 import { resolveAbi, type AbiSource, type ResolvedAbi } from "@/lib/contract/kit";
 import type { VerificationStatus } from "@/lib/contract/types";
 import { DisassemblyPane, VerifiedCodePane } from "@/scan/contract/CodePane";
@@ -39,6 +40,7 @@ const STATUS_TAG: Record<VerificationStatus, { text: string; cls: string }> = {
   verified: { text: "verified, full match", cls: "ok" },
   "partial-match": { text: "partial match, not verified", cls: "warn" },
   "similar-match": { text: "similar match, not verified here", cls: "warn" },
+  "legacy-unconfirmed": { text: "legacy record, not confirmed for current code", cls: "warn" },
   unverified: { text: "unverified", cls: "" },
   unavailable: { text: "verification unknown", cls: "warn" },
 };
@@ -47,6 +49,7 @@ const ABI_LABEL: Record<AbiSource, string> = {
   verified: "the verified ABI",
   "partial-match": "the partial-match ABI",
   "similar-match": "the similar-match ABI",
+  "legacy-unconfirmed": "the legacy (unconfirmed) ABI",
   "proxy-implementation": "the implementation's ABI",
   "signature-subset": "the guessed ABI",
   signature: "a supplied signature",
@@ -78,7 +81,7 @@ export function ContractScreen({ addr }: { addr: string; tweaks?: unknown }) {
 function ContractView({ addr }: { addr: string }) {
   const scan = useScan() as unknown as { nav: (r: string) => void; setCtx?: (s: string) => void };
   const reader = useMemo(() => createRpcReader(), []);
-  const info = useMemo(() => createApiSourceV1(), []);
+  const info = useMemo(() => createApiSourceV2(), []);
   const valid = /^0x[0-9a-fA-F]{40}$/.test(addr || "");
   const [res, setRes] = useState<ResolvedAbi | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -195,7 +198,7 @@ function ContractView({ addr }: { addr: string }) {
         {tok ? (
           <div className="cx-stat"><div className="cx-stat-k">Token</div><div className="cx-stat-v" style={{ fontSize: 15 }}>{[tok.name, tok.symbol].filter(Boolean).join(" · ") || tok.standard}</div></div>
         ) : (
-          <div className="cx-stat"><div className="cx-stat-k">Match</div><div className="cx-stat-v" style={{ fontSize: 15 }}>{own.runtimeMatch ? `runtime ${own.runtimeMatch}${own.creationMatch ? `, creation ${own.creationMatch}` : ""}` : "none"}</div></div>
+          <div className="cx-stat"><div className="cx-stat-k">Match</div><div className="cx-stat-v" style={{ fontSize: 15 }}>{own.status === "legacy-unconfirmed" ? "not confirmed (legacy record)" : own.runtimeMatch ? `runtime ${own.runtimeMatch}${own.creationMatch ? `, creation ${own.creationMatch}` : ""}` : "none"}</div></div>
         )}
       </div>
 

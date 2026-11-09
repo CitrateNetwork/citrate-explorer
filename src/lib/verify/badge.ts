@@ -21,7 +21,7 @@
 import type { MatchKind } from "./bytecode";
 
 /** The public trust status rendered on the contract page. */
-export type VerificationStatus = "verified" | "partial-match" | "unverified";
+export type VerificationStatus = "verified" | "partial-match" | "similar-match" | "unverified";
 
 export interface VerificationBadge {
   /** TRUE only for a full/exact match — this is what the green shield keys on. */
@@ -31,7 +31,7 @@ export interface VerificationBadge {
   /** Human label for the badge/summary. */
   label: string;
   /** The underlying match kind, surfaced for display (null when absent). */
-  matchType: MatchKind | null;
+  matchType: MatchKind | "similar" | null;
 }
 
 /**
@@ -50,6 +50,15 @@ export function verificationBadge(
       status: "partial-match",
       label: "Partial match — NOT verified",
       matchType: "partial",
+    };
+  }
+  if (matchType === "similar") {
+    // EXP-S2: source applied from another address whose runtime code is identical.
+    return {
+      verified: false,
+      status: "similar-match",
+      label: "Similar match — source verified at another address with identical code",
+      matchType: "similar",
     };
   }
   // none / null / undefined / anything unexpected → fail closed.

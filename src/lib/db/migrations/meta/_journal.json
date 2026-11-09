@@ -43,6 +43,13 @@
       "when": 1793757797181,
       "tag": "0005_indexer_genesis_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793797162891,
+      "tag": "0006_verification_v2",
+      "breakpoints": true
     }
   ]
 }

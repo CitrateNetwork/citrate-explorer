@@ -54,13 +54,14 @@ export type RiskAbiSource =
   | "verified"
   | "partial-match"
   | "similar-match"
+  | "legacy-unconfirmed"
   | "proxy-implementation"
   | "signature-subset"
   /** built from a function signature the caller supplied; nothing verified it */
   | "signature"
   | "none";
 
-export type RiskVerification = "verified" | "partial-match" | "similar-match" | "unverified" | "unavailable";
+export type RiskVerification = "verified" | "partial-match" | "similar-match" | "legacy-unconfirmed" | "unverified" | "unavailable";
 
 const sel = (sig: string) => toFunctionSelector(sig).toLowerCase();
 
@@ -195,6 +196,8 @@ export function assessRisk(i: RiskInput): RiskAssessment {
   const t = i.target;
   if (!t.isContract) {
     add({ code: "eoa-target", severity: "high", message: "The target has no contract code. Calldata sent to it does nothing except move any value." });
+  } else if (t.verification === "legacy-unconfirmed" || t.abiSource === "legacy-unconfirmed") {
+    add({ code: "unverified-target", severity: "high", message: "The target's source is a legacy record that was never confirmed against its current code. Treat it as unverified." });
   } else if (t.verification === "partial-match" || t.verification === "similar-match" || t.abiSource === "partial-match" || t.abiSource === "similar-match") {
     add({ code: "partial-match-target", severity: "high", message: "The target's source is only a partial or similar match, not verified. Its real behaviour may differ from the shown source." });
   } else if (t.abiSource === "signature" && t.verification === "verified") {
