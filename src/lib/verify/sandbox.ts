@@ -78,7 +78,8 @@ export function compileFile(
       execArgv: [`--max-old-space-size=${limits.memoryMb}`],
       // The child evaluates a downloaded compiler: it gets none of the worker's
       // environment (DATABASE_URL, keys). It needs no variables to compile.
-      env: {},
+      // (Next's types require NODE_ENV on ProcessEnv; the child must not get even that.)
+      env: {} as NodeJS.ProcessEnv,
       stdio: ["ignore", "ignore", "ignore", "ipc"],
       serialization: "json",
     });
