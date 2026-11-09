@@ -55,8 +55,11 @@ export function rateLimit(id: string, perSec: number, burst = defaultBurst(perSe
   return { ok: true, backend: "memory" };
 }
 
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+// Upstash REST credentials. The Vercel Marketplace integration provisions them as
+// KV_REST_API_URL / KV_REST_API_TOKEN; a directly configured Upstash database uses
+// the UPSTASH_REDIS_REST_* names. The read-only token is never used: this store is written.
+const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 
 /** True when a cross-instance store is configured. */
 export function isDistributed(): boolean {
