@@ -20,9 +20,10 @@ export interface VerifiedContractRecordV2 {
   runtimeMaskedHash?: string | null;
   runtimeCodeLength?: number | null;
   /** full | partial | similar */
-  matchType: "full" | "partial" | "similar";
+  /** Null for a legacy record (see `legacy`). */
+  matchType: "full" | "partial" | "similar" | null;
   /** How the runtime matched. */
-  runtimeMatch: "full" | "partial";
+  runtimeMatch: "full" | "partial" | null;
   /** Null when no creation transaction could be compared. */
   creationMatch: "full" | "partial" | null;
   /** For a similar match: the id of the record whose source was applied. */
@@ -50,6 +51,13 @@ export interface VerifiedContractRecordV2 {
   /** Source text of a record copied from the v1 store (no standard JSON). */
   legacySource: string | null;
   createdAt: string;
+  /**
+   * True for a record copied forward from the v1 store: not confirmed for the current code,
+   * so it carries no match types and is never verified. Absent from older responses.
+   */
+  legacy?: boolean;
+  /** True only for a non-legacy full match. */
+  verified?: boolean;
   /**
    * Optional: solc's source unit ids (`output.sources[path].id`). Not a v2 column
    * today; requested so the page need not infer ids. When absent, ids are taken

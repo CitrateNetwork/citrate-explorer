@@ -16,6 +16,7 @@ import type { Abi, Hex } from "viem";
 import { sourceIndexByIdFromNames } from "./sourceMap";
 import type { ContractInfo, ContractInfoSource, SourceFile, VerificationStatus } from "./types";
 import type { VerifiedContractRecordV2, VerifiedContractResponseV2 } from "./v2Types";
+import { isLegacyRecord } from "@/lib/verify/legacy";
 
 /** Upper bound the v1 route accepts for returned source (MAX_SOURCE_CHARS_LIMIT). */
 const V1_MAX_SOURCE_CHARS = 400_000;
@@ -161,7 +162,7 @@ export function fromV2Response(resp: VerifiedContractResponseV2): ContractInfo {
   if (!resp.storeAvailable) return base(r?.address ?? "", "unavailable", NOTES.unavailable, "verified-contracts-v2");
   if (!r) return base("", "unverified", NOTES.unverified, "verified-contracts-v2");
   // A record copied forward from the v1 store never names the chain or code it matched.
-  const legacy = r.sourceFormat === "legacy" || (r.legacyGuid !== null && r.genesisHash === null);
+  const legacy = r.legacy === true || isLegacyRecord(r);
   const status: VerificationStatus = legacy
     ? "legacy-unconfirmed"
     : r.matchType === "full"
@@ -195,7 +196,8 @@ export function fromV2Response(resp: VerifiedContractResponseV2): ContractInfo {
     address: r.address.toLowerCase(),
     status,
     verified: status === "verified",
-    matchType: r.matchType,
+    // A legacy record's old match types were never checked against this code.
+    matchType: legacy ? null : r.matchType,
     contractName: r.contractName ?? src.contractName,
     compilerVersion: r.solcLongVersion ?? r.compilerVersion ?? src.compilerVersion,
     abi: parseAbi(r.abi) ?? parseAbi(src.abi),
@@ -203,8 +205,8 @@ export function fromV2Response(resp: VerifiedContractResponseV2): ContractInfo {
     sourceIndexById,
     deployedSourceMap: r.deployedSourceMap ?? src.deployedSourceMap,
     settings,
-    runtimeMatch: r.runtimeMatch,
-    creationMatch: r.creationMatch,
+    runtimeMatch: legacy ? null : r.runtimeMatch,
+    creationMatch: legacy ? null : r.creationMatch,
     constructorArgs: (r.constructorArgs as Hex | null) ?? null,
     verifiedAt: r.createdAt,
     note: NOTES[status],

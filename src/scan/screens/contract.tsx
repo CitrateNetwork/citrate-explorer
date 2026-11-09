@@ -198,7 +198,7 @@ function ContractView({ addr }: { addr: string }) {
         {tok ? (
           <div className="cx-stat"><div className="cx-stat-k">Token</div><div className="cx-stat-v" style={{ fontSize: 15 }}>{[tok.name, tok.symbol].filter(Boolean).join(" · ") || tok.standard}</div></div>
         ) : (
-          <div className="cx-stat"><div className="cx-stat-k">Match</div><div className="cx-stat-v" style={{ fontSize: 15 }}>{own.runtimeMatch ? `runtime ${own.runtimeMatch}${own.creationMatch ? `, creation ${own.creationMatch}` : ""}` : "none"}</div></div>
+          <div className="cx-stat"><div className="cx-stat-k">Match</div><div className="cx-stat-v" style={{ fontSize: 15 }}>{own.status === "legacy-unconfirmed" ? "not confirmed (legacy record)" : own.runtimeMatch ? `runtime ${own.runtimeMatch}${own.creationMatch ? `, creation ${own.creationMatch}` : ""}` : "none"}</div></div>
         )}
       </div>
 

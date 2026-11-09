@@ -65,9 +65,17 @@ export function displaySource(row: VerifiedRow): string | null {
   return files.map(([path, s]) => `// File: ${path}\n${s.content}`).join("\n\n");
 }
 
-/** One verified_contracts row as JSON: the shape src/lib/contract/v2Types.ts describes. */
+/**
+ * One verified_contracts row as JSON: the shape src/lib/contract/v2Types.ts describes.
+ * A legacy record (isLegacyRecord) carries no match types: its old ones were never checked
+ * against the code at the address now.
+ */
 export function recordJson(row: VerifiedRow) {
-  return { ...row, createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt) };
+  const createdAt = row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt);
+  if (isLegacyRecord(row)) {
+    return { ...row, matchType: null, runtimeMatch: null, creationMatch: null, legacy: true, verified: false, createdAt };
+  }
+  return { ...row, legacy: false, verified: row.matchType === "full", createdAt };
 }
 
 /** One contract_proxies row as JSON. */
