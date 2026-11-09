@@ -2,12 +2,12 @@
  * Verification v2 record shapes, as TYPES ONLY (EXP-S3).
  *
  * Verification v2 (EXP-S2) stores one append-only `verified_contracts` row per
- * passing match, plus `contract_proxies` links. It is not public yet, so this
- * branch carries only the shape of a record as JSON (camelCase columns, timestamps
- * as ISO strings). No store, worker or matching code lives here.
+ * passing match, plus `contract_proxies` links (src/lib/db/schema.ts). This is the
+ * shape of a record as JSON (camelCase columns, timestamps as ISO strings) that
+ * GET /api/contract/{a}/verified returns (src/lib/verify/read.ts verifiedResponse).
  *
- * `fromV2Record` (infoSources.ts) maps a record to ContractInfo. It is wired to a
- * route when v2 lands publicly (see createV2InfoSource).
+ * `fromV2Response` (infoSources.ts) maps a response to ContractInfo; the contract
+ * page reads it through createApiSourceV2.
  */
 
 /** One `verified_contracts` row as JSON. All text columns are nullable unless noted. */

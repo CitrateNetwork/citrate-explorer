@@ -3,12 +3,14 @@
  * verified-source facts only through `ContractInfoSource`, so the store behind it
  * can change without touching the UI.
  *
- *  - createApiSourceV1: today's GET /api/contract/{a}/source (Data source, Rule 7:
- *    the `contract_verifications` table via src/lib/verify/verifiedSource.ts).
- *    One file, no source map.
- *  - fromV2Response / createV2InfoSource: the verification v2 record shape
- *    (`verified_contracts` + `contract_proxies`), defined as types in v2Types.ts.
- *    Wired to a route when v2 lands publicly; until then the page uses v1.
+ *  - createApiSourceV2 (the contract page and the approval view): GET
+ *    /api/contract/{a}/verified, the verification v2 record (`verified_contracts` +
+ *    `contract_proxies`) mapped by fromV2Response: every source file, the deployed
+ *    source map, settings, the creation match.
+ *  - createApiSourceV1: the lean GET /api/contract/{a}/source lookup (one display
+ *    source, no source map), kept for callers that want the small shape (citrate-core's
+ *    get_verified_source tool). Since verification v2 it also reads `verified_contracts`
+ *    (src/lib/verify/verifiedSource.ts).
  */
 import type { Abi, Hex } from "viem";
 import { sourceIndexByIdFromNames } from "./sourceMap";
@@ -113,7 +115,7 @@ export function contractInfoFromV1(address: string, j: V1SourceJson): ContractIn
 /**
  * The same v1 record read in-process on the server (the agent, /api/agent/prepare):
  * `load` is getVerifiedSource from src/lib/verify/verifiedSource.ts. Data source
- * (Rule 7): the `contract_verifications` table. A failing lookup is "unavailable",
+ * (Rule 7): the `verified_contracts` table (verification v2, through engine.getVerifiedContract). A failing lookup is "unavailable",
  * never "unverified".
  */
 export function createStoreInfoSource(load: (address: string) => Promise<V1SourceJson>): ContractInfoSource {
@@ -214,4 +216,20 @@ export function createV2InfoSource(fetchRecord: (address: string) => Promise<Ver
       }
     },
   };
+}
+
+/**
+ * The contract page's source of verified facts: GET /api/contract/{a}/verified (the
+ * verification v2 record, src/app/api/contract/[addr]/verified/route.ts). Data source
+ * (Rule 7): the `verified_contracts` / `contract_proxies` tables for the address's live
+ * code. Any HTTP failure (rate limit, 5xx) or unreachable route is "unavailable".
+ */
+export function createApiSourceV2(opts: { fetch?: typeof fetch; baseUrl?: string } = {}): ContractInfoSource {
+  const f = opts.fetch ?? fetch;
+  const baseUrl = opts.baseUrl ?? "";
+  return createV2InfoSource(async (a) => {
+    const res = await f(`${baseUrl}/api/contract/${a}/verified`);
+    if (!res.ok) throw new Error(`verified record lookup failed (HTTP ${res.status})`);
+    return (await res.json()) as VerifiedContractResponseV2;
+  });
 }

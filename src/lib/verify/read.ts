@@ -54,3 +54,30 @@ export function displaySource(row: VerifiedRow): string | null {
   if (files.length === 1) return files[0][1].content;
   return files.map(([path, s]) => `// File: ${path}\n${s.content}`).join("\n\n");
 }
+
+/** One verified_contracts row as JSON: the shape src/lib/contract/v2Types.ts describes. */
+export function recordJson(row: VerifiedRow) {
+  return { ...row, createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt) };
+}
+
+/** One contract_proxies row as JSON. */
+export function proxyJson(row: ProxyRow) {
+  return { ...row, createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt) };
+}
+
+/**
+ * The record the contract page reads (GET /api/contract/{a}/verified): best match for the
+ * address's current code, the original of a similar match, and the latest proxy link.
+ * `storeAvailable` is false only when no database is configured; a failing RPC or query
+ * throws, so the caller answers 502 and the page says "unknown", never "unverified".
+ */
+export async function verifiedResponse(db: ChainDb | null, chain: ChainReader, address: string) {
+  if (!db) return { record: null, original: null, proxy: null, storeAvailable: false };
+  const r = await resolveVerified(db, chain, address);
+  return {
+    record: r?.row ? recordJson(r.row) : null,
+    original: r?.original ? recordJson(r.original) : null,
+    proxy: r?.proxy ? proxyJson(r.proxy) : null,
+    storeAvailable: true,
+  };
+}
