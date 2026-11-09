@@ -69,6 +69,7 @@ describe("/api/contract/[addr] verified badge (FWA-C12-05)", () => {
     const body = await res.json();
     expect(body.verification.verified).toBe(false);
     expect(body.verification.status).toBe("legacy-unconfirmed");
+    expect(body.verification.matchType).toBeNull();
   });
 
   it("a legacy pass row with null matchType is NOT verified (fail closed)", async () => {

@@ -33,6 +33,7 @@ describe("shapeVerifiedSource: records copied forward from the v1 store", () => 
     expect(v.verified).toBe(false);
     expect(v.status).toBe("partial-match");
     expect(v.note).toMatch(/not confirmed/i);
+    expect(v.matchType).toBeNull();
   });
 });
 
