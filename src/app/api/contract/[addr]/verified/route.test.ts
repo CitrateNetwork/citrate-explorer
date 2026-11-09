@@ -130,7 +130,7 @@ describe("GET /api/contract/{a}/verified (verification v2 record)", () => {
       legacySource: "contract FixtureCounter {}",
     });
     const info = await createApiSourceV2({ fetch: routeFetch }).load(FORGE.counter);
-    expect(info).toMatchObject({ status: "legacy-unconfirmed", verified: false, contractName: "FixtureCounter", creationMatch: null, deployedSourceMap: null });
+    expect(info).toMatchObject({ status: "legacy-unconfirmed", verified: false, matchType: null, runtimeMatch: null, contractName: "FixtureCounter", creationMatch: null, deployedSourceMap: null });
     expect(info.sources).toEqual([{ path: "FixtureCounter.sol", content: "contract FixtureCounter {}" }]);
   });
 

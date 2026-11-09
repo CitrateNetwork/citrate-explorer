@@ -21,6 +21,7 @@ const holder: { db: ChainDb | null; chain: ChainReader | null } = { db: null, ch
 vi.mock("@/lib/verify/deps", () => ({ verifyDeps: () => ({ db: holder.db, chain: holder.chain }) }));
 
 import { GET as verifyGuid } from "@/app/api/verify/[guid]/route";
+import { GET as contractRecord } from "@/app/api/contract/[addr]/verified/route";
 
 const f = loadFixture("forge-etherscan");
 const MIGRATION = readFileSync(join(__dirname, "..", "db", "migrations", "0006_verification_v2.sql"), "utf8");
@@ -91,6 +92,14 @@ describe("records copied forward from v1 are not verified on any machine-readabl
     expect(body.status).toBe("fail");
     expect(body.matchType).toBeNull();
     expect(body.message).toMatch(/not confirmed/i);
+  });
+
+  it("GET /api/contract/{a}/verified (the contract page's record): legacy, not verified, no match types; source kept", async () => {
+    const res = await contractRecord(new Request(`https://explorer.citrate.ai/api/contract/${FORGE.counter}/verified`, { headers: { "x-forwarded-for": "203.0.113.91" } }), {
+      params: Promise.resolve({ addr: FORGE.counter }),
+    });
+    const body = (await res.json()) as { record: Record<string, unknown> | null };
+    expect(body.record).toMatchObject({ legacy: true, verified: false, matchType: null, runtimeMatch: null, creationMatch: null, legacySource: "contract FixtureCounter {}" });
   });
 
   it("Sourcify GET /v2/contract: 404 not_found", async () => {

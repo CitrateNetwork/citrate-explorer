@@ -95,7 +95,7 @@ describe("ContractInfoSource: verification v2 record shape", () => {
   it("a record copied forward from the v1 store is never green, even when it was a full match there", () => {
     const legacy: VerifiedContractRecordV2 = { ...record, genesisHash: null, runtimeCodeHash: null, sourceFormat: "legacy", stdJsonInput: null, legacyGuid: "abc", legacySource: "contract Registry {}", creationMatch: null };
     const info = fromV2Response({ record: legacy, original: null, proxy: null, storeAvailable: true });
-    expect(info).toMatchObject({ status: "legacy-unconfirmed", verified: false });
+    expect(info).toMatchObject({ status: "legacy-unconfirmed", verified: false, matchType: null, runtimeMatch: null, creationMatch: null });
     expect(info.note).toMatch(/not confirmed/i);
     expect(info.sources).toEqual([{ path: "Registry.sol", content: "contract Registry {}" }]);
   });
