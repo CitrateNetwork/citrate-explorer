@@ -26,8 +26,8 @@ Environment=CITRATE_SOLC_CACHE_DIR=/var/cache/citratescan-solc
 CacheDirectory=citratescan-solc
 # Absolute paths: rpc-1 has node at /usr/bin/node. tsx comes from the checkout's
 # node_modules (pnpm install --frozen-lockfile), run by node directly (no pnpm, no PATH).
-# systemd puts the credential at /run/credentials/<unit>/db-ca.pem.
-ExecStart=/bin/sh -c 'DATABASE_CA_CERT="$(cat /run/credentials/citratescan-verify-worker.service/db-ca.pem)" exec /usr/bin/node /opt/citratescan/verify/node_modules/tsx/dist/cli.mjs scripts/verify/worker.ts'
+# %d is the unit's credentials directory (systemd >= 248); $$ passes a literal $ to the shell.
+ExecStart=/bin/sh -c 'DATABASE_CA_CERT="$$(cat %d/db-ca.pem)" exec /usr/bin/node /opt/citratescan/verify/node_modules/tsx/dist/cli.mjs scripts/verify/worker.ts'
 Restart=always
 RestartSec=5
 # Outer cap for the worker and its compile children together. Each child is also

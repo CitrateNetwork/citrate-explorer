@@ -251,9 +251,27 @@ export DATABASE_CA_CERT="$(doctl databases get-ca "$SRC" -o json | jq -r .certif
 4. **Deploy the web app.** Merge the release PR to `main`, then promote the Vercel production
    build. No new required env vars (`CITRATE_VERIFY_*` caps are optional, DEPLOY.md §1). The web
    app keeps connecting as `citratescan_web`.
-5. **Close the deploy-window gap.** Re-run the copy-forward against production as the owner, with
-   `op run` as in step 3.3: `op run --env-file=migrate.env -- sh -c 'sed -n … | psql "$DATABASE_URL"'`,
-   where the `sed` is the §2.6 command. It's idempotent. The dry run found `contract_verifications`
+5. **Close the deploy-window gap.** Re-run the copy-forward against production as the owner. Step
+   3.3 removed `migrate.env`, so write a new env file of `op://` references, in the libpq
+   variables psql reads. That way no URL or password reaches psql's argv:
+
+   ```bash
+   cat > copyforward.env <<'REFS'                    # references only, not secrets
+   PGHOST=op://citrate-infra/<citratescan_user item>/<host field>
+   PGPORT=op://citrate-infra/<citratescan_user item>/<port field>
+   PGUSER=op://citrate-infra/<citratescan_user item>/<username field>
+   PGPASSWORD=op://citrate-infra/<citratescan_user item>/<password field>
+   PGDATABASE=citratescan
+   PGSSLMODE=verify-full
+   REFS
+   doctl databases get-ca "$SRC" -o json | jq -r .certificate | base64 -d > prod-ca.pem
+   sed -n '/^-- Carry contract_verifications forward/,$p' src/lib/db/migrations/0006_verification_v2.sql \
+     | sed 's/^--> statement-breakpoint$//' \
+     | PGSSLROOTCERT=prod-ca.pem op run --env-file=copyforward.env -- psql -v ON_ERROR_STOP=1
+   rm copyforward.env prod-ca.pem
+   ```
+
+   It's idempotent. The dry run found `contract_verifications`
    empty in production, so this should insert 0 rows. If v1 rows appear before the release: a v1
    job still pending at migration time is a finished `fail` job ("resubmit"), and any carried-over
    guid polls as not confirmed.
@@ -266,31 +284,39 @@ export DATABASE_CA_CERT="$(doctl databases get-ca "$SRC" -o json | jq -r .certif
    sudo -u citratescan-verify git clone https://github.com/CitrateNetwork/citrate-explorer.git /opt/citratescan/verify
    sudo -u citratescan-verify git -C /opt/citratescan/verify checkout <merged main commit>
    # dev dependencies too: the unit runs node_modules/tsx directly
-   sudo -u citratescan-verify sh -c 'cd /opt/citratescan/verify && HOME=/tmp /usr/bin/pnpm install --frozen-lockfile'
+   # pnpm's store and home live inside the worker's own directory (no /tmp, no shared home)
+   sudo -u citratescan-verify sh -c 'cd /opt/citratescan/verify && printf ".home/\n.pnpm-store/\n" >> .git/info/exclude \
+     && HOME=/opt/citratescan/verify/.home /usr/bin/pnpm install --frozen-lockfile --store-dir /opt/citratescan/verify/.pnpm-store'
    # env: root:root 0600. DATABASE_URL for citratescan_verify (from the 1Password item of step 3.2),
    # NEXT_PUBLIC_CITRATE_RPC_URL, optional CITRATE_VERIFY_* caps. No CA here: the unit loads
    # /etc/citratescan/db-ca.pem (the indexer's file) as a credential.
    # Run on the Mac (op is there): the password goes through the pipe only. In the remote
    # shell, read and printf are builtins, so it never appears in a process's argv.
    HP=$(doctl databases connection "$SRC" -o json | jq -r '"\(.host):\(.port)"')
-   op read 'op://citrate-infra/CitrateScan DB citratescan_verify/password' | ssh rpc-1 "sudo HP=$HP sh -c '
+   op read 'op://citrate-infra/CitrateScan DB citratescan_verify/password' | ssh rpc-1 "sudo -n HP=$HP sh -c '
      umask 077; read -r pw
      printf \"DATABASE_URL=postgresql://citratescan_verify:%s@%s/citratescan\nNEXT_PUBLIC_CITRATE_RPC_URL=https://rpc.citrate.ai\n\" \"\$pw\" \"\$HP\" > /etc/citratescan/verify-worker.env'"
    # back on rpc-1:
    sudo chown root:root /etc/citratescan/verify-worker.env; sudo chmod 0600 /etc/citratescan/verify-worker.env
    sudo install -m 0644 /opt/citratescan/verify/deploy/verify-worker/citratescan-verify-worker.service /etc/systemd/system/
    sudo systemctl daemon-reload
-   # smoke (one job at most), with the unit's own user, env and credential:
+   # smoke (one job at most), with the unit's own user, env, credential and solc cache:
    sudo systemd-run --unit=citratescan-verify-smoke --wait --pipe -p User=citratescan-verify \
      -p EnvironmentFile=/etc/citratescan/verify-worker.env -p LoadCredential=db-ca.pem:/etc/citratescan/db-ca.pem \
+     -p CacheDirectory=citratescan-solc -p Environment=CITRATE_SOLC_CACHE_DIR=/var/cache/citratescan-solc \
      -p WorkingDirectory=/opt/citratescan/verify \
      /bin/sh -c 'DATABASE_CA_CERT="$(cat /run/credentials/citratescan-verify-smoke.service/db-ca.pem)" exec /usr/bin/node node_modules/tsx/dist/cli.mjs scripts/verify/worker.ts --once'
-   sudo systemctl enable --now citratescan-verify-worker.service
+   # start the real unit once and check it before enabling it at boot
+   sudo systemctl start citratescan-verify-worker.service
+   sleep 10; systemctl is-active citratescan-verify-worker.service    # expect "active"
+   sudo journalctl -u citratescan-verify-worker -n 30 --no-pager        # expect verify.* lines, no errors
+   sudo systemctl enable citratescan-verify-worker.service
    ```
 
    A password with URL-special characters must be percent-encoded in `DATABASE_URL` (DO's
    generated passwords are alphanumeric). The unit's `ExecStart` is `/usr/bin/node` (v20.20.2 on rpc-1) on the checkout's
-   `tsx`, so it needs no PATH, no pnpm and no home directory (`ProtectHome=true`). To update later:
+   `tsx`, so it needs no PATH, no pnpm and no home directory (`ProtectHome=true`). It reads the CA
+   from `%d/db-ca.pem`, the unit's credentials directory; the `%d` specifier needs systemd 248 or later. To update later:
    `git -C /opt/citratescan/verify checkout <commit>`, `pnpm install --frozen-lockfile` as
    `citratescan-verify`, then `systemctl restart citratescan-verify-worker`.
 
@@ -308,7 +334,9 @@ export DATABASE_CA_CERT="$(doctl databases get-ca "$SRC" -o json | jq -r .certif
    - `forge verify-contract --verifier custom --verifier-url https://explorer.citrate.ai/api …`
      on a test contract ends in `Pass - Verified`.
    - `citrate contract verify <addr> --build-info … --watch`, then `citrate contract verify-get <addr>`.
-   - `curl -s https://explorer.citrate.ai/api/contract/<addr>/verified | jq .record.matchType`.
+   - `curl -s https://explorer.citrate.ai/api/contract/<addr>/verified | jq '.record | {matchType, runtimeMatch, legacy, verified}'`:
+     a freshly verified contract shows `"full"`, `"full"`, `false`, `true`. A legacy record shows
+     `null`, `null`, `true`, `false`.
    - The contract page Code tab shows every source file and the source-map highlighting.
 
 ## 4. Rollback
@@ -369,3 +397,35 @@ It existed from 06:32 to 06:53 UTC.
   - the copy-forward re-run inserted 0 and 0 rows;
   - the real worker as `citratescan_verify` ran `--requeue-legacy` (queued 1), then `--once`
     (claimed it and finished it as `no_code`, since the synthetic address has no code), then idle.
+
+### Second dry run (2026-11-09, fork `citratescan-v2-dryrun2`, deleted)
+
+Fork `8bac98bb-52ed-4606-940e-1a5279e84c9c` (`db-s-1vcpu-1gb`, nyc3) of 0006 at `88437dd`, the final
+migration. The trusted source was added right after creation, and passwords stayed in a pgpass
+file. `citratescan_verify` was created before migrating. Synthetic v1 rows, fork only: a full-match
+row for a live contract (`0xaa918302…c906`), a standard-JSON row, one failed and one pending.
+
+- **Migration:** the ledger ends at 0006; 4 legacy jobs and 2 legacy records; 4 triggers enabled.
+  The grants match §2.6, including the web role's column INSERT on the eight request columns.
+- **Web role:**
+  - the real `enqueueJob` (node-postgres) succeeds, and the job is `pending` with 0 attempts;
+  - INSERT naming `status` or `verified_contract_id`, UPDATE on jobs, TRUNCATE, and INSERT into
+    records are all refused;
+  - a real `POST /api` `verifysourcecode` through a local dev server enqueued a job.
+- **Owner:** TRUNCATE, UPDATE and DELETE on records are refused by the triggers.
+- **Worker role:**
+  - INSERT on a record works; UPDATE/DELETE of records, TRUNCATE, UPDATE of `request`, DELETE of
+    jobs and `DISABLE TRIGGER` are refused;
+  - `--requeue-legacy` queued 1;
+  - `--once` claimed, released and retried jobs and wrote state. The requeued job finished as
+    `no_code`; a deliberately malformed probe job ended `gave_up` after 3 attempts.
+- **Copy-forward re-run:** 0 and 0 rows.
+- **Legacy doors**, on the local dev server as `citratescan_web` against the fork, for the
+  live-contract legacy row:
+  - `getsourcecode` returns the empty not-verified entry;
+  - `getabi` returns "Contract source code not verified";
+  - `checkverifystatus` and `/api/verify/{guid}` on the old guid: fail, not confirmed;
+  - Sourcify `/v2/contract`: 404; `/v2/verify/{id}`: completed, no match, `legacy_unconfirmed`.
+  - `/api/contract/{a}/verified` still carried `matchType: "full"` in the record. That is fixed
+    after this run (`legacy: true`, `verified: false`, null match types). The fix touches no
+    migration.
