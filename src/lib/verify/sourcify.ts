@@ -36,8 +36,13 @@ export function sourcifyMatch(m: string | null | undefined): "exact_match" | "ma
   return m === "full" ? "exact_match" : m === "partial" ? "match" : null;
 }
 
+/** A similar match carries another contract's source: at most "match", never exact. */
+function runtimeOf(row: VerifiedRow): "exact_match" | "match" | null {
+  return row.matchType === "similar" ? "match" : sourcifyMatch(row.runtimeMatch);
+}
+
 function overall(row: VerifiedRow): "exact_match" | "match" | null {
-  const r = sourcifyMatch(row.runtimeMatch);
+  const r = runtimeOf(row);
   const c = sourcifyMatch(row.creationMatch);
   if (r === "exact_match" || c === "exact_match") return "exact_match";
   return r ?? c;
@@ -80,7 +85,7 @@ function contractSummary(row: VerifiedRow) {
   return {
     match: overall(row),
     creationMatch: sourcifyMatch(row.creationMatch),
-    runtimeMatch: sourcifyMatch(row.runtimeMatch),
+    runtimeMatch: runtimeOf(row),
     chainId: String(row.chainId),
     address: getAddress(row.address),
     verifiedAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),

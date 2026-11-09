@@ -8,9 +8,16 @@ import { checkRateLimit } from "@/lib/api/ratelimit";
 import { PUBLIC_READ_BURST, PUBLIC_READ_PER_SEC, publicReadBucket } from "@/lib/api/publicRead";
 import { maxSourceBytes } from "./request";
 
-/** Largest request body accepted: the source cap, URL-encoded, plus form overhead. */
+/**
+ * The platform refuses function request bodies over 4.5 MB before our code runs, with
+ * a plain-text answer Etherscan clients cannot parse. Stay below it so an oversized
+ * submission gets an Etherscan-style JSON refusal.
+ */
+export const PLATFORM_BODY_CAP = 4_000_000;
+
+/** Largest request body accepted: the source cap, URL-encoded, plus form overhead, under the platform cap. */
 export function maxBodyBytes(): number {
-  return maxSourceBytes() * 3 + 64 * 1024;
+  return Math.min(maxSourceBytes() * 3 + 64 * 1024, PLATFORM_BODY_CAP);
 }
 
 export class BodyTooLarge extends Error {}

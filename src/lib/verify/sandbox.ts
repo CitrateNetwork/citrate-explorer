@@ -76,6 +76,9 @@ export function compileFile(
   return new Promise((resolve, reject) => {
     const child = fork(CHILD, [], {
       execArgv: [`--max-old-space-size=${limits.memoryMb}`],
+      // The child evaluates a downloaded compiler: it gets none of the worker's
+      // environment (DATABASE_URL, keys). It needs no variables to compile.
+      env: {},
       stdio: ["ignore", "ignore", "ignore", "ipc"],
       serialization: "json",
     });

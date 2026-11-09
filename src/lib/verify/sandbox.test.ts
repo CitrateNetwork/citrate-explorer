@@ -66,7 +66,9 @@ describe("sandboxed compile: the child gets no environment", () => {
     // A stand-in "soljson" that reports the child's environment instead of compiling.
     const dir = mkdtempSync(join(tmpdir(), "citrate-sandbox-env-"));
     const path = join(dir, "soljson-probe.js");
-    const js = `process.send({ ok: false, code: "crash", error: JSON.stringify(Object.keys(process.env).filter((k) => !k.startsWith("NODE_CHANNEL"))) });`;
+    // Node's IPC channel variables and macOS's per-process __CF_USER_TEXT_ENCODING are set
+    // by the runtime and the OS, not inherited from the worker.
+    const js = `process.send({ ok: false, code: "crash", error: JSON.stringify(Object.keys(process.env).filter((k) => !k.startsWith("NODE_CHANNEL") && k !== "__CF_USER_TEXT_ENCODING")) });`;
     writeFileSync(path, js);
     const prev = { db: process.env.DATABASE_URL, s: process.env.CITRATE_SANDBOX_PROBE };
     process.env.DATABASE_URL = "postgresql://probe";
