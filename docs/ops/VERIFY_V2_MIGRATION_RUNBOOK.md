@@ -1,5 +1,5 @@
 ---
-created: 2026-11-08T22:00:00Z
+created: 2026-11-09T02:51:14Z
 branch: feat/verification-v2-r2
 author: Claude Opus 5.5 (verify v2 lane) for Larry Klosowski (owner)
 status: active
@@ -20,8 +20,10 @@ Where things live:
 | Web role | `citratescan_web` (Vercel app). Default privileges give it SELECT on new tables |
 | Worker role (new) | `citratescan_verify`: the verify worker. Not the table owner |
 | Web app | Vercel project for `explorer.citrate.ai` |
-| Indexer | rpc-1, `/opt/citratescan`, systemd `citratescan-indexer` |
-| Verify worker (new) | rpc-1, same checkout, systemd `citratescan-verify-worker` (`deploy/verify-worker/`), Unix user `citratescan-verify` |
+| Indexer | rpc-1, systemd `citratescan-indexer`: `WorkingDirectory=/root/citrate-explorer` at `f5c1ba3` (2026-11-03), `EnvironmentFile=/etc/citratescan-indexer.env`, CA from `/etc/citratescan/db-ca.pem`, runs `/usr/bin/pnpm --silent indexer` |
+| Lag guard | rpc-1, `/opt/citratescan/lag-guard` |
+| Verify worker (new) | rpc-1, its own checkout `/opt/citratescan/verify` owned by Unix user `citratescan-verify`, systemd `citratescan-verify-worker` (`deploy/verify-worker/`) |
+| Secrets | 1Password vault `citrate-infra` |
 
 In the dry run, never touch the source cluster's users, firewall (trusted sources) or settings.
 The only cluster the dry run creates or deletes is its fork. The production steps in §3 add one
@@ -35,15 +37,18 @@ Migration 0006 only adds things:
 - one plpgsql function `verification_append_only()` and four triggers on `verified_contracts` and
   `contract_proxies`: `BEFORE UPDATE OR DELETE` per row, and `BEFORE TRUNCATE` per statement;
 - privileges on the four new tables, for whichever of these roles exist: `citratescan_web` gets
-  SELECT on jobs, records and proxies, and INSERT on jobs. `citratescan_verify` gets SELECT and
+  SELECT on jobs, records and proxies, and INSERT on a job's eight request columns only (status
+  and outcome take their defaults). `citratescan_verify` gets SELECT and
   INSERT on jobs, records and proxies; UPDATE on the job-state columns only; SELECT, INSERT and
   UPDATE on `verification_state`; and SELECT on `transactions` and `receipts`. Everything else on
   the new tables is revoked from both roles first, whatever the default privileges say;
 - a copy-forward from `contract_verifications`: every old guid becomes a finished job
   (`origin = 'legacy'`), and every passing row becomes a legacy record in `verified_contracts`
   (`legacy_guid`, `legacy_source`, null genesis and code hash). Both inserts use
-  `ON CONFLICT ("id") DO NOTHING`, so you can run them again safely. The app shows legacy records
-  as "legacy, not confirmed for current code", never as verified.
+  `ON CONFLICT ("id") DO NOTHING`, so you can run them again safely. Legacy records are not
+  verified anywhere: the Etherscan and Sourcify APIs answer as for an unverified contract, an old
+  guid polls as a failure ("not confirmed for the current code; resubmit"), and the contract
+  page shows the old source labelled "legacy, not confirmed for current code".
 
 The migration has no `ALTER`, `DROP`, `UPDATE` or `DELETE` against existing tables, and leaves
 `contract_verifications` in place untouched. The drizzle migrator runs every pending migration in
@@ -83,13 +88,19 @@ doctl databases get-ca "$FORK_ID" -o json | jq -r .certificate | base64 -d > /tm
 export PGSSLROOTCERT=/tmp/fork-ca.pem PGSSLMODE=verify-full
 ```
 
-Keep credentials in variables (or a 0600 file), and never echo them:
+Keep passwords out of argv and out of the terminal. psql reads them from a 0600 pgpass file,
+and the connection URIs below carry no password:
 
 ```bash
-HOSTPORT=$(doctl databases connection "$FORK_ID" -o json | jq -r '"\(.host):\(.port)"')
-uri() { echo "postgresql://$1:$(doctl databases user get "$FORK_ID" "$1" -o json --show | jq -r '.[0].password // .password')@$HOSTPORT/citratescan"; }
-export FORK_ADMIN_URI=$(doctl databases connection "$FORK_ID" -o json --show | jq -r .uri | sed 's#/defaultdb?.*#/citratescan#')
-export OWNER_URI=$(uri citratescan_user) WEB_URI=$(uri citratescan_web)
+HOST=$(doctl databases connection "$FORK_ID" -o json | jq -r .host); PORT=$(doctl databases connection "$FORK_ID" -o json | jq -r .port)
+export PGPASSFILE=$(mktemp); chmod 600 "$PGPASSFILE"
+addpw() { doctl databases user get "$FORK_ID" "$1" -o json --show | jq -r --arg h "$HOST" --arg p "$PORT" --arg u "$1" '"\($h):\($p):citratescan:\($u):" + (.[0].password // .password)' >> "$PGPASSFILE"; }
+for u in doadmin citratescan_user citratescan_web; do addpw $u; done
+uri() { echo "postgresql://$1@$HOST:$PORT/citratescan"; }   # no password: psql reads PGPASSFILE
+export FORK_ADMIN_URI=$(uri doadmin) OWNER_URI=$(uri citratescan_user) WEB_URI=$(uri citratescan_web)
+# For node (scripts/db-migrate.mjs, the worker): a URL with the password, built into the
+# environment, never into argv. node-postgres does not read PGPASSFILE.
+pwurl() { awk -F: -v u="$1" '$4==u {print "postgresql://" u ":" $5 "@" $1 ":" $2 "/citratescan"}' "$PGPASSFILE"; }
 ```
 
 ### 2.3 Before: inventory
@@ -110,7 +121,7 @@ Stop if the newest `__drizzle_migrations.created_at` is not `1793757797181` (000
 
 ```bash
 doctl databases user create "$FORK_ID" citratescan_verify > /dev/null    # the FORK
-export VERIFY_URI=$(uri citratescan_verify)
+addpw citratescan_verify; export VERIFY_URI=$(uri citratescan_verify)
 ```
 
 The role must exist before you migrate. The migration grants its privileges only if the role is
@@ -120,7 +131,7 @@ already there.
 
 ```bash
 cd <this repo at the release commit>
-DATABASE_URL="$OWNER_URI" DATABASE_CA_CERT="$(cat /tmp/fork-ca.pem)" node scripts/db-migrate.mjs
+DATABASE_URL="$(pwurl citratescan_user)" DATABASE_CA_CERT="$(cat /tmp/fork-ca.pem)" node scripts/db-migrate.mjs
 # prints the table list: the four new tables must appear
 ```
 
@@ -149,7 +160,7 @@ The grants must read exactly:
 | citratescan_verify | verification_state | INSERT, SELECT, UPDATE |
 | citratescan_verify | receipts, transactions | SELECT |
 | citratescan_web | contract_proxies, verified_contracts | SELECT |
-| citratescan_web | verification_jobs | INSERT, SELECT |
+| citratescan_web | verification_jobs | SELECT (plus column INSERT on the eight request columns: id, kind, origin, chain_id, genesis_hash, address, request, source_hash) |
 | citratescan_web | receipts, transactions | SELECT (already there) |
 
 Probe each role. Every statement runs in a rolled-back transaction:
@@ -178,7 +189,7 @@ sed -n '/^-- Carry contract_verifications forward/,$p' src/lib/db/migrations/000
 Then run the real worker as `citratescan_verify` against the fork. It reads the public RPC only:
 
 ```bash
-DATABASE_URL="$VERIFY_URI" DATABASE_CA_CERT="$(cat /tmp/fork-ca.pem)" NEXT_PUBLIC_CITRATE_RPC_URL=https://rpc.citrate.ai \
+DATABASE_URL="$(pwurl citratescan_verify)" DATABASE_CA_CERT="$(cat /tmp/fork-ca.pem)" NEXT_PUBLIC_CITRATE_RPC_URL=https://rpc.citrate.ai \
   npx tsx scripts/verify/worker.ts --requeue-legacy        # then --once until it logs "idle"
 ```
 
@@ -188,51 +199,111 @@ DATABASE_URL="$VERIFY_URI" DATABASE_CA_CERT="$(cat /tmp/fork-ca.pem)" NEXT_PUBLI
 doctl databases get "$FORK_ID" -o json | jq -r '.[0].name // .name'   # must print $FORK_NAME
 [ "$FORK_ID" != "$SRC" ] && doctl databases delete "$FORK_ID" --force
 doctl databases list                                               # only citrate-comms-db remains
-rm -f /tmp/fork-ca.pem; unset FORK_ADMIN_URI OWNER_URI WEB_URI VERIFY_URI
+rm -f /tmp/fork-ca.pem "$PGPASSFILE"; unset PGPASSFILE FORK_ADMIN_URI OWNER_URI WEB_URI VERIFY_URI
 ```
 
 ## 3. Production (OWNER OK; after a clean dry run)
 
-Order matters: database first, then web, then worker.
+Order matters: database first, then web, then worker. Set once:
 
-1. **Backup.** Take a manual backup of `citrate-comms-db` (DO control panel), or note the latest
-   automatic backup's timestamp. That is the restore point.
-2. **Worker role.** `doctl databases user create 3d4c6713-5987-404c-8ea5-e58afa94adad citratescan_verify`.
-   Store its password in 1Password, not in a file or shell history. This is the one change to the
-   source cluster's users, and it must happen before step 3.3.
-3. **Migrate.** From a machine in the cluster's trusted sources, as `citratescan_user`, with
-   `DATABASE_URL` and `DATABASE_CA_CERT` for production (CA:
-   `doctl databases get-ca <SRC>`), run `node scripts/db-migrate.mjs` from the release commit.
-   Re-run the step 2.6 count, trigger and grant queries against production, and check the grants
-   match the table. No manual grants are needed.
-   - The live indexer on rpc-1 keeps running: it never reads or writes the new tables.
+```bash
+export SRC=3d4c6713-5987-404c-8ea5-e58afa94adad
+export DATABASE_CA_CERT="$(doctl databases get-ca "$SRC" -o json | jq -r .certificate | base64 -d)"   # public, not secret
+```
+
+1. **Restore point.** DigitalOcean managed Postgres has no on-demand backup. It keeps daily
+   backups plus point-in-time recovery (PITR) for the retention window, and a restore always
+   creates a new cluster. Note the current UTC time just before step 3.3 (`date -u`). That time is
+   the restore point, used with
+   `doctl databases fork <name> --restore-from-cluster-id "$SRC" --restore-from-timestamp "<YYYY-MM-DD HH:MM:SS +0000 UTC>"`.
+   If you want a standing copy anyway, fork the cluster right before migrating (§2.1 steps,
+   delete it afterwards).
+2. **Worker role.** Create it, and store the password straight into 1Password without it touching
+   the terminal, argv or shell history:
+
+   ```bash
+   T=$(mktemp); chmod 600 "$T"
+   doctl databases user create "$SRC" citratescan_verify -o json --show \
+     | jq '{title: "CitrateScan DB citratescan_verify", category: "DATABASE",
+            fields: [{id: "username", type: "STRING", value: (.[0].name // .name)},
+                     {id: "password", type: "CONCEALED", value: (.[0].password // .password)},
+                     {id: "database", type: "STRING", value: "citratescan"}]}' > "$T"
+   op item create --vault citrate-infra --template "$T" > /dev/null
+   rm -f "$T"
+   ```
+
+   This is the one change to the source cluster's users. It must happen before step 3.3.
+3. **Migrate.** From a machine in the cluster's trusted sources, as `citratescan_user`. The URL
+   comes from 1Password through `op run`, so it never appears in argv or the terminal. Use the
+   `citrate-infra` item that holds the `citratescan_user` connection; confirm its name with
+   `op item list --vault citrate-infra`.
+
+   ```bash
+   printf 'DATABASE_URL=op://citrate-infra/<citratescan_user item>/<url field>\n' > migrate.env   # a reference, not a secret
+   op run --env-file=migrate.env -- node scripts/db-migrate.mjs     # from the release commit
+   rm migrate.env
+   ```
+
+   Re-run the §2.6 count, trigger and grant queries against production, through a pgpass file as
+   in §2.2, and check the grants match the table. No manual grants are needed.
+   - The live indexer keeps running: it never reads or writes the new tables.
    - The live v1 web app keeps running too, still on `contract_verifications`.
 4. **Deploy the web app.** Merge the release PR to `main`, then promote the Vercel production
    build. No new required env vars (`CITRATE_VERIFY_*` caps are optional, DEPLOY.md §1). The web
    app keeps connecting as `citratescan_web`.
-5. **Close the deploy-window gap.** Re-run the copy-forward against production as the owner (the
-   `sed … | psql` command in step 2.6). It's idempotent. The dry run found `contract_verifications`
-   empty in production, so this is expected to insert 0 rows. If v1 rows appear before the
-   release, one limit applies: a v1 job still pending at migration time is already a finished
-   `fail` job ("resubmit"). If it passed in v1 during the window, the re-run adds its legacy
-   record, but polling that guid still says fail.
-6. **Verify worker on rpc-1.**
-   - `sudo useradd --system --no-create-home --shell /usr/sbin/nologin citratescan-verify`.
-   - Update `/opt/citratescan/app` to the release commit and run `pnpm install --frozen-lockfile`.
-     The indexer uses the same checkout: compare its running commit to the release commit first,
-     and restart `citratescan-indexer` only if you mean to deploy its changes.
-   - Write `/etc/citratescan/verify-worker.env` (root, 0600). It holds `DATABASE_URL` for
-     **`citratescan_verify`**, never `citratescan_user`, plus `DATABASE_CA_CERT`,
-     `NEXT_PUBLIC_CITRATE_RPC_URL` and any `CITRATE_VERIFY_*` caps.
-   - Smoke, with the env never on a command line:
-     `sudo systemd-run --wait --pipe -p User=citratescan-verify -p EnvironmentFile=/etc/citratescan/verify-worker.env -p WorkingDirectory=/opt/citratescan/app /usr/bin/env pnpm verify:worker --once`.
-   - Install and enable `deploy/verify-worker/citratescan-verify-worker.service` (DEPLOY.md §4b).
-     It runs as `citratescan-verify`. `pnpm` and `node` must be on systemd's PATH, or use absolute
-     paths in `ExecStart`.
-7. **Re-verify legacy records (required).** `pnpm verify:worker --requeue-legacy` as the worker. It
+5. **Close the deploy-window gap.** Re-run the copy-forward against production as the owner, with
+   `op run` as in step 3.3: `op run --env-file=migrate.env -- sh -c 'sed -n … | psql "$DATABASE_URL"'`,
+   where the `sed` is the §2.6 command. It's idempotent. The dry run found `contract_verifications`
+   empty in production, so this should insert 0 rows. If v1 rows appear before the release: a v1
+   job still pending at migration time is a finished `fail` job ("resubmit"), and any carried-over
+   guid polls as not confirmed.
+6. **Verify worker on rpc-1.** The worker gets its own checkout. The indexer's stays as it is (see
+   "The indexer" below).
+
+   ```bash
+   sudo useradd --system --no-create-home --shell /usr/sbin/nologin citratescan-verify
+   sudo install -d -o citratescan-verify -g citratescan-verify -m 0750 /opt/citratescan/verify
+   sudo -u citratescan-verify git clone https://github.com/CitrateNetwork/citrate-explorer.git /opt/citratescan/verify
+   sudo -u citratescan-verify git -C /opt/citratescan/verify checkout <merged main commit>
+   # dev dependencies too: the unit runs node_modules/tsx directly
+   sudo -u citratescan-verify sh -c 'cd /opt/citratescan/verify && HOME=/tmp /usr/bin/pnpm install --frozen-lockfile'
+   # env: root:root 0600. DATABASE_URL for citratescan_verify (from the 1Password item of step 3.2),
+   # NEXT_PUBLIC_CITRATE_RPC_URL, optional CITRATE_VERIFY_* caps. No CA here: the unit loads
+   # /etc/citratescan/db-ca.pem (the indexer's file) as a credential.
+   # Run on the Mac (op is there): the password goes through the pipe only. In the remote
+   # shell, read and printf are builtins, so it never appears in a process's argv.
+   HP=$(doctl databases connection "$SRC" -o json | jq -r '"\(.host):\(.port)"')
+   op read 'op://citrate-infra/CitrateScan DB citratescan_verify/password' | ssh rpc-1 "sudo HP=$HP sh -c '
+     umask 077; read -r pw
+     printf \"DATABASE_URL=postgresql://citratescan_verify:%s@%s/citratescan\nNEXT_PUBLIC_CITRATE_RPC_URL=https://rpc.citrate.ai\n\" \"\$pw\" \"\$HP\" > /etc/citratescan/verify-worker.env'"
+   # back on rpc-1:
+   sudo chown root:root /etc/citratescan/verify-worker.env; sudo chmod 0600 /etc/citratescan/verify-worker.env
+   sudo install -m 0644 /opt/citratescan/verify/deploy/verify-worker/citratescan-verify-worker.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   # smoke (one job at most), with the unit's own user, env and credential:
+   sudo systemd-run --unit=citratescan-verify-smoke --wait --pipe -p User=citratescan-verify \
+     -p EnvironmentFile=/etc/citratescan/verify-worker.env -p LoadCredential=db-ca.pem:/etc/citratescan/db-ca.pem \
+     -p WorkingDirectory=/opt/citratescan/verify \
+     /bin/sh -c 'DATABASE_CA_CERT="$(cat /run/credentials/citratescan-verify-smoke.service/db-ca.pem)" exec /usr/bin/node node_modules/tsx/dist/cli.mjs scripts/verify/worker.ts --once'
+   sudo systemctl enable --now citratescan-verify-worker.service
+   ```
+
+   A password with URL-special characters must be percent-encoded in `DATABASE_URL` (DO's
+   generated passwords are alphanumeric). The unit's `ExecStart` is `/usr/bin/node` (v20.20.2 on rpc-1) on the checkout's
+   `tsx`, so it needs no PATH, no pnpm and no home directory (`ProtectHome=true`). To update later:
+   `git -C /opt/citratescan/verify checkout <commit>`, `pnpm install --frozen-lockfile` as
+   `citratescan-verify`, then `systemctl restart citratescan-verify-worker`.
+
+   **The indexer.** It runs from `/root/citrate-explorer` at `f5c1ba3`. Between `f5c1ba3` and this
+   release nothing under `src/lib/indexer` or `scripts/indexer` changes, and migration 0006 adds
+   nothing it reads. So it does **not** move for this release. Leave
+   `citratescan-indexer` and `/opt/citratescan/lag-guard` untouched. Move the indexer to current
+   `main` later, in its own window and by its own runbook, once a release changes indexer code
+   (the r1007 indexer work). Never point the indexer and the worker at the same checkout.
+7. **Re-verify legacy records (required).** Run once as the worker, through its unit's
+   environment: the step 3.6 `systemd-run` command with `--requeue-legacy` in place of `--once`. It
    queues every legacy record that has standard JSON source for re-verification against the
-   current chain, and marks the rest `not-standard-json`. Until then, legacy records are shown only
-   as not confirmed.
+   current chain, and marks the rest `not-standard-json`.
 8. **Smoke.**
    - `forge verify-contract --verifier custom --verifier-url https://explorer.citrate.ai/api …`
      on a test contract ends in `Pass - Verified`.
@@ -258,8 +329,9 @@ Order matters: database first, then web, then worker.
   ```
 
   Dropping the tables removes their triggers and grants. `citratescan_verify` can stay; it then
-  owns nothing and can read nothing. A full restore to the step 3.1 backup is the last resort. It
-  would also roll back indexer writes and the other database on the cluster.
+  owns nothing and can read nothing. The last resort is a PITR fork at the step 3.1 time. It is a
+  new cluster, so the app and indexer would have to be repointed to it, and it would lose
+  indexer writes made after that time.
 
 ## 5. Neon references (noted, not changed)
 

@@ -12,14 +12,22 @@ Type=simple
 # verification tables.
 User=citratescan-verify
 Group=citratescan-verify
-WorkingDirectory=/opt/citratescan/app
-# DATABASE_URL, DATABASE_CA_CERT, NEXT_PUBLIC_CITRATE_RPC_URL, CITRATE_VERIFY_* (see DEPLOY.md §4b).
+# Its own checkout, owned by citratescan-verify, separate from the indexer's
+# (docs/ops/VERIFY_V2_MIGRATION_RUNBOOK.md §3.6).
+WorkingDirectory=/opt/citratescan/verify
+# DATABASE_URL (role citratescan_verify), NEXT_PUBLIC_CITRATE_RPC_URL, CITRATE_VERIFY_*.
+# Read by systemd as root; keep it root:root 0600.
 EnvironmentFile=/etc/citratescan/verify-worker.env
+# The cluster CA, handed to the service as a credential it can read (the same file the
+# indexer uses), then exported as DATABASE_CA_CERT.
+LoadCredential=db-ca.pem:/etc/citratescan/db-ca.pem
 Environment=NODE_ENV=production
 Environment=CITRATE_SOLC_CACHE_DIR=/var/cache/citratescan-solc
 CacheDirectory=citratescan-solc
-# If node/pnpm are not on systemd's PATH (e.g. nvm), use absolute paths.
-ExecStart=/usr/bin/env pnpm verify:worker
+# Absolute paths: rpc-1 has node at /usr/bin/node. tsx comes from the checkout's
+# node_modules (pnpm install --frozen-lockfile), run by node directly (no pnpm, no PATH).
+# systemd puts the credential at /run/credentials/<unit>/db-ca.pem.
+ExecStart=/bin/sh -c 'DATABASE_CA_CERT="$(cat /run/credentials/citratescan-verify-worker.service/db-ca.pem)" exec /usr/bin/node /opt/citratescan/verify/node_modules/tsx/dist/cli.mjs scripts/verify/worker.ts'
 Restart=always
 RestartSec=5
 # Outer cap for the worker and its compile children together. Each child is also

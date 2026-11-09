@@ -212,15 +212,12 @@ against `list.json`'s keccak256), matches the result against the chain, and appe
   verification tables; migration 0006 grants it exactly what it needs (and `citratescan_web` read
   plus enqueue). Create the role before migrating. The unit runs as the unprivileged system user
   `citratescan-verify`. Steps: docs/ops/VERIFY_V2_MIGRATION_RUNBOOK.md.
-- **Run it** on the indexer host, next to the indexer, with `DATABASE_URL` for
-  `citratescan_verify`, and the same `DATABASE_CA_CERT` and `NEXT_PUBLIC_CITRATE_RPC_URL`:
-
-  ```bash
-  pnpm verify:worker --once          # smoke: process at most one job, then exit
-  sudo install -m 0644 deploy/verify-worker/citratescan-verify-worker.service /etc/systemd/system/
-  sudo install -d -m 0750 /etc/citratescan   # put the env in /etc/citratescan/verify-worker.env (0600)
-  sudo systemctl daemon-reload && sudo systemctl enable --now citratescan-verify-worker.service
-  ```
+- **Run it** on the indexer host, from its own checkout `/opt/citratescan/verify` (owned by
+  `citratescan-verify`, separate from the indexer's), with `DATABASE_URL` for `citratescan_verify`
+  in `/etc/citratescan/verify-worker.env` and the cluster CA at `/etc/citratescan/db-ca.pem`
+  (passed to the unit with `LoadCredential`). The unit runs `/usr/bin/node` on the checkout's
+  `tsx` directly, so install dev dependencies too (`pnpm install --frozen-lockfile`). Exact steps,
+  including the smoke run: docs/ops/VERIFY_V2_MIGRATION_RUNBOOK.md §3.6.
 
   The unit sets `MemoryMax=3G` for the worker plus its children. Keep it above
   `CITRATE_VERIFY_COMPILE_MEMORY_MB`. One worker is enough; more can share the queue
