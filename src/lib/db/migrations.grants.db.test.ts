@@ -4,6 +4,8 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { join } from "node:path";
 import * as schema from "./schema";
+import { enqueueJob } from "@/lib/verify/store";
+import type { ChainDb } from "@/lib/indexer/types";
 
 /**
  * Migration 0006 sets the verification tables' privileges itself, for the roles
@@ -18,6 +20,7 @@ const PRIVS = ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "TRIGGER", "R
 
 describe("migration 0006 privileges", () => {
   let client: PGlite;
+  let db: ReturnType<typeof drizzle>;
   const has = async (role: string, table: string, priv: string) =>
     (await client.query<{ ok: boolean }>(`select has_table_privilege($1, $2, $3) as ok`, [role, `public.${table}`, priv])).rows[0].ok;
   const col = async (role: string, table: string, column: string, priv: string) =>
@@ -33,7 +36,8 @@ describe("migration 0006 privileges", () => {
     // As on production: default privileges hand the web role SELECT on new tables.
     await client.exec(`create role citratescan_web; create role citratescan_verify;
       alter default privileges in schema public grant select on tables to citratescan_web;`);
-    await migrate(drizzle(client, { schema }), { migrationsFolder: join(__dirname, "migrations") });
+    db = drizzle(client, { schema });
+    await migrate(db, { migrationsFolder: join(__dirname, "migrations") });
   });
   afterAll(async () => client.close());
 
@@ -62,6 +66,18 @@ describe("migration 0006 privileges", () => {
     }
     const { rows } = await client.query<{ id: string; status: string }>("select id, status from verification_jobs order by id");
     expect(rows).toEqual([{ id: "w1", status: "pending" }]);
+  });
+
+  it("the web app's own enqueue (store.enqueueJob) works as the web role", async () => {
+    await client.exec("set role citratescan_web");
+    let id: string;
+    try {
+      id = await enqueueJob(db as unknown as ChainDb, { kind: "verify", origin: "etherscan", chainId: 40204, genesisHash: null, address: "0x02", request: { a: 1 } });
+    } finally {
+      await client.exec("reset role");
+    }
+    const { rows } = await client.query<{ status: string; attempts: number; request: string }>("select status, attempts, request from verification_jobs where id = $1", [id]);
+    expect(rows).toEqual([{ status: "pending", attempts: 0, request: '{"a":1}' }]);
   });
 
   it("the worker role appends records and moves job state, but cannot edit, delete or empty anything", async () => {
