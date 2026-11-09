@@ -117,6 +117,20 @@ export function sourceHash(input: StdJsonInput): string {
   return createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
 
+/**
+ * Constructor arguments from either spelling. forge, the Citrate CLI and the SDKs send both
+ * with the same value; hardhat-verify sends only `constructorArguements`. An empty field
+ * counts as absent, and two different non-empty values are refused rather than guessed.
+ */
+function constructorArgsOf(p: URLSearchParams): string | null {
+  const a = optHex(p.get("constructorArguements"), "constructorArguements");
+  const b = optHex(p.get("constructorArguments"), "constructorArguments");
+  if (a !== null && b !== null && a !== b) {
+    throw new RequestError("constructorArguements and constructorArguments differ; send one value");
+  }
+  return a ?? b;
+}
+
 /** Etherscan form fields -> request. Accepts both `constructorArguements` (Etherscan's spelling) and `constructorArguments`. */
 export function fromEtherscanForm(p: URLSearchParams): VerifyRequest {
   const addr = address(p.get("contractaddress") ?? p.get("address"), "contractaddress");
@@ -124,7 +138,7 @@ export function fromEtherscanForm(p: URLSearchParams): VerifyRequest {
   const compilerVersion = version(p.get("compilerversion"));
   const source = p.get("sourceCode") ?? p.get("sourcecode");
   if (!source) throw new RequestError("sourceCode is required");
-  const constructorArgs = optHex(p.get("constructorArguements") ?? p.get("constructorArguments"), "constructorArguments");
+  const constructorArgs = constructorArgsOf(p);
   const libraries: Record<string, string> = {};
   for (let i = 1; i <= 10; i++) {
     const name = p.get(`libraryname${i}`);
