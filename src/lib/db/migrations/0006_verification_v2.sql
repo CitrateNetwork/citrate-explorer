@@ -97,7 +97,7 @@ CREATE TRIGGER "contract_proxies_no_truncate" BEFORE TRUNCATE ON "contract_proxi
 -- Privileges for the production roles, whatever the default privileges say. Roles that
 -- do not exist here (dev, CI) are skipped. Neither role owns these tables, so neither
 -- can disable the triggers above.
---   citratescan_web    (the web app): reads; only enqueues jobs.
+--   citratescan_web    (the web app): reads; only enqueues jobs (request columns only).
 --   citratescan_verify (the verify worker): appends records, moves job state, reads the
 --                      indexer's creations. Never edits, deletes or empties records.
 DO $$
@@ -105,7 +105,8 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'citratescan_web') THEN
     REVOKE ALL ON "verification_jobs", "verified_contracts", "contract_proxies", "verification_state" FROM "citratescan_web";
     GRANT SELECT ON "verification_jobs", "verified_contracts", "contract_proxies" TO "citratescan_web";
-    GRANT INSERT ON "verification_jobs" TO "citratescan_web";
+    -- Only the request columns: a job's status and outcome take their defaults, set by the worker.
+    GRANT INSERT ("id", "kind", "origin", "chain_id", "genesis_hash", "address", "request", "source_hash") ON "verification_jobs" TO "citratescan_web";
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'citratescan_verify') THEN
     REVOKE ALL ON "verification_jobs", "verified_contracts", "contract_proxies", "verification_state" FROM "citratescan_verify";
