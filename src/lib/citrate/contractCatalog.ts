@@ -47,6 +47,7 @@ const CATALOG: Record<string, CatalogEntry> = {
   ComputePoolTraining: { category: "Compute / GPU-share", purpose: "Compute pool specialized for model training / LoRA fine-tuning jobs." },
   ComputePricingOracle: { category: "Compute / GPU-share", purpose: "On-chain pricing oracle for compute (per-token / per-GPU-hour rates)." },
   BulkComputeGateway: { category: "Compute / GPU-share", purpose: "Batched dispatch gateway for large compute jobs." },
+  FederatedRoundLedger: { category: "Compute / GPU-share", purpose: "On-chain record of a cluster-scoped federated-learning round: commits participant, input, output and merged-adapter roots, accepted after a challenge window unless proven wrong on chain." },
   // Learning / Education
   LearningPool: { category: "Learning / Education", purpose: "Pooled incentives for the learning/education stack." },
   LearningCycleManager: { category: "Learning / Education", purpose: "Orchestrates learning cycles (rounds of training/evaluation)." },
@@ -62,8 +63,14 @@ const CATALOG: Record<string, CatalogEntry> = {
   TestnetFarmingAccounting: { category: "Governance / Treasury", purpose: "Accounting of testnet farming rewards." },
   BudgetAllocation: { category: "Governance / Treasury", purpose: "Allocates budget across programs." },
   CashoutRequest: { category: "Governance / Treasury", purpose: "Handles cashout / withdrawal requests." },
+  GovernanceTimelock: { category: "Governance / Treasury", purpose: "GOVERNANCE: an OpenZeppelin TimelockController that queues and executes protocol governance operations after its minimum delay." },
+  GovernanceMultisig: { category: "Governance / Treasury", purpose: "m-of-n MultisigProposer that is the GovernanceTimelock's proposer, executor and canceller; each schedule, execute or cancel runs once enough owners approve it." },
+  GuardianTimelock: { category: "Governance / Treasury", purpose: "GUARDIAN: an OpenZeppelin TimelockController for the guardian council, which can veto queued GOVERNANCE operations through the GuardianCanceller." },
+  GuardianMultisig: { category: "Governance / Treasury", purpose: "m-of-n MultisigProposer that is the GuardianTimelock's proposer, executor and canceller." },
+  GuardianCanceller: { category: "Governance / Treasury", purpose: "Holds the canceller role on the GovernanceTimelock so the guardian can cancel a queued GOVERNANCE operation, except one that only removes or replaces the guardian." },
+  TeamVesting_team_1: { category: "Governance / Treasury", purpose: "OpenZeppelin VestingWalletCliff holding team SALT: nothing vests before the cliff, then linearly; release() pays native SALT to the beneficiary." },
+  PatronageLedger: { category: "Governance / Treasury", purpose: "Cooperative patronage rail: non-transferable patronage units (compute x data quality) and the patronage-dividend accumulator. Carries no votes." },
   // Staking / Economic security
-  LiquidStakingPool: { category: "Staking / Economic security", purpose: "Liquid staking of SALT." },
   NematocystSlashing: { category: "Staking / Economic security", purpose: "Slashing module for misbehaving providers/validators." },
   MarketMakerAllocation: { category: "Staking / Economic security", purpose: "Allocates market-making incentives." },
   HeartbeatMonitor: { category: "Staking / Economic security", purpose: "Tracks provider liveness via heartbeats." },
@@ -74,6 +81,7 @@ const CATALOG: Record<string, CatalogEntry> = {
   SpecRegistry: { category: "Tokenization / Data", purpose: "Registry of specifications / standards." },
   IPFSIncentives: { category: "Tokenization / Data", purpose: "Incentivizes IPFS pinning / decentralized storage." },
   LoRAFactory: { category: "Tokenization / Data", purpose: "On-chain registry/factory for LoRA fine-tune adapters — register, discover, and serve LoRAs that specialize the base models." },
+  "Quorum.AnchorRegistry": { category: "Tokenization / Data", purpose: "Append-only registry of audit-chain commitments for the Quorum stack: a record's hash is anchored here so an auditor can verify the off-chain log against it." },
   TEEAttestationRegistry: { category: "Tokenization / Data", purpose: "Registry of TEE (trusted-execution) attestations for verifiable compute." },
   // Payments
   X402Facilitator: { category: "Payments", purpose: "HTTP-402 micropayment facilitator for paid API/inference access." },
@@ -87,6 +95,9 @@ const CATALOG: Record<string, CatalogEntry> = {
   CitrateECDSAValidator: { category: "Account abstraction (ERC-4337)", purpose: "ECDSA signature validator for AA wallets." },
   GuardianRecoveryModule: { category: "Account abstraction (ERC-4337)", purpose: "Social-recovery module for AA wallets." },
 };
+
+/** Names with curated catalog metadata. Each must be a key of the vendored book's `contracts` or `aaStack`. */
+export const CATALOG_NAMES: readonly string[] = Object.freeze(Object.keys(CATALOG));
 
 /**
  * Citrate precompiles (fixed system addresses, not in the contracts map), GENERATED by
