@@ -31,10 +31,10 @@ export interface ToolFixture {
   protocol: "etherscan" | "sourcify-v2";
   command: string;
   chain: { chainId: number; genesisHash: string; contracts: FixtureContract[] };
-  runs: Array<{ name: string; address: string; requests: RecordedRequest[] }>;
+  runs: Array<{ name: string; address: string; client?: string; requests: RecordedRequest[] }>;
 }
 
-export function loadFixture(name: "forge-etherscan" | "forge-sourcify" | "hardhat-etherscan"): ToolFixture {
+export function loadFixture(name: "forge-etherscan" | "forge-sourcify" | "hardhat-etherscan" | "citrate-clients"): ToolFixture {
   return JSON.parse(readFileSync(join(__dirname, "..", "__fixtures__", "tools", `${name}.json`), "utf8")) as ToolFixture;
 }
 

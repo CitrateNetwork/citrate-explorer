@@ -40,6 +40,15 @@ describe("fromEtherscanForm", () => {
     expect(r.constructorArgs).toBe("abcd");
   });
 
+  it("takes whichever constructor-args spelling is non-empty, and refuses two different values", () => {
+    const base = { contractaddress: ADDR, codeformat: "solidity-standard-json-input", sourceCode: JSON.stringify(STD), compilerversion: "0.8.26" };
+    expect(fromEtherscanForm(form({ ...base, constructorArguements: "", constructorArguments: "0xabcd" })).constructorArgs).toBe("abcd");
+    expect(fromEtherscanForm(form({ ...base, constructorArguements: "abcd", constructorArguments: "" })).constructorArgs).toBe("abcd");
+    // The Citrate CLI and SDKs send both spellings with the same value (as forge does).
+    expect(fromEtherscanForm(form({ ...base, constructorArguements: "ABCD", constructorArguments: "0xabcd" })).constructorArgs).toBe("abcd");
+    expect(() => fromEtherscanForm(form({ ...base, constructorArguements: "abcd", constructorArguments: "ef01" }))).toThrow(RequestError);
+  });
+
   it("accepts standard JSON wrapped in Etherscan's double braces", () => {
     const r = fromEtherscanForm(
       form({ contractaddress: ADDR, codeformat: "solidity-standard-json-input", sourceCode: `{${JSON.stringify(STD)}}`, compilerversion: "0.8.26" }),
