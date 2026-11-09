@@ -272,34 +272,6 @@ const ADDR = {
   },
 };
 
-// ---------- contract (verified) ----------
-const CONTRACT = {
-  [L.router.addr]: {
-    addr: L.router.addr, name: "CitrateRouter", label: "CitrateSwap Router",
-    verified: true, compiler: "v0.8.26+commit.8a97fa7a", optimizer: "200 runs", license: "MIT",
-    evmVersion: "shanghai", createdBlock: 198440, createdTx: "0x2c91…a0b4",
-    summary: "CitrateRouter is a verified Uniswap-V2-style swap router. It swaps SALT for cWETH (and back) across the pooled reserves, enforcing a caller-set minimum output to protect against slippage. It holds no funds itself — tokens flow through it in a single transaction. Writes are gasless: you sign, the Foundation pays.",
-    sources: [
-      { name: "CitrateRouter.sol", code: "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.26;\n\nimport \"./interfaces/IERC20.sol\";\nimport \"./libraries/SafeTransfer.sol\";\n\n/// @title CitrateRouter\n/// @notice Slippage-protected swap router for SALT <> cWETH.\ncontract CitrateRouter {\n    address public immutable factory;\n    address public immutable salt;\n\n    error V2TooLittleReceived();\n    error Expired();\n\n    event Swap(address indexed sender, uint amountIn, uint amountOut, address indexed to);\n\n    constructor(address _factory, address _salt) {\n        factory = _factory;\n        salt = _salt;\n    }\n\n    function swapExactTokensForTokens(\n        uint amountIn,\n        uint amountOutMin,\n        address[] calldata path,\n        address to,\n        uint deadline\n    ) external returns (uint amountOut) {\n        if (block.timestamp > deadline) revert Expired();\n        amountOut = _swap(amountIn, path);\n        if (amountOut < amountOutMin) revert V2TooLittleReceived();\n        emit Swap(msg.sender, amountIn, amountOut, to);\n    }\n\n    // ... reserves math omitted for brevity ...\n}\n" },
-      { name: "interfaces/IERC20.sol", code: "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.26;\n\ninterface IERC20 {\n    function balanceOf(address) external view returns (uint256);\n    function transfer(address to, uint256 amount) external returns (bool);\n    function transferFrom(address from, address to, uint256 amount) external returns (bool);\n}\n" },
-    ],
-    reads: [
-      { fn: "factory", inputs: [], outputs: "address", result: L.market.addr },
-      { fn: "salt", inputs: [], outputs: "address", result: L.salt.addr },
-      { fn: "getAmountOut", inputs: [{ name: "amountIn", type: "uint256" }, { name: "path", type: "address[]" }], outputs: "uint256", result: "0.42 cWETH" },
-      { fn: "getReserves", inputs: [], outputs: "(uint112, uint112)", result: "1.20M SALT · 402.6 cWETH" },
-    ],
-    writes: [
-      { fn: "swapExactTokensForTokens", inputs: [{ name: "amountIn", type: "uint256" }, { name: "amountOutMin", type: "uint256" }, { name: "path", type: "address[]" }, { name: "to", type: "address" }, { name: "deadline", type: "uint256" }] },
-      { fn: "approve", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }] },
-    ],
-    events: [
-      { name: "Swap", count: 38201 },
-      { name: "Sync", count: 41882 },
-    ],
-  },
-};
-
 // ---------- token (cWETH) ----------
 const TOKEN = {
   [L.cweth.addr]: {
@@ -431,7 +403,7 @@ export const SD = {
   CHAIN, L, LABELS, short, labelOf,
   BLOCKS, blockByHash, TIP_BLOCK,
   TX, txList, txByShort, LATEST_TX,
-  ADDR, CONTRACT, TOKEN, SALT_HOLDERS,
+  ADDR, TOKEN, SALT_HOLDERS,
   AGENT, AUDIT, ALLOWLIST, API_KEYS,
   fmtAge: (ts) => {
     const s = Math.max(1, Math.round((Date.now() - ts) / 1000));

@@ -17,7 +17,14 @@ export function SiteFooter() {
     <footer style={wrap}>
       <div style={inner}>
         <div style={brandCol}>
-          <div style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>CitrateScan</div>
+          {/* The marquee: black on paper, white in the dark theme (ledger.css .lx-foot-logo). */}
+          <div className="lx-foot-logo" aria-label="Citrate">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="light" src="/brand/citrate_marquee_black.svg" alt="" width={64} height={20} />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="dark" src="/brand/citrate_marquee_white.svg" alt="" width={64} height={20} />
+          </div>
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 420 }}>CitrateScan</div>
           <div style={muted}>The AI-native explorer for the Citrate Network.</div>
           <div style={{ ...mono, marginTop: 8 }}>
             Citrate testnet · chain 40204 · SALT
@@ -30,7 +37,7 @@ export function SiteFooter() {
         <nav style={col} aria-label="Explore">
           <div style={head}>Explore</div>
           <Link href="/" style={ln}>Explorer</Link>
-          <Link href="/#/dag" style={ln}>Live DAG</Link>
+          <Link href="/#/dag" style={ln}>DAG ledger</Link>
           <Link href="/#/apis" style={ln}>Developer hub</Link>
         </nav>
 
@@ -50,7 +57,7 @@ export function SiteFooter() {
         </nav>
       </div>
       <div style={bottom}>
-        <span style={muted}>© {new Date().getFullYear()} Citrate Foundation. Experimental testnet software — no warranty.</span>
+        <span style={muted}>© {new Date().getFullYear()} Citrate Foundation. Experimental testnet software, no warranty.</span>
       </div>
     </footer>
   );

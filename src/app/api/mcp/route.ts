@@ -1,7 +1,7 @@
 /**
  * MCP server for CitrateScan (P-7 WP-7.4; RA-4 unified registry).
  *
- * Exposes the explorer's READ-ONLY tools over the Model Context Protocol so
+ * Exposes the explorer's read-only tools (plus prepare-only write proposals) over the Model Context Protocol so
  * external agents (Claude, ChatGPT, Cursor) use CitrateScan as their on-chain tool.
  *
  * SINGLE SOURCE OF TRUTH (ADR-003): the tools here are GENERATED from the exact
@@ -35,9 +35,14 @@ interface McpTool {
   execute: (args: unknown, opts?: unknown) => Promise<unknown>;
 }
 
-/** Build the tool set (auditing under `subject` when known). Cheap — no IO. */
-function buildTools(subject?: string): Record<string, McpTool> {
-  return citrateTools({ subject }) as unknown as Record<string, McpTool>;
+/**
+ * Build the tool set (auditing under `subject` when known). Cheap — no IO.
+ * surface "mcp": `prepare_write` returns a prepare-only PreparedWrite plus an
+ * approval link a person opens in CitrateScan. No MCP tool can sign, send or
+ * relay anything (EXP-AGENT, docs/AGENT.md §3).
+ */
+function buildToolSet(subject?: string, rateKey?: string): Record<string, McpTool> {
+  return citrateTools({ subject, surface: "mcp", rateKey }) as unknown as Record<string, McpTool>;
 }
 
 /** JSON Schema for a tool's inputs (MCP wants a plain object schema). */
@@ -72,7 +77,7 @@ const promptList = () => PROMPTS.map(({ name, description, arguments: a }) => ({
 
 /** GET — discovery manifest (also handy for humans hitting the endpoint). */
 export async function GET() {
-  const tools = buildTools();
+  const tools = buildToolSet();
   return Response.json({
     name: SERVER_INFO.name,
     version: SERVER_INFO.version,
@@ -117,7 +122,9 @@ async function handleOne(msg: RpcReq, tools: Record<string, McpTool>): Promise<o
         capabilities: CAPABILITIES,
         serverInfo: SERVER_INFO,
         instructions:
-          "Read-only on-chain tools for the Citrate Network (chain 40204, native SALT). " +
+          "On-chain tools for the Citrate Network (chain 40204, native SALT). Every tool is read-only; " +
+          "prepare_write only PROPOSES a contract call and returns an approvalUrl a person must open to approve " +
+          "and sign in their own wallet. Nothing here can execute a write. " +
           "Amounts are dual-unit (SALT + raw grains). DAG-native: blocks carry blue_score, " +
           "selected + merge parents; finality is by depth, not confirmations.",
       });
@@ -236,6 +243,9 @@ export async function POST(req: Request) {
   // PBA-L3c-034: audit MCP tool calls under the key OWNER's subject (they show
   // in the owner's transparency panel), never a synthetic `mcp:key:N` string in
   // the OIDC-subject namespace. Anonymous calls are unattributed.
+  // The prepare_write budget (src/lib/agent/limits.ts) is keyed like the MCP
+  // limiter above: one bucket per key owner, else per IP.
+  const buildTools = (subject?: string) => buildToolSet(subject, limitId);
   const tools = buildTools(keyInfo?.valid ? keyInfo.subject : undefined);
 
   if (Array.isArray(body)) {

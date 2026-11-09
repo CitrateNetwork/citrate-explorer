@@ -102,6 +102,9 @@ export async function GET(req: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       let closed = false;
+      // Declared before close() can run: the client may disconnect, or the
+      // snapshot may fail, before the poll interval exists.
+      let timer: ReturnType<typeof setInterval> | null = null;
       const send = (event: string, data: unknown) => {
         if (closed) return;
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
@@ -113,7 +116,7 @@ export async function GET(req: Request) {
         if (closed) return;
         closed = true;
         activeStreams = Math.max(0, activeStreams - 1); // FUA-EXPLORER-06: release the slot
-        clearInterval(timer);
+        if (timer !== null) clearInterval(timer);
         try {
           controller.close();
         } catch {
@@ -140,9 +143,12 @@ export async function GET(req: Request) {
         return;
       }
 
+      // The client went away while the snapshot was loading: start no poller.
+      if (closed) return;
+
       // --- poll for new heads ---
       let tick = 0;
-      const timer = setInterval(async () => {
+      timer = setInterval(async () => {
         if (closed) return;
         if (Date.now() - startedAt > MAX_STREAM_MS) return close();
         tick += 1;

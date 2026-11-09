@@ -4,12 +4,19 @@ import { getDagBlock, isFinal } from "@/lib/citrate/rpc";
 import { sharedDagStats } from "@/lib/citrate/sharedDagStats";
 import { publicMessage } from "@/lib/api/errors";
 import { limitPublicRead } from "@/lib/api/publicRead";
+import { txR1007 } from "@/lib/citrate/r1007Reads";
+import { NO_R1007 } from "@/lib/citrate/r1007";
+import { r1007Requester, sharedR1007Capabilities } from "@/lib/citrate/r1007Server";
 
 /**
  * Transaction detail (tx + receipt) by hash, enriched with its block's timestamp
  * and blue_score + finality so the explorer's tx page renders consensus context
  * in one fetch. Decoded events / internal txns / state diff are layered on by the
  * indexer + the AI agent's explainTransaction (P-2); this returns the core facts. (P-1)
+ *
+ * EXP-REDESIGN: under `r1007`, the accepting block and inclusions from
+ * citrate_getAcceptingBlock (spec 06 §5.4) and the checkpoint status, when the
+ * node serves them (`capabilities` says which). Existing fields are unchanged.
  */
 export async function GET(
   req: Request,
@@ -42,6 +49,9 @@ export async function GET(
       }
     }
 
+    const caps = await sharedR1007Capabilities().catch(() => NO_R1007);
+    const r1007 = await txR1007(r1007Requester, caps, hash);
+
     const methodId = tx.input && tx.input.length >= 10 ? tx.input.slice(0, 10) : null;
     return Response.json({
       ...tx,
@@ -50,6 +60,7 @@ export async function GET(
       blueScore,
       finalized,
       isCreate: !tx.to,
+      r1007,
     });
   } catch (err) {
     return Response.json({ error: publicMessage(err, "api.tx", "transaction not found or RPC unavailable") }, { status: 404 });

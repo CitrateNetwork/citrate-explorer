@@ -1,0 +1,525 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`preserved tools: names and schemas > addressActivity keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "type": "string",
+    },
+  },
+  "required": [
+    "address",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > callView keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "type": "string",
+    },
+    "args": {
+      "default": [],
+      "items": {
+        "type": [
+          "string",
+          "number",
+          "boolean",
+        ],
+      },
+      "type": "array",
+    },
+    "signature": {
+      "description": "full Solidity function signature",
+      "type": "string",
+    },
+  },
+  "required": [
+    "address",
+    "signature",
+    "args",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > citrateContracts keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "category": {
+      "description": "filter by category",
+      "enum": [
+        "AI / Inference",
+        "Compute / GPU-share",
+        "Learning / Education",
+        "Governance / Treasury",
+        "Staking / Economic security",
+        "Tokenization / Data",
+        "Payments",
+        "Account abstraction (ERC-4337)",
+        "Precompile",
+      ],
+      "type": "string",
+    },
+  },
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > describeContract keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "type": "string",
+    },
+  },
+  "required": [
+    "address",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > explainTransaction keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "hash": {
+      "pattern": "^0x[0-9a-fA-F]{64}$",
+      "type": "string",
+    },
+  },
+  "required": [
+    "hash",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > exploreDag keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "blockHash": {
+      "description": "optional 0x block hash to walk",
+      "pattern": "^0x[0-9a-fA-F]{64}$",
+      "type": "string",
+    },
+  },
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > findTransfers keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "description": "a counterparty to filter by",
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "type": "string",
+    },
+    "amount": {
+      "description": "human amount, e.g. '30k SALT' or '0.5 SALT'",
+      "type": "string",
+    },
+    "comparator": {
+      "default": "about",
+      "enum": [
+        "about",
+        "atleast",
+        "atmost",
+        "exact",
+      ],
+      "type": "string",
+    },
+    "direction": {
+      "default": "either",
+      "enum": [
+        "sent",
+        "received",
+        "either",
+      ],
+      "type": "string",
+    },
+    "limit": {
+      "default": 10,
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer",
+    },
+    "order": {
+      "default": "biggest",
+      "enum": [
+        "biggest",
+        "smallest",
+        "recent",
+      ],
+      "type": "string",
+    },
+    "since": {
+      "description": "time phrase, e.g. 'last week', 'last 24 hours', '2026-06-01'",
+      "type": "string",
+    },
+    "token": {
+      "description": "an ERC-20/721/1155 token address; omit for native SALT",
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "type": "string",
+    },
+  },
+  "required": [
+    "comparator",
+    "direction",
+    "order",
+    "limit",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > getAddress keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "type": "string",
+    },
+  },
+  "required": [
+    "address",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > getAgent keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "tokenId": {
+      "description": "the AgentSBT token id, decimal (agents are numbered from 0)",
+      "pattern": "^(0|[1-9][0-9]{0,19})$",
+      "type": "string",
+    },
+  },
+  "required": [
+    "tokenId",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > getBalance keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "type": "string",
+    },
+  },
+  "required": [
+    "address",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > getBlock keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "ref": {
+      "default": "latest",
+      "description": "a block height, a 0x block hash, or 'latest'",
+      "type": "string",
+    },
+  },
+  "required": [
+    "ref",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > getChainStatus keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {},
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > getContractCode keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "type": "string",
+    },
+  },
+  "required": [
+    "address",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > getGasOracle keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {},
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > getLogs keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "type": "string",
+    },
+    "fromBlock": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+    },
+    "toBlock": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+    },
+  },
+  "required": [
+    "address",
+    "fromBlock",
+    "toBlock",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > getToken keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "type": "string",
+    },
+    "holder": {
+      "description": "optional address to also read the balance of",
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "type": "string",
+    },
+  },
+  "required": [
+    "address",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > getTransaction keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "hash": {
+      "pattern": "^0x[0-9a-fA-F]{64}$",
+      "type": "string",
+    },
+  },
+  "required": [
+    "hash",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > getVerifiedSource keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "type": "string",
+    },
+    "maxSourceChars": {
+      "description": "cap on returned source length (default 60000)",
+      "maximum": 400000,
+      "minimum": 1,
+      "type": "integer",
+    },
+  },
+  "required": [
+    "address",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > isContract keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "type": "string",
+    },
+  },
+  "required": [
+    "address",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > ledger keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "description": "the line items to total",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "grains": {
+            "description": "amount in raw grains/wei (exact integer)",
+            "type": "string",
+          },
+          "label": {
+            "type": "string",
+          },
+          "salt": {
+            "description": "amount in SALT, e.g. '1.5' or '-0.2'",
+            "type": "string",
+          },
+        },
+        "required": [
+          "label",
+        ],
+        "type": "object",
+      },
+      "type": "array",
+    },
+  },
+  "required": [
+    "items",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > recentActivity keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "type": "string",
+    },
+    "blocks": {
+      "default": 60,
+      "maximum": 300,
+      "minimum": 1,
+      "type": "integer",
+    },
+  },
+  "required": [
+    "address",
+    "blocks",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > saltDistribution keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {},
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > searchTransactions keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "type": "string",
+    },
+    "limit": {
+      "default": 10,
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer",
+    },
+  },
+  "required": [
+    "address",
+    "limit",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`preserved tools: names and schemas > topHolders keeps its input schema 1`] = `
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "limit": {
+      "default": 10,
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer",
+    },
+    "token": {
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "type": "string",
+    },
+  },
+  "required": [
+    "token",
+    "limit",
+  ],
+  "type": "object",
+}
+`;

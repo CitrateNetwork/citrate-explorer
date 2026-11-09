@@ -1,0 +1,371 @@
+{
+ "functions": {
+  "0x00fdd58e": [
+   "function balanceOf(address account, uint256 id) view returns (uint256)"
+  ],
+  "0x01e1d114": [
+   "function totalAssets() view returns (uint256)"
+  ],
+  "0x01ffc9a7": [
+   "function supportsInterface(bytes4 interfaceId) view returns (bool)"
+  ],
+  "0x06fdde03": [
+   "function name() view returns (string)"
+  ],
+  "0x07a2d13a": [
+   "function convertToAssets(uint256 shares) view returns (uint256)"
+  ],
+  "0x081812fc": [
+   "function getApproved(uint256 tokenId) view returns (address)"
+  ],
+  "0x095ea7b3": [
+   "function approve(address spender, uint256 amount) returns (bool)"
+  ],
+  "0x0e89341c": [
+   "function uri(uint256 id) view returns (string)"
+  ],
+  "0x18160ddd": [
+   "function totalSupply() view returns (uint256)"
+  ],
+  "0x205c2878": [
+   "function withdrawTo(address withdrawAddress, uint256 withdrawAmount)"
+  ],
+  "0x2360c27f": [
+   "function getOrg(uint256 tokenId) view returns ((bytes32 did, address signing_authority, bytes32[] active_overlays, bool active))"
+  ],
+  "0x23b872dd": [
+   "function transferFrom(address from, address to, uint256 amount) returns (bool)"
+  ],
+  "0x248a9ca3": [
+   "function getRoleAdmin(bytes32 role) view returns (bytes32)"
+  ],
+  "0x252dba42": [
+   "function aggregate((address target, bytes callData)[] calls) payable returns (uint256 blockNumber, bytes[] returnData)"
+  ],
+  "0x2cc902fc": [
+   "function verify((address from, address to, uint256 value, uint256 gas, uint256 nonce, uint48 deadline, bytes data) req, bytes signature) view returns (bool)"
+  ],
+  "0x2de5aaf7": [
+   "function getAgent(uint256 tokenId) view returns ((uint256 parent_org_id, bytes32 did, bytes32 pubkey_fingerprint, bool quarantined))"
+  ],
+  "0x2e1a7d4d": [
+   "function withdraw(uint256 wad)"
+  ],
+  "0x2eb2c2d6": [
+   "function safeBatchTransferFrom(address from, address to, uint256[] ids, uint256[] values, bytes data)"
+  ],
+  "0x2f2ff15d": [
+   "function grantRole(bytes32 role, address account)"
+  ],
+  "0x2f745c59": [
+   "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)"
+  ],
+  "0x313ce567": [
+   "function decimals() view returns (uint8)"
+  ],
+  "0x35567e1a": [
+   "function getNonce(address sender, uint192 key) view returns (uint256 nonce)"
+  ],
+  "0x3644e515": [
+   "function DOMAIN_SEPARATOR() view returns (bytes32)"
+  ],
+  "0x36568abe": [
+   "function renounceRole(bytes32 role, address callerConfirmation)"
+  ],
+  "0x3659cfe6": [
+   "function upgradeTo(address newImplementation)"
+  ],
+  "0x38d52e0f": [
+   "function asset() view returns (address)"
+  ],
+  "0x39509351": [
+   "function increaseAllowance(address spender, uint256 addedValue) returns (bool)"
+  ],
+  "0x3f4ba83a": [
+   "function unpause()"
+  ],
+  "0x42842e0e": [
+   "function safeTransferFrom(address from, address to, uint256 tokenId)"
+  ],
+  "0x4e1273f4": [
+   "function balanceOfBatch(address[] accounts, uint256[] ids) view returns (uint256[])"
+  ],
+  "0x4f1ef286": [
+   "function upgradeToAndCall(address newImplementation, bytes data) payable"
+  ],
+  "0x4f6ccce7": [
+   "function tokenByIndex(uint256 index) view returns (uint256)"
+  ],
+  "0x52d1902d": [
+   "function proxiableUUID() view returns (bytes32)"
+  ],
+  "0x572b6c05": [
+   "function isTrustedForwarder(address forwarder) view returns (bool)"
+  ],
+  "0x5c60da1b": [
+   "function implementation() view returns (address)"
+  ],
+  "0x5c975abb": [
+   "function paused() view returns (bool)"
+  ],
+  "0x6352211e": [
+   "function ownerOf(uint256 tokenId) view returns (address)"
+  ],
+  "0x6607f9d6": [
+   "function orgContract() view returns (address)"
+  ],
+  "0x6a761202": [
+   "function execTransaction(address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address refundReceiver, bytes signatures) payable returns (bool success)"
+  ],
+  "0x6e553f65": [
+   "function deposit(uint256 assets, address receiver) returns (uint256)"
+  ],
+  "0x70a08231": [
+   "function balanceOf(address account) view returns (uint256)",
+   "function balanceOf(address owner) view returns (uint256)"
+  ],
+  "0x715018a6": [
+   "function renounceOwnership()"
+  ],
+  "0x75794a3c": [
+   "function nextTokenId() view returns (uint256)"
+  ],
+  "0x79ba5097": [
+   "function acceptOwnership()"
+  ],
+  "0x7da0a877": [
+   "function trustedForwarder() view returns (address)"
+  ],
+  "0x7ecebe00": [
+   "function nonces(address owner) view returns (uint256)"
+  ],
+  "0x82ad56cb": [
+   "function aggregate3((address target, bool allowFailure, bytes callData)[] calls) payable returns ((bool success, bytes returnData)[] returnData)"
+  ],
+  "0x8456cb59": [
+   "function pause()"
+  ],
+  "0x84b0196e": [
+   "function eip712Domain() view returns (bytes1 fields, string name, string version, uint256 chainId, address verifyingContract, bytes32 salt, uint256[] extensions)"
+  ],
+  "0x86736e6a": [
+   "function execute((address from, address to, uint256 value, uint256 gas, uint256 nonce, uint48 deadline, bytes data) req, bytes signature) payable returns (bool, bytes)"
+  ],
+  "0x8da5cb5b": [
+   "function owner() view returns (address)"
+  ],
+  "0x8f283970": [
+   "function changeAdmin(address newAdmin)"
+  ],
+  "0x91d14854": [
+   "function hasRole(bytes32 role, address account) view returns (bool)"
+  ],
+  "0x95d89b41": [
+   "function symbol() view returns (string)"
+  ],
+  "0xa0e67e2b": [
+   "function getOwners() view returns (address[])"
+  ],
+  "0xa217fddf": [
+   "function DEFAULT_ADMIN_ROLE() view returns (bytes32)"
+  ],
+  "0xa22cb465": [
+   "function setApprovalForAll(address operator, bool approved)"
+  ],
+  "0xa457c2d7": [
+   "function decreaseAllowance(address spender, uint256 subtractedValue) returns (bool)"
+  ],
+  "0xa9059cbb": [
+   "function transfer(address to, uint256 amount) returns (bool)"
+  ],
+  "0xac9650d8": [
+   "function multicall(bytes[] data) returns (bytes[] results)"
+  ],
+  "0xad3cb1cc": [
+   "function UPGRADE_INTERFACE_VERSION() view returns (string)"
+  ],
+  "0xb760faf9": [
+   "function depositTo(address account) payable"
+  ],
+  "0xb88d4fde": [
+   "function safeTransferFrom(address from, address to, uint256 tokenId, bytes data)"
+  ],
+  "0xba087652": [
+   "function redeem(uint256 shares, address receiver, address owner) returns (uint256)"
+  ],
+  "0xc6e6f592": [
+   "function convertToShares(uint256 assets) view returns (uint256)"
+  ],
+  "0xc87b56dd": [
+   "function tokenURI(uint256 tokenId) view returns (string)"
+  ],
+  "0xd0e30db0": [
+   "function deposit() payable"
+  ],
+  "0xd505accf": [
+   "function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)"
+  ],
+  "0xd547741f": [
+   "function revokeRole(bytes32 role, address account)"
+  ],
+  "0xdd62ed3e": [
+   "function allowance(address owner, address spender) view returns (uint256)"
+  ],
+  "0xe30c3978": [
+   "function pendingOwner() view returns (address)"
+  ],
+  "0xe75235b8": [
+   "function getThreshold() view returns (uint256)"
+  ],
+  "0xe985e9c5": [
+   "function isApprovedForAll(address owner, address operator) view returns (bool)"
+  ],
+  "0xf242432a": [
+   "function safeTransferFrom(address from, address to, uint256 id, uint256 value, bytes data)"
+  ],
+  "0xf2fde38b": [
+   "function transferOwnership(address newOwner)"
+  ],
+  "0xf698da25": [
+   "function domainSeparator() view returns (bytes32)"
+  ],
+  "0xf851a440": [
+   "function admin() view returns (address)"
+  ]
+ },
+ "events": {
+  "0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31": [
+   "event ApprovalForAll(address indexed owner, address indexed operator, bool approved)"
+  ],
+  "0x1cf3b03a6cf19fa2baba4df148e9dcabedea7f8a5c07840e207e5c089be95d3e": [
+   "event BeaconUpgraded(address indexed beacon)"
+  ],
+  "0x2f8788117e7eff1d82e926ec794901d17c78024a50270940304540a733656f0d": [
+   "event RoleGranted(bytes32 indexed role, address indexed account, address indexed sender)"
+  ],
+  "0x38d16b8cac22d99fc7c124b9cd0de2d3fa1faef420bfe791d8c362d765e22700": [
+   "event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner)"
+  ],
+  "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f": [
+   "event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)"
+  ],
+  "0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb": [
+   "event TransferBatch(address indexed operator, address indexed from, address indexed to, uint256[] ids, uint256[] values)"
+  ],
+  "0x5db9ee0a495bf2e6ff9c91a7834c1ba4fdd244a5e8aa4e537bd38aeae4b073aa": [
+   "event Unpaused(address account)"
+  ],
+  "0x62e78cea01bee320cd4e420270b5ea74000d11b0c9f74754ebdbfc544b05a258": [
+   "event Paused(address account)"
+  ],
+  "0x65c517e41d488f5cefb1e33a53ae8031246f8039bc86cce516e9165fc5afbe6c": [
+   "event Forwarded(address indexed from, address indexed to, uint256 nonce, bool success)"
+  ],
+  "0x6bb7ff708619ba0610cba295a58592e0451dee2622938c8755667688daf3529b": [
+   "event URI(string value, uint256 indexed id)"
+  ],
+  "0x7e644d79422f17c01e4894b5f4f588d331ebfa28653d42ae832dc59e38c9798f": [
+   "event AdminChanged(address previousAdmin, address newAdmin)"
+  ],
+  "0x7f26b83ff96e1f2b6a682f133852f6798a09c465da95921460cefb3847402498": [
+   "event Initialized(uint8 version)"
+  ],
+  "0x7fcf532c15f0a6db0bd6d0e038bea71d30d808c7d98cb3bf7268a95bf5081b65": [
+   "event Withdrawal(address indexed src, uint256 wad)"
+  ],
+  "0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0": [
+   "event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)"
+  ],
+  "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925": [
+   "event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId)",
+   "event Approval(address indexed owner, address indexed spender, uint256 value)"
+  ],
+  "0xbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b": [
+   "event Upgraded(address indexed implementation)"
+  ],
+  "0xbd79b86ffe0ab8e8776151514217cd7cacd52c909f66475c3af44e129f0b00ff": [
+   "event RoleAdminChanged(bytes32 indexed role, bytes32 indexed previousAdminRole, bytes32 indexed newAdminRole)"
+  ],
+  "0xc3d58168c5ae7397731d063d5bbf3d657854427343f4c083240f7aacaa2d0f62": [
+   "event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)"
+  ],
+  "0xc7f505b2f371ae2175ee4913f4499e1f2633a7b5936321eed1cdaeb6115181d2": [
+   "event Initialized(uint64 version)"
+  ],
+  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef": [
+   "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
+   "event Transfer(address indexed from, address indexed to, uint256 value)"
+  ],
+  "0xe1fffcc4923d04b559f4d29a8bfc6cda04eb5b0d3c460751c2402c5c5cc9109c": [
+   "event Deposit(address indexed dst, uint256 wad)"
+  ],
+  "0xf6391f5c32d9c69d2a47ea670b442974b53935d1edc7fd64eb21e047a839171b": [
+   "event RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender)"
+  ]
+ },
+ "errors": {
+  "0x118cdaa7": [
+   "error OwnableUnauthorizedAccount(address account)"
+  ],
+  "0x177e802f": [
+   "error ERC721InsufficientApproval(address operator, uint256 tokenId)"
+  ],
+  "0x1e4fbdf7": [
+   "error OwnableInvalidOwner(address owner)"
+  ],
+  "0x3ee5aeb5": [
+   "error ReentrancyGuardReentrantCall()"
+  ],
+  "0x4c9c8ce3": [
+   "error ERC1967InvalidImplementation(address implementation)"
+  ],
+  "0x64283d7b": [
+   "error ERC721IncorrectOwner(address sender, uint256 tokenId, address owner)"
+  ],
+  "0x7e273289": [
+   "error ERC721NonexistentToken(uint256 tokenId)"
+  ],
+  "0x89c62b64": [
+   "error ERC721InvalidOwner(address owner)"
+  ],
+  "0x8dfc202b": [
+   "error ExpectedPause()"
+  ],
+  "0x94280d62": [
+   "error ERC20InvalidSpender(address spender)"
+  ],
+  "0x96c6fd1e": [
+   "error ERC20InvalidSender(address sender)"
+  ],
+  "0xaa1d49a4": [
+   "error UUPSUnsupportedProxiableUUID(bytes32 slot)"
+  ],
+  "0xd7e6bcf8": [
+   "error NotInitializing()"
+  ],
+  "0xd93c0665": [
+   "error EnforcedPause()"
+  ],
+  "0xe07c8dba": [
+   "error UUPSUnauthorizedCallContext()"
+  ],
+  "0xe2517d3f": [
+   "error AccessControlUnauthorizedAccount(address account, bytes32 neededRole)"
+  ],
+  "0xe450d38c": [
+   "error ERC20InsufficientBalance(address sender, uint256 balance, uint256 needed)"
+  ],
+  "0xe602df05": [
+   "error ERC20InvalidApprover(address approver)"
+  ],
+  "0xec442f05": [
+   "error ERC20InvalidReceiver(address receiver)"
+  ],
+  "0xf92ee8a9": [
+   "error InvalidInitialization()"
+  ],
+  "0xfb8f41b2": [
+   "error ERC20InsufficientAllowance(address spender, uint256 allowance, uint256 needed)"
+  ]
+ }
+}
