@@ -29,7 +29,7 @@ describe("verify/bytecode — metadata + immutable handling", () => {
   });
 
   it("reports a FULL match for identical bytecode (incl. metadata)", () => {
-    expect(matchBytecode("0xabcdef0000", "0xabcdef0000")).toBe("full");
+    expect(matchBytecode("0xabcdef" + ipfsMeta("33"), "0xabcdef" + ipfsMeta("33"))).toBe("full");
   });
 
   it("reports a PARTIAL match when only the metadata differs", () => {
@@ -39,8 +39,8 @@ describe("verify/bytecode — metadata + immutable handling", () => {
 
   it("reports a FULL match once an immutable difference is masked", () => {
     // differ only at the immutable byte (index 2) → equal after masking
-    const compiled = "0xaabb00000000"; // placeholder zeros
-    const onChain = "0xaabbdeadbeef".replace("deadbeef", "deadbeef"); // baked value
+    const compiled = "0xaabb00000000" + ipfsMeta("44"); // placeholder zeros
+    const onChain = "0xaabbdeadbeef" + ipfsMeta("44"); // baked value
     const refs = { "1": [{ start: 2, length: 4 }] };
     expect(matchBytecode(compiled, onChain, refs)).toBe("full");
   });

@@ -4,8 +4,11 @@
  * Runtime match: link library placeholders from the on-chain bytes at solc's
  * `linkReferences` offsets, zero a library's call-protection self address, mask
  * immutables (solc `immutableReferences`) in both, then compare:
- *   - "full"    identical, metadata (CBOR) included;
- *   - "partial" identical once the trailing CBOR metadata is stripped from both.
+ *   - "full"    identical, metadata (CBOR) included, and that metadata carries a hash
+ *               (ipfs / bzzr) that commits to the sources and settings;
+ *   - "partial" identical once a well-formed trailing CBOR map is stripped from both,
+ *               or identical but without a metadata hash (bytecodeHash none, appendCBOR
+ *               false), which does not pin the source.
  *
  * Creation match: the creation transaction's input must be the compiled init code
  * (libraries linked) followed by the ABI-encoded constructor arguments. "full" is
@@ -17,7 +20,7 @@
  * creation code (`new X()`) with a different metadata hash matches only fully.
  */
 import { keccak256, type Hex } from "viem";
-import { maskImmutables, stripMetadata, type ImmutableReferences } from "./bytecode";
+import { hasMetadataHash, isCbor, maskImmutables, stripMetadata, trailingCborBytes, type ImmutableReferences } from "./bytecode";
 
 export type LinkReferences = Record<string, Record<string, Array<{ start: number; length: number }>>>;
 export type SideMatch = "full" | "partial";
@@ -108,29 +111,12 @@ export function matchRuntime(compiled: RuntimeArtifact, onchainCode: string): Ru
   const c = maskImmutables(linked.linked, compiled.immutableReferences);
   o = maskImmutables(o, compiled.immutableReferences);
   if (!c || !o) return none;
-  if (c === o) return { match: "full", libraries: linked.libraries, isLibrary };
+  // Identical code is a full match only when its metadata hash pins the source.
+  if (c === o) return { match: hasMetadataHash(c) ? "full" : "partial", libraries: linked.libraries, isLibrary };
   const cs = stripMetadata(c);
   const os = stripMetadata(o);
-  if (cs.length > 0 && cs !== c && cs === os) return { match: "partial", libraries: linked.libraries, isLibrary };
+  if (cs.length > 0 && cs !== c && os !== o && cs === os) return { match: "partial", libraries: linked.libraries, isLibrary };
   return { ...none, isLibrary };
-}
-
-/** Bytes of a trailing CBOR metadata blob (including its 2-byte length), or 0. */
-function trailingCborBytes(hex: string): number {
-  if (hex.length < 4) return 0;
-  const n = parseInt(hex.slice(-4), 16);
-  if (!Number.isFinite(n) || n === 0) return 0;
-  const total = n + 2;
-  if (total * 2 >= hex.length) return 0;
-  return isCbor(hex.slice(hex.length - total * 2)) ? total : 0;
-}
-
-/** A solc metadata blob: a CBOR map (major type 5) ending in its own 2-byte length. */
-function isCbor(blob: string): boolean {
-  if (blob.length < 6 || blob.length % 2 !== 0) return false;
-  const first = parseInt(blob.slice(0, 2), 16);
-  if (first < 0xa1 || first > 0xbf) return false;
-  return parseInt(blob.slice(-4), 16) === blob.length / 2 - 2;
 }
 
 export interface CreationArtifact {
@@ -165,7 +151,7 @@ export function matchCreation(
     suppliedArgsDiffer: supplied !== null && supplied !== args,
   });
 
-  if (input.startsWith(c)) return result("full", input.slice(c.length));
+  if (input.startsWith(c)) return result(hasMetadataHash(c) ? "full" : "partial", input.slice(c.length));
 
   const meta = trailingCborBytes(c);
   if (meta === 0) return none;
