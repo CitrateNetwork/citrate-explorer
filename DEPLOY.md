@@ -208,8 +208,12 @@ against `list.json`'s keccak256), matches the result against the chain, and appe
   append-only (a trigger rejects UPDATE and DELETE), and copies `contract_verifications` forward:
   every old guid becomes a finished job, every passing row a legacy record. The old table is left
   in place.
-- **Run it** on the indexer host, next to the indexer, with the same `DATABASE_URL`,
-  `DATABASE_CA_CERT` and `NEXT_PUBLIC_CITRATE_RPC_URL`:
+- **Roles.** The worker connects as `citratescan_verify`, a database role that does not own the
+  verification tables; migration 0006 grants it exactly what it needs (and `citratescan_web` read
+  plus enqueue). Create the role before migrating. The unit runs as the unprivileged system user
+  `citratescan-verify`. Steps: docs/ops/VERIFY_V2_MIGRATION_RUNBOOK.md.
+- **Run it** on the indexer host, next to the indexer, with `DATABASE_URL` for
+  `citratescan_verify`, and the same `DATABASE_CA_CERT` and `NEXT_PUBLIC_CITRATE_RPC_URL`:
 
   ```bash
   pnpm verify:worker --once          # smoke: process at most one job, then exit
@@ -223,8 +227,10 @@ against `list.json`'s keccak256), matches the result against the chain, and appe
   (`FOR UPDATE SKIP LOCKED`). A job whose worker died is reclaimed after 10 minutes, and a job is
   failed after 3 attempts.
 - **Legacy records.** Rows copied from `contract_verifications` have no genesis or code hash, so they
-  are shown only for addresses with no v2 record. `pnpm verify:worker --requeue-legacy` queues every
-  legacy record with standard JSON source for re-verification against the current chain.
+  are shown only for addresses with no v2 record, and only as "legacy, not confirmed" (never as
+  verified). Run `pnpm verify:worker --requeue-legacy` after every migration that carries records
+  forward (required): it queues every legacy record with standard JSON source for re-verification
+  against the current chain.
 - **Without the worker** submissions stay "Pending in queue". `POST /api/verify` answers 202 with
   the guid after `CITRATE_VERIFY_SYNC_WAIT_MS`.
 

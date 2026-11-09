@@ -7,6 +7,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# A dedicated unprivileged system user (DEPLOY.md §4b): no login, no home, owns nothing
+# but the solc cache. Its database role is citratescan_verify, which does not own the
+# verification tables.
+User=citratescan-verify
+Group=citratescan-verify
 WorkingDirectory=/opt/citratescan/app
 # DATABASE_URL, DATABASE_CA_CERT, NEXT_PUBLIC_CITRATE_RPC_URL, CITRATE_VERIFY_* (see DEPLOY.md §4b).
 EnvironmentFile=/etc/citratescan/verify-worker.env
@@ -23,7 +28,13 @@ MemoryMax=3G
 TasksMax=64
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=read-only
+ProtectHome=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
 PrivateTmp=true
 ReadWritePaths=/var/cache/citratescan-solc
 

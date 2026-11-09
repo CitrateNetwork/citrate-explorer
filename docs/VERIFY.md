@@ -208,11 +208,18 @@ Errors are `{customCode, message, errorId}`: `unsupported_chain`, `invalid_param
 
 ## Limits
 
-- Source: 2 MiB, at most 64 files, inline content only (no `urls`).
+- Source: 2 MiB, at most 64 files, inline content only (no `urls`). The whole request body is
+  capped at 4 MB (form-encoding inflates the source), under the hosting platform's 4.5 MB limit;
+  a larger body is refused with an Etherscan-style `NOTOK` "request body is too large".
 - Compile: 120 s and 2048 MB per job, in a separate process (`CITRATE_VERIFY_COMPILE_*`).
 - Compiler: official solc releases only, resolved through `list.json` and checked against its
   keccak256 before use.
 - Rate: 1 submission per 5 s per IP (burst 5); reads share the public read budget.
 - Queue: at most `CITRATE_VERIFY_MAX_PENDING` (200) open jobs.
+- A full match needs the compiled metadata to carry a hash (`ipfs` or `bzzr`): code built with
+  `bytecodeHash: "none"` or `appendCBOR: false` is recorded as a partial match, since the bytecode
+  alone does not pin the sources.
+- Records carried over from before verification v2 are shown as legacy records, not verified,
+  until the worker re-verifies them against the current code.
 - Partial matching tolerates only the trailing metadata blob. A contract that embeds another
   contract's creation code (`new X()`) with a different metadata hash matches only fully.
