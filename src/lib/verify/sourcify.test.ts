@@ -123,3 +123,26 @@ describe("Sourcify v2 API (EXP-S2)", () => {
     expect(r.body).toMatchObject({ customCode: "job_not_found" });
   });
 });
+
+describe("Sourcify v2 API: a similar match is never an exact match", () => {
+  let ctx: Awaited<ReturnType<typeof migratedPglite>>;
+  beforeAll(async () => {
+    ctx = await migratedPglite();
+  });
+  afterAll(async () => ctx.close());
+
+  it("GET /v2/contract for an address carrying another contract's source reports match, not exact_match", async () => {
+    const { appendVerified } = await import("./store");
+    const { keccak256 } = await import("viem");
+    const chain = fixtureChain(forgeEs);
+    const deps = { db: ctx.db as unknown as ChainDb, chain };
+    const code = forgeEs.chain.contracts.find((c) => c.address === FORGE.plainB)!.code;
+    await appendVerified(deps.db, {
+      chainId: 40204, genesisHash: forgeEs.chain.genesisHash, address: FORGE.plainB, runtimeCodeHash: keccak256(code as `0x${string}`).toLowerCase(),
+      matchType: "similar", runtimeMatch: "full", creationMatch: null, sourceFormat: "solidity-standard-json-input", contractName: "FixturePlain", stdJsonInput: "{}",
+    });
+    const r = await sourcifyContract(deps, "40204", FORGE.plainB, null);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ match: "match", runtimeMatch: "match", creationMatch: null });
+  });
+});

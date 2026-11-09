@@ -22,7 +22,11 @@ export async function migratedPglite() {
       "select tablename as t from pg_tables where schemaname = 'public'",
     );
     if (rows.length) {
-      await client.exec(`truncate table ${rows.map((r) => `"${r.t}"`).join(", ")} restart identity`);
+      // The verification tables reject TRUNCATE (migration 0006); a test reset bypasses
+      // triggers the way only a superuser can.
+      await client.exec(
+        `set session_replication_role = replica; truncate table ${rows.map((r) => `"${r.t}"`).join(", ")} restart identity; set session_replication_role = origin;`,
+      );
     }
   }
   return { db, client, truncateAll, close: () => client.close() };

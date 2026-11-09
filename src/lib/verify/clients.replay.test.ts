@@ -2,7 +2,9 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vites
 import { migratedPglite } from "@/lib/db/tests/pglite";
 import type { ChainDb } from "@/lib/indexer/types";
 import type { ChainReader } from "./chain";
-import { countOpenJobs, listMatches } from "./store";
+import { countOpenJobs, enqueueJob, getJob, listMatches } from "./store";
+import { fromEtherscanForm } from "./request";
+import { verifiedContracts } from "@/lib/db/schema";
 import { runOnce } from "./worker";
 import { fixtureChain, loadFixture, realCompiler, seedIndexedCreations, type RecordedRequest, type ToolFixture } from "./tests/fixtures";
 
@@ -201,6 +203,35 @@ describe("Citrate CLI and SDK requests replayed against the verification API", (
     const recs = await listMatches(holder.db!, { genesisHash: f.chain.genesisHash, address: run("citrate_sdk verify_contract").address });
     expect(recs).toHaveLength(1);
   }, 180_000);
+
+  it("a passing record survives a later failing submission for the same contract, through the worker", async () => {
+    // Two submissions for FixtureCounter are queued before either runs (as when two clients
+    // race): the CLI's real one, and one whose source differs in executable code.
+    const ip = `198.51.100.${ipSeq++}`;
+    const [submit] = run("citrate contract verify --standard-json").requests;
+    const good = await send(submit, ip);
+    expect(clientSubmit(good.body)).toBe("guid");
+    const form = new URLSearchParams(submit.body);
+    const std = JSON.parse(form.get("sourceCode")!);
+    std.sources["src/Fixture.sol"].content = std.sources["src/Fixture.sol"].content.replace("FixtureMath.twice(count) + start;", "FixtureMath.twice(count) + start + 1;");
+    form.set("sourceCode", JSON.stringify(std));
+    const bad = fromEtherscanForm(form);
+    const badId = await enqueueJob(holder.db!, { kind: "verify", origin: "etherscan", chainId: 40204, genesisHash: f.chain.genesisHash, address: bad.address, request: bad });
+
+    await work();
+    const pollOf = (guid: string) => rewrite(run("citrate contract verify --standard-json").requests[1], (p) => p.set("guid", guid));
+    expect((await send(pollOf(good.body.result as string), ip)).body).toEqual({ status: "1", message: "OK", result: "Pass - Verified" });
+    expect((await send(pollOf(badId), ip)).body).toEqual({ status: "0", message: "NOTOK", result: "Fail - Unable to verify" });
+    expect((await getJob(holder.db!, badId))?.resultCode).toBe("no_match");
+
+    const rows = await holder.db!.select().from(verifiedContracts);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ matchType: "full", jobId: good.body.result });
+    const [get] = run("citrate contract verify-get").requests;
+    const [entry] = (await send(get, ip)).body.result as Array<Record<string, string>>;
+    expect(entry.SourceCode).toContain("FixtureMath.twice(count) + start;");
+    expect(entry.SourceCode).not.toContain("start + 1;");
+  }, 240_000);
 
   it("chainid is optional; only a value other than 40204 is refused, on submit and on poll, and nothing is queued", async () => {
     const ip = `198.51.100.${ipSeq++}`;

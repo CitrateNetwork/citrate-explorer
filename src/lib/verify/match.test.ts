@@ -25,6 +25,35 @@ const onchainRuntime = (meta = "aa", lib = LIB, imm = IMM_VALUE) => "0x" + RUNTI
 const LINKS = { "src/L.sol": { L: [{ start: 5, length: 20 }] } };
 const IMMUTABLES = { "7": [{ start: 26, length: 32 }] };
 
+/** CBOR {solc: 0.8.26} only: solc with metadata.bytecodeHash = "none". */
+const SOLC_ONLY = "a164736f6c634300081a" + "000a";
+
+describe("matchRuntime: metadata must be real CBOR, and must pin the source", () => {
+  it("different code without metadata is no match, even when the last bytes read as lengths", () => {
+    expect(matchRuntime({ object: "0x6001aabbcc0003" }, "0x600160026003010005").match).toBeNull();
+  });
+
+  it("identical code with no metadata hash (bytecodeHash none) is partial, not full", () => {
+    const code = "6080604052" + "00" + SOLC_ONLY;
+    expect(matchRuntime({ object: code }, "0x" + code).match).toBe("partial");
+  });
+
+  it("identical code with no metadata at all (appendCBOR false) is partial, not full", () => {
+    const code = "608060405200fe";
+    expect(matchRuntime({ object: code }, "0x" + code).match).toBe("partial");
+  });
+
+  it("identical code with an ipfs metadata hash stays full", () => {
+    const code = "6080604052" + "00" + cbor("ab");
+    expect(matchRuntime({ object: code }, "0x" + code).match).toBe("full");
+  });
+
+  it("creation: identical init code whose runtime has no metadata hash is partial, not full", () => {
+    const init = "6080604052" + "00" + SOLC_ONLY;
+    expect(matchCreation({ object: init }, "0x" + init + "00ff", {}, null)).toMatchObject({ match: "partial", constructorArgs: "00ff" });
+  });
+});
+
 describe("matchRuntime (EXP-S2)", () => {
   it("full match: library placeholder linked from chain, immutable masked, metadata identical", () => {
     const m = matchRuntime(

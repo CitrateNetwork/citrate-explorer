@@ -92,6 +92,14 @@ describe("ContractInfoSource: verification v2 record shape", () => {
     createdAt: "2026-11-05T00:00:00.000Z",
   };
 
+  it("a record copied forward from the v1 store is never green, even when it was a full match there", () => {
+    const legacy: VerifiedContractRecordV2 = { ...record, genesisHash: null, runtimeCodeHash: null, sourceFormat: "legacy", stdJsonInput: null, legacyGuid: "abc", legacySource: "contract Registry {}", creationMatch: null };
+    const info = fromV2Response({ record: legacy, original: null, proxy: null, storeAvailable: true });
+    expect(info).toMatchObject({ status: "legacy-unconfirmed", verified: false });
+    expect(info.note).toMatch(/not confirmed/i);
+    expect(info.sources).toEqual([{ path: "Registry.sol", content: "contract Registry {}" }]);
+  });
+
   it("maps the standard-JSON input to a multi-file tree with solc's source ids and settings", () => {
     const info = fromV2Response({ record, original: null, proxy: null, storeAvailable: true });
     expect(info.sources.map((s) => s.path)).toEqual(["src/Registry.sol", "src/interfaces/IRegistry.sol", "src/lib/Owned.sol"]);

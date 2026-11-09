@@ -27,6 +27,15 @@ function row(over: Partial<VerifiedRow> = {}): VerifiedRow {
   };
 }
 
+describe("shapeVerifiedSource: records copied forward from the v1 store", () => {
+  it("a legacy full match is not verified: reported as partial-match with a note saying it is not confirmed", () => {
+    const v = shapeVerifiedSource(ADDR, row({ legacy: true }), true);
+    expect(v.verified).toBe(false);
+    expect(v.status).toBe("partial-match");
+    expect(v.note).toMatch(/not confirmed/i);
+  });
+});
+
 describe("shapeVerifiedSource", () => {
   it("a full match is verified and carries source, parsed ABI, and compiler metadata", () => {
     const v = shapeVerifiedSource(ADDR, row(), true);

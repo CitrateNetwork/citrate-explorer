@@ -91,6 +91,13 @@ describe("verification store v2 (PGlite)", () => {
     expect(row.matchType).toBe("full");
   });
 
+  it("verified records cannot be emptied with TRUNCATE either", async () => {
+    await appendVerified(db, record());
+    expect(await pgError(db.execute(sql`truncate table verified_contracts`))).toMatch(/append-only/);
+    expect(await pgError(db.execute(sql`truncate table contract_proxies`))).toMatch(/append-only/);
+    expect(await db.select().from(verifiedContracts)).toHaveLength(1);
+  });
+
   it("job ids are random UUIDs: identical submissions get distinct ids", async () => {
     const a = await enqueueJob(db, job());
     const b = await enqueueJob(db, job());

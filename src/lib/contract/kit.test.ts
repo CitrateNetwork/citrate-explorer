@@ -50,6 +50,13 @@ describe("kit.resolveAbi", () => {
     expect(r.proxy).toBeNull();
   });
 
+  it("a legacy (not confirmed for current code) ABI is labelled as such and never counts as verified", async () => {
+    const legacy = { ...verified, status: "legacy-unconfirmed" as const, verified: false };
+    const r = await resolveAbi({ address: C, reader: memoryReader({ code: { [C]: CODE } }), info: infoSource({ [C]: legacy }) });
+    expect(r.abiSource).toBe("legacy-unconfirmed");
+    expect(r.abiVerified).toBe(false);
+  });
+
   it("uses the implementation's verified ABI for a proxy", async () => {
     const reader = memoryReader({
       code: { [C]: "0x6080" as Hex, [IMPL]: CODE },

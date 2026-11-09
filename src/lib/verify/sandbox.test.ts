@@ -57,3 +57,27 @@ describe("sandboxed compile (EXP-S2)", () => {
     expect(e.code).toBe("integrity");
   }, 30_000);
 });
+
+describe("sandboxed compile: the child gets no environment", () => {
+  it("secrets in the worker's environment (DATABASE_URL and the like) are not visible to the compile child", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { keccak256 } = await import("viem");
+    // A stand-in "soljson" that reports the child's environment instead of compiling.
+    const dir = mkdtempSync(join(tmpdir(), "citrate-sandbox-env-"));
+    const path = join(dir, "soljson-probe.js");
+    const js = `process.send({ ok: false, code: "crash", error: JSON.stringify(Object.keys(process.env).filter((k) => !k.startsWith("NODE_CHANNEL"))) });`;
+    writeFileSync(path, js);
+    const prev = { db: process.env.DATABASE_URL, s: process.env.CITRATE_SANDBOX_PROBE };
+    process.env.DATABASE_URL = "postgresql://probe";
+    process.env.CITRATE_SANDBOX_PROBE = "1";
+    try {
+      const e = await failure(compileFile({ path, keccak256: keccak256(new TextEncoder().encode(js)) }, INPUT, { timeoutMs: 20_000, memoryMb: 512, maxOutputBytes: 1024 }));
+      expect(JSON.parse(e.message)).toEqual([]);
+    } finally {
+      if (prev.db === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = prev.db;
+      delete process.env.CITRATE_SANDBOX_PROBE;
+    }
+  });
+});

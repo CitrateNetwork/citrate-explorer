@@ -114,13 +114,13 @@ describe("GET /api/contract/{a}/verified (verification v2 record)", () => {
     expect((await createApiSourceV2({ fetch: routeFetch }).load(FORGE.counter)).status).toBe("unverified");
   });
 
-  it("a v1 record copied forward by migration 0006 still reads: one file, its match type, no genesis", async () => {
+  it("a v1 record copied forward by migration 0006 still reads (one file, no genesis) and is shown as not confirmed", async () => {
     await appendVerified(holder.db!, {
       chainId: 40204,
       genesisHash: null,
       address: FORGE.counter,
-      matchType: "partial",
-      runtimeMatch: "partial",
+      matchType: "full",
+      runtimeMatch: "full",
       sourceFormat: "legacy",
       contractName: "FixtureCounter",
       fullyQualifiedName: "src/Fixture.sol:FixtureCounter",
@@ -130,7 +130,7 @@ describe("GET /api/contract/{a}/verified (verification v2 record)", () => {
       legacySource: "contract FixtureCounter {}",
     });
     const info = await createApiSourceV2({ fetch: routeFetch }).load(FORGE.counter);
-    expect(info).toMatchObject({ status: "partial-match", verified: false, contractName: "FixtureCounter", creationMatch: null, deployedSourceMap: null });
+    expect(info).toMatchObject({ status: "legacy-unconfirmed", verified: false, contractName: "FixtureCounter", creationMatch: null, deployedSourceMap: null });
     expect(info.sources).toEqual([{ path: "FixtureCounter.sol", content: "contract FixtureCounter {}" }]);
   });
 
