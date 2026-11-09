@@ -57,16 +57,12 @@ export interface NewJob {
 
 export async function enqueueJob(db: ChainDb, job: NewJob): Promise<string> {
   const id = newId();
-  await db.insert(verificationJobs).values({
-    id,
-    kind: job.kind,
-    origin: job.origin,
-    chainId: job.chainId,
-    genesisHash: job.genesisHash,
-    address: job.address.toLowerCase(),
-    request: JSON.stringify(job.request),
-    sourceHash: job.sourceHash ?? null,
-  });
+  // Only the request columns are named: the web role may insert nothing else (migration
+  // 0006), and drizzle's insert would list every column with `default`.
+  await db.execute(sql`
+    insert into ${verificationJobs} (id, kind, origin, chain_id, genesis_hash, address, request, source_hash)
+    values (${id}, ${job.kind}, ${job.origin}, ${job.chainId}, ${job.genesisHash}, ${job.address.toLowerCase()},
+            ${JSON.stringify(job.request)}, ${job.sourceHash ?? null})`);
   return id;
 }
 
