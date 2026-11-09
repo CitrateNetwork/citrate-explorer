@@ -16,9 +16,9 @@
 import { keccak256, type Hex } from "viem";
 import type { ChainDb } from "@/lib/indexer/types";
 import type { ChainReader } from "./chain";
-import { resolveVerified, stdJsonOf, type Resolved } from "./read";
+import { resolveConfirmed, stdJsonOf, type Resolved } from "./read";
 import { fromEtherscanForm, RequestError, sourceHash, type VerifyRequest } from "./request";
-import { countOpenJobs, enqueueJob, findCreation, getJob, listMatches, type VerifiedRow } from "./store";
+import { countOpenJobs, enqueueJob, findCreation, getJob, isLegacyPassJob, LEGACY_NOTE, listMatches, type VerifiedRow } from "./store";
 
 export interface EtherscanReply {
   status: "0" | "1";
@@ -166,6 +166,7 @@ async function statusOf(db: ChainDb, guid: string | null, kind: "verify" | "prox
   if (!job || job.kind !== kind) return notok("Unknown UID");
   if (job.status === "pending" || job.status === "running") return notok(PENDING);
   if (kind === "proxy") return job.status === "pass" ? ok(job.resultMessage) : notok(job.resultMessage);
+  if (isLegacyPassJob(job)) return notok(`Fail - ${LEGACY_NOTE}`);
   if (job.status === "pass") return ok(PASS);
   return notok(FAIL);
 }
@@ -223,13 +224,13 @@ export async function contractAction(
     case "getabi": {
       const address = p.get("address");
       if (!address || !ADDRESS_RE.test(address)) return notok("Invalid Address format");
-      const r = await resolveVerified(db, deps.chain, address);
+      const r = await resolveConfirmed(db, deps.chain, address);
       return r?.row?.abi ? ok(r.row.abi) : notok(NOT_VERIFIED);
     }
     case "getsourcecode": {
       const address = p.get("address");
       if (!address || !ADDRESS_RE.test(address)) return notok("Invalid Address format");
-      return ok([sourceEntry(await resolveVerified(db, deps.chain, address))]);
+      return ok([sourceEntry(await resolveConfirmed(db, deps.chain, address))]);
     }
     case "getcontractcreation": {
       const list = (p.get("contractaddresses") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -239,7 +240,7 @@ export async function contractAction(
       const out = [];
       for (const a of list) {
         const created = await findCreation(db, a);
-        const txHash = created?.txHash ?? (await resolveVerified(db, deps.chain, a))?.row?.creationTxHash ?? null;
+        const txHash = created?.txHash ?? (await resolveConfirmed(db, deps.chain, a))?.row?.creationTxHash ?? null;
         if (!txHash) continue;
         const tx = await deps.chain.getTransaction(txHash);
         if (!tx) continue;

@@ -10,7 +10,7 @@
 import { keccak256, type Hex } from "viem";
 import type { ChainDb } from "@/lib/indexer/types";
 import type { ChainReader } from "./chain";
-import { bestMatch, getVerified, latestProxy, type ProxyRow, type VerifiedRow } from "./store";
+import { bestMatch, getVerified, isLegacyRecord, latestProxy, type ProxyRow, type VerifiedRow } from "./store";
 
 export interface Resolved {
   genesis: string;
@@ -34,6 +34,16 @@ export async function resolveVerified(db: ChainDb, chain: ChainReader, address: 
   ]);
   const original = row?.similarTo ? await getVerified(db, row.similarTo) : null;
   return { genesis, code, codeHash, row, original, proxy };
+}
+
+/**
+ * As resolveVerified, for the machine-readable APIs (Etherscan, Sourcify): a legacy record
+ * (isLegacyRecord) counts as no record. Only the contract page shows legacy source.
+ */
+export async function resolveConfirmed(db: ChainDb, chain: ChainReader, address: string): Promise<Resolved | null> {
+  const r = await resolveVerified(db, chain, address);
+  if (r?.row && isLegacyRecord(r.row)) return { ...r, row: null, original: null };
+  return r;
 }
 
 /** The standard JSON input of a record, or null for a legacy record. */

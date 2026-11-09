@@ -24,6 +24,24 @@ export type VerifiedRow = typeof verifiedContracts.$inferSelect;
 export type NewVerifiedRow = Omit<typeof verifiedContracts.$inferInsert, "id" | "createdAt">;
 export type ProxyRow = typeof contractProxies.$inferSelect;
 
+/**
+ * A record copied forward from the v1 store (migration 0006). The old store recorded neither
+ * the chain nor the code a match was made against, so the record is not confirmed for the
+ * code at the address now. The machine-readable APIs treat it as not verified; the contract
+ * page shows its source, labelled.
+ */
+export function isLegacyRecord(row: Pick<VerifiedRow, "sourceFormat" | "legacyGuid" | "genesisHash">): boolean {
+  return row.sourceFormat === "legacy" || (row.legacyGuid !== null && row.genesisHash === null);
+}
+
+/** A v1 guid that passed under the old store: carried forward, never re-checked. */
+export function isLegacyPassJob(job: Pick<JobRow, "origin" | "resultCode">): boolean {
+  return job.origin === "legacy" && job.resultCode === "legacy_pass";
+}
+
+export const LEGACY_NOTE =
+  "Legacy record from before verification v2, not confirmed for the current code; resubmit to verify";
+
 /** Random, unguessable ids for jobs and records (a UUID works as both an Etherscan guid and a Sourcify verificationId). */
 export const newId = (): string => randomUUID();
 

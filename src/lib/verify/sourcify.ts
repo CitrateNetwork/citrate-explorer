@@ -16,9 +16,9 @@
 import { randomUUID } from "crypto";
 import { getAddress } from "viem";
 import { submitRequest, type ContractApiDeps } from "./etherscan";
-import { resolveVerified, stdJsonOf } from "./read";
+import { resolveConfirmed, stdJsonOf } from "./read";
 import { fromSourcifyMetadata, fromSourcifyStdJson, RequestError } from "./request";
-import { getJob, getVerified, type VerifiedRow } from "./store";
+import { getJob, getVerified, isLegacyPassJob, LEGACY_NOTE, type VerifiedRow } from "./store";
 
 export interface SourcifyReply {
   status: number;
@@ -106,6 +106,9 @@ export async function sourcifyJob(deps: ContractApiDeps, id: string): Promise<So
     ...(job.finishedAt ? { jobFinishTime: iso(job.finishedAt) } : {}),
   };
   const empty = { match: null, creationMatch: null, runtimeMatch: null, chainId: String(job.chainId), address: getAddress(job.address) };
+  if (isLegacyPassJob(job)) {
+    return { status: 200, body: { ...base, contract: empty, error: { customCode: "legacy_unconfirmed", message: LEGACY_NOTE, errorId: job.id } } };
+  }
   if (job.status === "pass" && job.verifiedContractId) {
     const row = await getVerified(deps.db, job.verifiedContractId);
     if (row) return { status: 200, body: { ...base, contract: contractSummary(row) } };
@@ -146,7 +149,8 @@ const parseJson = (s: string | null) => {
 export async function sourcifyContract(deps: ContractApiDeps, chainId: string, address: string, fieldsParam: string | null): Promise<SourcifyReply> {
   const bad = checkTarget(deps, chainId, address);
   if (bad) return bad;
-  const r = await resolveVerified(deps.db!, deps.chain, address);
+  // A legacy record (copied forward from v1, not confirmed for this code) is not verified here.
+  const r = await resolveConfirmed(deps.db!, deps.chain, address);
   if (!r?.row) return err(404, "not_found", `${address} on chain ${chainId} is not verified`);
   const row = r.row;
   const wanted = fieldsParam === "all" ? [...ALL_FIELDS] : (fieldsParam ?? "").split(",").map((f) => f.trim()).filter(Boolean);

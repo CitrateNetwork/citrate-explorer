@@ -149,7 +149,8 @@ export function shapeVerifiedSource(
     address: addr,
     status,
     verified: badge.verified,
-    matchType: row.matchType === "full" || row.matchType === "partial" || row.matchType === "similar" ? row.matchType : null,
+    // A legacy record's old match type was never checked against this code: report none.
+    matchType: row.legacy ? null : row.matchType === "full" || row.matchType === "partial" || row.matchType === "similar" ? row.matchType : null,
     contractName: row.contractName,
     compilerVersion: row.compilerVersion,
     sourceHash: row.sourceHash,

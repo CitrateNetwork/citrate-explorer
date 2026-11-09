@@ -11,7 +11,7 @@
  */
 import { verifyDeps } from "./deps";
 import { displaySource, resolveVerified } from "./read";
-import { getJob } from "./store";
+import { getJob, isLegacyPassJob, isLegacyRecord, LEGACY_NOTE } from "./store";
 import type { VerifiedRow as SourceRow } from "./verifiedSource";
 
 export interface VerificationRecord {
@@ -38,6 +38,10 @@ export async function getVerificationByGuid(guid: string): Promise<VerificationR
       return {};
     }
   })();
+  if (isLegacyPassJob(job)) {
+    // A v1 guid carried forward: not confirmed for the current code, so not a pass.
+    return { guid: job.id, address: job.address, status: "fail", matchType: null, contractName: req.contractIdentifier ?? null, compilerVersion: req.compilerVersion ?? null, message: LEGACY_NOTE, verifiedAt: null };
+  }
   return {
     guid: job.id,
     address: job.address,
@@ -65,6 +69,6 @@ export async function getVerifiedContract(address: string): Promise<SourceRow | 
     source: displaySource(row),
     abi: row.abi,
     verifiedAt: row.createdAt,
-    legacy: row.sourceFormat === "legacy" || (row.legacyGuid !== null && row.genesisHash === null),
+    legacy: isLegacyRecord(row),
   };
 }

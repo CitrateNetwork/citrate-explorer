@@ -65,7 +65,7 @@ export async function GET(
             verified: badge.verified,
             status: badge.status,
             matchLabel: badge.label,
-            matchType: matched.matchType,
+            matchType: matched.legacy ? null : matched.matchType,
             contractName: matched.contractName,
             compilerVersion: matched.compilerVersion,
             source: matched.source,
