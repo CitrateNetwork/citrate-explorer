@@ -65,5 +65,6 @@ export async function getVerifiedContract(address: string): Promise<SourceRow | 
     source: displaySource(row),
     abi: row.abi,
     verifiedAt: row.createdAt,
+    legacy: row.sourceFormat === "legacy" || (row.legacyGuid !== null && row.genesisHash === null),
   };
 }

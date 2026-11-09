@@ -49,7 +49,8 @@ export async function GET(
     // granted only on a full/exact match. A partial match still surfaces the
     // recompiled source/ABI, but clearly labeled as a partial (not-verified) match.
     const matched = await getVerifiedContract(info.address).catch(() => null);
-    const badge = matched ? verificationBadge(matched.matchType) : null;
+    // A record copied forward from the pre-v2 store is never verified (see verifiedSource.ts).
+    const badge = matched ? (matched.legacy ? { ...verificationBadge("partial"), status: "legacy-unconfirmed" as const, label: "Legacy record — not confirmed for current code" } : verificationBadge(matched.matchType)) : null;
     return Response.json({
       address: info.address,
       label: code.label,
@@ -72,6 +73,10 @@ export async function GET(
             verifiedAt: matched.verifiedAt,
             ...(badge.verified
               ? {}
+              : badge.status === "legacy-unconfirmed"
+                ? {
+                    note: "Legacy record: this source was recorded before verification v2, which did not record the chain or the code it matched, so it is not confirmed for the code at this address now. NOT a verified match.",
+                  }
               : badge.status === "similar-match"
                 ? {
                     note: "Similar match: this address runs runtime code identical to a contract verified at another address. Source shown for reference; it was not verified at this address.",

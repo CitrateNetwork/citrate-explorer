@@ -72,6 +72,7 @@ function VerificationBadge({ s, t }: { s: ApprovalState; t: TargetFacts | null }
   if (p.abiSource === "signature") return <span className="cx-tag warn">Encoded from a supplied signature</span>;
   if (v === "verified") return <span className="cx-tag ok">Verified</span>;
   if (v === "partial-match" || v === "similar-match") return <span className="cx-tag warn">{v === "partial-match" ? "Partial match" : "Similar match"} · not verified</span>;
+  if ((v as string) === "legacy-unconfirmed") return <span className="cx-tag warn">Legacy record · not confirmed</span>;
   if (v === "unavailable") return <span className="cx-tag warn">Verification unknown</span>;
   return <span className="cx-tag bad">Unverified</span>;
 }

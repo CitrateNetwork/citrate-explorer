@@ -53,7 +53,7 @@ function base(address: string, status: VerificationStatus, note: string, origin:
   };
 }
 
-const STATUSES: VerificationStatus[] = ["verified", "partial-match", "similar-match", "unverified", "unavailable"];
+const STATUSES: VerificationStatus[] = ["verified", "partial-match", "similar-match", "legacy-unconfirmed", "unverified", "unavailable"];
 
 /** The JSON GET /api/contract/{a}/source returns (src/lib/verify/verifiedSource.ts VerifiedSource). */
 export interface V1SourceJson {
@@ -150,6 +150,7 @@ const NOTES: Record<VerificationStatus, string> = {
   verified: "Verified: the recompiled bytecode matches the deployed code exactly, metadata included.",
   "partial-match": "Partial match: the code matches only after stripping metadata, so the shown source may differ from what was deployed. This is not a verified match.",
   "similar-match": "Similar match: this address runs code identical to a contract verified at another address; the source shown is that contract's. Not verified at this address.",
+  "legacy-unconfirmed": "Legacy record, not confirmed for the current code: this source was recorded before verification v2, which did not record the chain or the code it matched. Not verified.",
   unverified: "Not verified: no source has been verified for this address. Do not assume what its code does.",
   unavailable: "The verification store is unavailable right now, so it is unknown whether this contract is verified.",
 };
@@ -159,7 +160,15 @@ export function fromV2Response(resp: VerifiedContractResponseV2): ContractInfo {
   const r = resp.record;
   if (!resp.storeAvailable) return base(r?.address ?? "", "unavailable", NOTES.unavailable, "verified-contracts-v2");
   if (!r) return base("", "unverified", NOTES.unverified, "verified-contracts-v2");
-  const status: VerificationStatus = r.matchType === "full" ? "verified" : r.matchType === "partial" ? "partial-match" : "similar-match";
+  // A record copied forward from the v1 store never names the chain or code it matched.
+  const legacy = r.sourceFormat === "legacy" || (r.legacyGuid !== null && r.genesisHash === null);
+  const status: VerificationStatus = legacy
+    ? "legacy-unconfirmed"
+    : r.matchType === "full"
+      ? "verified"
+      : r.matchType === "partial"
+        ? "partial-match"
+        : "similar-match";
   // A similar match carries the original's source; fall back to it field by field.
   const src: VerifiedContractRecordV2 = r.matchType === "similar" && resp.original ? resp.original : r;
   const std = parseStd(r.stdJsonInput) ?? parseStd(src.stdJsonInput);

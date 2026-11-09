@@ -40,6 +40,7 @@ const STATUS_TAG: Record<VerificationStatus, { text: string; cls: string }> = {
   verified: { text: "verified, full match", cls: "ok" },
   "partial-match": { text: "partial match, not verified", cls: "warn" },
   "similar-match": { text: "similar match, not verified here", cls: "warn" },
+  "legacy-unconfirmed": { text: "legacy record, not confirmed for current code", cls: "warn" },
   unverified: { text: "unverified", cls: "" },
   unavailable: { text: "verification unknown", cls: "warn" },
 };
@@ -48,6 +49,7 @@ const ABI_LABEL: Record<AbiSource, string> = {
   verified: "the verified ABI",
   "partial-match": "the partial-match ABI",
   "similar-match": "the similar-match ABI",
+  "legacy-unconfirmed": "the legacy (unconfirmed) ABI",
   "proxy-implementation": "the implementation's ABI",
   "signature-subset": "the guessed ABI",
   signature: "a supplied signature",

@@ -33,6 +33,11 @@ export interface VerifiedRow {
   source: string | null;
   abi: string | null;
   verifiedAt: Date | string | null;
+  /**
+   * True for a record copied forward from the pre-v2 store (no chain or code recorded).
+   * It is never reported as verified: status "partial-match", with a note saying why.
+   */
+  legacy?: boolean;
 }
 
 export interface VerifiedSource {
@@ -125,13 +130,15 @@ export function shapeVerifiedSource(
       "Not verified: no source has been verified for this address on CitrateScan. Do not assume what its code does.",
     );
   }
-  const badge = verificationBadge(row.matchType);
+  const badge = row.legacy ? verificationBadge("partial") : verificationBadge(row.matchType);
   const status: VerifiedSourceStatus = badge.status;
   const full = row.source ?? "";
   const cap = clampChars(maxSourceChars);
   const truncated = full.length > cap;
   const note =
-    status === "verified"
+    row.legacy
+      ? "Legacy record, not confirmed for the current code: this source was recorded before verification v2, which did not record the chain or the code it matched. Not verified."
+      : status === "verified"
       ? "Verified: the recompiled bytecode matches the deployed code exactly, metadata included."
       : status === "partial-match"
         ? "Partial match: the code matches only after stripping metadata, so the shown source may differ from what was deployed. This is not a verified match."

@@ -6,6 +6,7 @@
 import { formatEther, keccak256, toBytes, type AbiFunction } from "viem";
 import { GASLESS_GAS, type PreparedWrite as KitPreparedWrite, type ProxyInfo as KitProxyInfo, type ResolvedAbi as KitResolvedAbi } from "@/lib/contract/kit";
 import { decodedValues, type PreparedFromRequest } from "@/lib/contract/request";
+import type { VerificationStatus as KitVerificationStatus } from "@/lib/contract/types";
 import { explainPreparedWrite, type WriteExplanation } from "./explain";
 import { CITRATE_WRITE_CHAIN_ID, type AbiSource, type Hex, type PreparedWrite, type ProxyInfo, type VerificationStatus } from "@/lib/contracts/types";
 
@@ -34,6 +35,7 @@ export function wireAbiSource(s: KitResolvedAbi["abiSource"] | "signature"): Abi
       return "verified";
     case "partial-match":
     case "similar-match":
+    case "legacy-unconfirmed":
       return "partial-match";
     case "proxy-implementation":
       return "implementation";
@@ -42,6 +44,11 @@ export function wireAbiSource(s: KitResolvedAbi["abiSource"] | "signature"): Abi
     default:
       return "none";
   }
+}
+
+/** The kit's verification status in the agent's vocabulary: a legacy record is reported as a partial (not verified) match. */
+export function wireVerification(s: KitVerificationStatus): VerificationStatus {
+  return s === "legacy-unconfirmed" ? "partial-match" : s;
 }
 
 /** keccak256 of the canonical (chainId, from, to, data, value): stable across re-simulation. */
@@ -69,7 +76,7 @@ export function toWirePrepared(
       address: k.to,
       label: ctx.label,
       isContract: k.target.isContract,
-      verification: k.target.verification as VerificationStatus,
+      verification: wireVerification(k.target.verification),
       contractName,
       abiSource: wireAbiSource(k.abiSource),
       proxy: wireProxy(r.proxy),

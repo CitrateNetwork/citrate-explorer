@@ -58,6 +58,8 @@ export type AbiSource =
   | "verified"
   | "partial-match"
   | "similar-match"
+  /** a record copied forward from the pre-v2 store, not confirmed for the current code */
+  | "legacy-unconfirmed"
   | "proxy-implementation"
   | "signature-subset"
   /** built from a function signature the caller supplied (the agent); nothing verified it */
@@ -83,7 +85,8 @@ export interface ResolvedAbi {
   guess: AbiGuess | null;
 }
 
-const usable = (i: ContractInfo | null) => !!i?.abi && (i.status === "verified" || i.status === "partial-match" || i.status === "similar-match");
+const usable = (i: ContractInfo | null) =>
+  !!i?.abi && (i.status === "verified" || i.status === "partial-match" || i.status === "similar-match" || i.status === "legacy-unconfirmed");
 
 export async function resolveAbi(opts: { address: string; reader: ChainReader; info: ContractInfoSource }): Promise<ResolvedAbi> {
   const address = opts.address as Address;
@@ -101,7 +104,7 @@ export async function resolveAbi(opts: { address: string; reader: ChainReader; i
     }
   }
   if (usable(info)) {
-    const abiSource: AbiSource = info.status === "verified" ? "verified" : (info.status as "partial-match" | "similar-match");
+    const abiSource: AbiSource = info.status === "verified" ? "verified" : (info.status as "partial-match" | "similar-match" | "legacy-unconfirmed");
     return { ...base, implementationInfo, abi: info.abi!, abiSource, abiVerified: info.verified, guess: null };
   }
   const guessCode = proxy ? await opts.reader.getCode(proxy.implementation) : code;
