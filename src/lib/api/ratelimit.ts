@@ -3,7 +3,7 @@
  *
  * Two backends behind one async entry point ({@link checkRateLimit}):
  *
- *  1. **Distributed** — Upstash Redis REST (`UPSTASH_REDIS_REST_URL` +
+ *  1. **Distributed** — Upstash Redis REST (`UPSTASH_REDIS_REST_URL` or the Marketplace `KV_REST_API_URL` +
  *     `_TOKEN`). A fixed-window counter (`burst` per `ceil(burst/perSec)` s) shared across every serverless
  *     instance/region. This is the production limit (P-8 WP-8.4).
  *  2. **In-memory token bucket** ({@link rateLimit}) — the fallback when no store
@@ -21,6 +21,7 @@
  * request (429) instead of silently degrading to a per-instance counter. Cheap
  * read endpoints keep the fail-open default.
  */
+import { upstashRestEnv } from "./upstashEnv";
 interface Bucket {
   tokens: number;
   last: number;
@@ -55,8 +56,10 @@ export function rateLimit(id: string, perSec: number, burst = defaultBurst(perSe
   return { ok: true, backend: "memory" };
 }
 
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+// UPSTASH_REDIS_REST_* or the Vercel Marketplace KV_REST_API_* pair (see upstashEnv.ts).
+const REDIS_ENV = upstashRestEnv();
+const REDIS_URL = REDIS_ENV?.url;
+const REDIS_TOKEN = REDIS_ENV?.token;
 
 /** True when a cross-instance store is configured. */
 export function isDistributed(): boolean {

@@ -97,3 +97,33 @@ describe("checkRateLimit — fail-closed on store error (EX-B-008)", () => {
     expect(res.backend).toBe("redis");
   });
 });
+
+// The Vercel Marketplace Upstash integration provisions KV_REST_API_URL /
+// KV_REST_API_TOKEN rather than the UPSTASH_REDIS_REST_* names.
+describe("isDistributed — Vercel Marketplace env names", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("uses KV_REST_API_URL / KV_REST_API_TOKEN when the UPSTASH_* names are unset", async () => {
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");
+    vi.stubEnv("KV_REST_API_URL", "https://example.upstash.io");
+    vi.stubEnv("KV_REST_API_TOKEN", "test-token");
+    vi.resetModules();
+    const mod = await import("./ratelimit");
+    expect(mod.isDistributed()).toBe(true);
+  });
+
+  it("never uses the read-only token for writes", async () => {
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");
+    vi.stubEnv("KV_REST_API_URL", "https://example.upstash.io");
+    vi.stubEnv("KV_REST_API_TOKEN", "");
+    vi.stubEnv("KV_REST_API_READ_ONLY_TOKEN", "ro-token");
+    vi.resetModules();
+    const mod = await import("./ratelimit");
+    expect(mod.isDistributed()).toBe(false);
+  });
+});
