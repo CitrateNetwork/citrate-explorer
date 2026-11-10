@@ -23,7 +23,7 @@ Where things live:
 | Indexer | rpc-1, systemd `citratescan-indexer`: `WorkingDirectory=/root/citrate-explorer` at `f5c1ba3` (2026-11-03), `EnvironmentFile=/etc/citratescan-indexer.env`, CA from `/etc/citratescan/db-ca.pem`, runs `/usr/bin/pnpm --silent indexer` |
 | Lag guard | rpc-1, `/opt/citratescan/lag-guard` |
 | Verify worker (new) | rpc-1, its own checkout `/opt/citratescan/verify` owned by Unix user `citratescan-verify`, systemd `citratescan-verify-worker` (`deploy/verify-worker/`) |
-| Secrets | 1Password vault `citrate-infra` |
+| Secrets | 1Password vault `citrate-infra`, Database items: `citratescan_user DB (explorer owner/indexer)` (id `bnx25tyytdmxjxqsdckwde6rdm`), `citratescan_verify DB (explorer verify worker)` (id `ikrhodwwbkthwjxs4mmhljjk3u`), `citratescan_web DB (Vercel explorer prod)` (id `zgb6q5r4f4ptor223nvh2xaydi`). Fields: `hostname`, `port`, `database`, `username`, `password`. Refer to items by id: the titles contain `/`, which `op://vault/item/field` references cannot carry |
 
 In the dry run, never touch the source cluster's users, firewall (trusted sources) or settings.
 The only cluster the dry run creates or deletes is its fork. The production steps in §3 add one
@@ -224,7 +224,7 @@ export DATABASE_CA_CERT="$(doctl databases get-ca "$SRC" -o json | jq -r .certif
    ```bash
    T=$(mktemp); chmod 600 "$T"
    doctl databases user create "$SRC" citratescan_verify -o json --show \
-     | jq '{title: "CitrateScan DB citratescan_verify", category: "DATABASE",
+     | jq '{title: "citratescan_verify DB (explorer verify worker)", category: "DATABASE",
             fields: [{id: "username", type: "STRING", value: (.[0].name // .name)},
                      {id: "password", type: "CONCEALED", value: (.[0].password // .password)},
                      {id: "database", type: "STRING", value: "citratescan"}]}' > "$T"
@@ -232,17 +232,21 @@ export DATABASE_CA_CERT="$(doctl databases get-ca "$SRC" -o json | jq -r .certif
    rm -f "$T"
    ```
 
-   This is the one change to the source cluster's users. It must happen before step 3.3.
-3. **Migrate.** From a machine in the cluster's trusted sources, as `citratescan_user`. The URL
-   comes from 1Password through `op run`, so it never appears in argv or the terminal. Use the
-   `citrate-infra` item that holds the `citratescan_user` connection; confirm its name with
-   `op item list --vault citrate-infra`.
+   This is the one change to the source cluster's users. It must happen before step 3.3. Done on
+   2026-11-09: item id `ikrhodwwbkthwjxs4mmhljjk3u`.
+3. **Migrate.** From a machine in the cluster's trusted sources, as `citratescan_user`. The
+   credentials come from 1Password through `op run`, so they never appear in argv or the terminal.
+   The URL is assembled inside the shell, so it exists only in node's environment:
 
    ```bash
-   printf 'DATABASE_URL=op://citrate-infra/<citratescan_user item>/<url field>\n' > migrate.env   # a reference, not a secret
-   op run --env-file=migrate.env -- node scripts/db-migrate.mjs     # from the release commit
-   rm migrate.env
+   I=bnx25tyytdmxjxqsdckwde6rdm      # citratescan_user DB (explorer owner/indexer)
+   printf 'PGHOST=op://citrate-infra/%s/hostname\nPGPORT=op://citrate-infra/%s/port\nPGUSER=op://citrate-infra/%s/username\nPGPASSWORD=op://citrate-infra/%s/password\nPGDATABASE=citratescan\n' $I $I $I $I > owner.env   # references only
+   op run --env-file=owner.env -- sh -c 'DATABASE_URL="postgresql://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE" exec node scripts/db-migrate.mjs'
+   rm owner.env
    ```
+
+   The 1Password desktop-app integration asks for approval on the Mac. If `op` reports
+   "authorization timeout", approve it in the app and retry.
 
    Re-run the §2.6 count, trigger and grant queries against production, through a pgpass file as
    in §2.2, and check the grants match the table. No manual grants are needed.
@@ -257,10 +261,10 @@ export DATABASE_CA_CERT="$(doctl databases get-ca "$SRC" -o json | jq -r .certif
 
    ```bash
    cat > copyforward.env <<'REFS'                    # references only, not secrets
-   PGHOST=op://citrate-infra/<citratescan_user item>/<host field>
-   PGPORT=op://citrate-infra/<citratescan_user item>/<port field>
-   PGUSER=op://citrate-infra/<citratescan_user item>/<username field>
-   PGPASSWORD=op://citrate-infra/<citratescan_user item>/<password field>
+   PGHOST=op://citrate-infra/bnx25tyytdmxjxqsdckwde6rdm/hostname
+   PGPORT=op://citrate-infra/bnx25tyytdmxjxqsdckwde6rdm/port
+   PGUSER=op://citrate-infra/bnx25tyytdmxjxqsdckwde6rdm/username
+   PGPASSWORD=op://citrate-infra/bnx25tyytdmxjxqsdckwde6rdm/password
    PGDATABASE=citratescan
    PGSSLMODE=verify-full
    REFS
@@ -283,19 +287,22 @@ export DATABASE_CA_CERT="$(doctl databases get-ca "$SRC" -o json | jq -r .certif
    sudo install -d -o citratescan-verify -g citratescan-verify -m 0750 /opt/citratescan/verify
    sudo -u citratescan-verify git clone https://github.com/CitrateNetwork/citrate-explorer.git /opt/citratescan/verify
    sudo -u citratescan-verify git -C /opt/citratescan/verify checkout <merged main commit>
-   # dev dependencies too: the unit runs node_modules/tsx directly
+   # dev dependencies too: the unit runs node_modules/tsx directly. /usr/bin/pnpm is a corepack
+   # shim: for a user without its own pin it fetches the newest pnpm (12.x), which ignores
+   # package.json "pnpm.overrides" and rejects the frozen lockfile. Pin the version root uses.
    # pnpm's store and home live inside the worker's own directory (no /tmp, no shared home)
    sudo -u citratescan-verify sh -c 'cd /opt/citratescan/verify && printf ".home/\n.pnpm-store/\n" >> .git/info/exclude \
-     && HOME=/opt/citratescan/verify/.home /usr/bin/pnpm install --frozen-lockfile --store-dir /opt/citratescan/verify/.pnpm-store'
+     && HOME=/opt/citratescan/verify/.home COREPACK_HOME=/opt/citratescan/verify/.home/corepack \
+        /usr/bin/corepack pnpm@10.34.1 install --frozen-lockfile --store-dir /opt/citratescan/verify/.pnpm-store'
    # env: root:root 0600. DATABASE_URL for citratescan_verify (from the 1Password item of step 3.2),
    # NEXT_PUBLIC_CITRATE_RPC_URL, optional CITRATE_VERIFY_* caps. No CA here: the unit loads
    # /etc/citratescan/db-ca.pem (the indexer's file) as a credential.
    # Run on the Mac (op is there): the password goes through the pipe only. In the remote
    # shell, read and printf are builtins, so it never appears in a process's argv.
    HP=$(doctl databases connection "$SRC" -o json | jq -r '"\(.host):\(.port)"')
-   op read 'op://citrate-infra/CitrateScan DB citratescan_verify/password' | ssh rpc-1 "sudo -n HP=$HP sh -c '
+   op read 'op://citrate-infra/ikrhodwwbkthwjxs4mmhljjk3u/password' | ssh rpc-1 "sudo -n HP=$HP sh -c '
      umask 077; read -r pw
-     printf \"DATABASE_URL=postgresql://citratescan_verify:%s@%s/citratescan\nNEXT_PUBLIC_CITRATE_RPC_URL=https://rpc.citrate.ai\n\" \"\$pw\" \"\$HP\" > /etc/citratescan/verify-worker.env'"
+     printf \"DATABASE_URL=postgresql://citratescan_verify:%s@%s/citratescan\nNEXT_PUBLIC_CITRATE_RPC_URL=http://127.0.0.1:8545\n\" \"\$pw\" \"\$HP\" > /etc/citratescan/verify-worker.env'"
    # back on rpc-1:
    sudo chown root:root /etc/citratescan/verify-worker.env; sudo chmod 0600 /etc/citratescan/verify-worker.env
    sudo install -m 0644 /opt/citratescan/verify/deploy/verify-worker/citratescan-verify-worker.service /etc/systemd/system/
@@ -316,7 +323,8 @@ export DATABASE_CA_CERT="$(doctl databases get-ca "$SRC" -o json | jq -r .certif
    A password with URL-special characters must be percent-encoded in `DATABASE_URL` (DO's
    generated passwords are alphanumeric). The unit's `ExecStart` is `/usr/bin/node` (v20.20.2 on rpc-1) on the checkout's
    `tsx`, so it needs no PATH, no pnpm and no home directory (`ProtectHome=true`). It reads the CA
-   from `%d/db-ca.pem`, the unit's credentials directory; the `%d` specifier needs systemd 248 or later. To update later:
+   from `/run/credentials/citratescan-verify-worker.service/db-ca.pem`, where systemd places the
+   `LoadCredential` file. (rpc-1 runs systemd 249, which does not resolve the `%d` specifier.) To update later:
    `git -C /opt/citratescan/verify checkout <commit>`, `pnpm install --frozen-lockfile` as
    `citratescan-verify`, then `systemctl restart citratescan-verify-worker`.
 
