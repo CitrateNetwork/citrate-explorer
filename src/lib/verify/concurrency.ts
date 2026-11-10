@@ -20,6 +20,7 @@
  * which an attacker could trigger by griefing Redis to lift the cap fleet-wide.
  */
 
+import { upstashRestEnv } from "@/lib/api/upstashEnv";
 const ACTIVE_KEY = "verify:active";
 const SLOT_TTL_SEC = 600; // self-heal a leaked slot after 10 min (> route maxDuration)
 
@@ -76,9 +77,8 @@ export interface CompileGateOptions {
 
 /** Build the gate from env: a Redis store when configured, else per-instance. */
 export function compileGateFromEnv(cap: number, opts: CompileGateOptions = {}): CompileGate {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  return new CompileGate(cap, url && token ? redisStore(url, token) : null, opts);
+  const env = upstashRestEnv();
+  return new CompileGate(cap, env ? redisStore(env.url, env.token) : null, opts);
 }
 
 export class CompileGate {

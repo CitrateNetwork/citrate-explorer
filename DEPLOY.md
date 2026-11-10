@@ -42,7 +42,7 @@ committed. Full list + how-to-generate in `.env.example`.
 | `DATABASE_URL` | server (Vercel **+** indexer) | Neon pooled connection string |
 | `APP_MASTER_KEY` | server | `openssl rand -base64 32` — at-rest envelope key |
 | `API_KEY_PEPPER` | server | `openssl rand -base64 32` — API-key hash pepper |
-| `UPSTASH_REDIS_REST_URL` / `_TOKEN` | server | cross-instance rate limiter (optional) |
+| `UPSTASH_REDIS_REST_URL` / `_TOKEN`, or the Vercel Marketplace `KV_REST_API_URL` / `KV_REST_API_TOKEN` | server | cross-instance rate limiter and verify compile gate (optional); resolved as a pair from one scheme |
 | `OIDC_ISSUER` / `OIDC_JWKS_URL` | server | set when `auth.citrate.ai` ships; until then mock seam |
 | `NEXT_PUBLIC_OIDC_*` | public | issuer/authorize/token URLs when OIDC is live |
 | `NEXT_PUBLIC_PRIVY_APP_ID` / `PRIVY_APP_SECRET` | public / server | only if using the Privy adapter |
