@@ -13,8 +13,10 @@
 # connectivity check before Neon is provisioned.
 FROM node:20-slim
 
-# pnpm via corepack (pinned to the repo's major).
-RUN corepack enable && corepack prepare pnpm@10 --activate
+# pnpm via corepack. The version comes from package.json `packageManager`
+# (the single source); corepack fetches it on the first pnpm call below.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable
 
 WORKDIR /app
 
