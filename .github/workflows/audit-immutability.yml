@@ -42,10 +42,14 @@ jobs:
           python-version: '3.11'
 
       - name: Run check_audit_immutability.py
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            base="${{ github.event.pull_request.base.sha }}"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="$PR_BASE"
           else
-            base="${{ github.event.before }}"
+            base="$PUSH_BASE"
           fi
           ./scripts/ci/check_audit_immutability.py --since "$base"

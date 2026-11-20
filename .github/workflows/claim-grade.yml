@@ -53,8 +53,9 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GH_TOKEN: ${{ github.token }}
+          PR_NUM: ${{ github.event.pull_request.number || github.event.inputs.pr }}
         run: |
-          pr_num="${{ github.event.pull_request.number || github.event.inputs.pr }}"
+          pr_num="$PR_NUM"
           ./scripts/ai/grade_pr.py --pr "$pr_num" --out-json /tmp/grade.json
           # Extract the markdown summary for the PR comment.
           python3 -c "import json; d=json.load(open('/tmp/grade.json')); print(d['summary_md'])" > /tmp/grade.md
@@ -63,9 +64,10 @@ jobs:
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUM: ${{ github.event.pull_request.number || github.event.inputs.pr }}
         run: |
           if [[ -s /tmp/grade.md ]]; then
-            gh pr comment "${{ github.event.pull_request.number || github.event.inputs.pr }}" \
+            gh pr comment "$PR_NUM" \
               --body-file /tmp/grade.md
           else
             echo "No grade summary produced; skipping comment."
